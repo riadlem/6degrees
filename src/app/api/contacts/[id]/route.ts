@@ -15,6 +15,7 @@ export async function GET(
     include: {
       notes: { orderBy: { createdAt: "desc" } },
       listMembers: { include: { list: { select: { id: true, name: true } } } },
+      labels: { include: { label: { select: { id: true, name: true, color: true } } } },
     },
   })
 

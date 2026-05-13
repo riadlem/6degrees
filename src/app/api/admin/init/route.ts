@@ -109,6 +109,38 @@ CREATE TABLE IF NOT EXISTS "ContactListMember" (
   CONSTRAINT "ContactListMember_listId_fkey" FOREIGN KEY ("listId") REFERENCES "ContactList"("id") ON DELETE CASCADE,
   CONSTRAINT "ContactListMember_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE CASCADE
 );
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "extensionToken" TEXT UNIQUE;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "syncCursor" INTEGER;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "syncTotal" INTEGER;
+
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "city" TEXT;
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "country" TEXT;
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "experience" JSONB;
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "education" JSONB;
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "sharedConnections" JSONB;
+ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "extensionSyncedAt" TIMESTAMPTZ(3);
+
+CREATE TABLE IF NOT EXISTS "Label" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "userId" TEXT NOT NULL,
+  "name" TEXT NOT NULL,
+  "color" TEXT NOT NULL DEFAULT 'blue',
+  "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "Label_userId_name_key" UNIQUE("userId","name"),
+  CONSTRAINT "Label_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "Label_userId_idx" ON "Label"("userId");
+
+CREATE TABLE IF NOT EXISTS "ContactLabel" (
+  "contactId" TEXT NOT NULL,
+  "labelId" TEXT NOT NULL,
+  "assignedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ContactLabel_pkey" PRIMARY KEY ("contactId","labelId"),
+  CONSTRAINT "ContactLabel_contactId_fkey" FOREIGN KEY ("contactId") REFERENCES "Contact"("id") ON DELETE CASCADE,
+  CONSTRAINT "ContactLabel_labelId_fkey" FOREIGN KEY ("labelId") REFERENCES "Label"("id") ON DELETE CASCADE
+);
 `
 
 export async function POST(req: Request) {

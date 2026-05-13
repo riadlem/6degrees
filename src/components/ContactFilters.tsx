@@ -3,6 +3,7 @@
 import { Search, X, SlidersHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { labelColors } from "@/lib/label-colors"
 
 export interface FilterState {
   q: string
@@ -10,13 +11,17 @@ export interface FilterState {
   industry: string
   location: string
   position: string
+  label: string
   sort: string
 }
+
+type LabelOption = { id: string; name: string; color: string }
 
 interface FilterOptions {
   companies: (string | null)[]
   industries: (string | null)[]
   locations: (string | null)[]
+  labels: LabelOption[]
 }
 
 interface Props {
@@ -68,7 +73,7 @@ function FilterSelect({
 
 export default function ContactFilters({ filters, options, total, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
-  const activeCount = [filters.company, filters.industry, filters.location, filters.position].filter(Boolean).length
+  const activeCount = [filters.company, filters.industry, filters.location, filters.position, filters.label].filter(Boolean).length
 
   return (
     <div className="space-y-4">
@@ -168,6 +173,31 @@ export default function ContactFilters({ filters, options, total, onChange, onRe
             options={options.locations}
             onChange={(v) => onChange({ location: v })}
           />
+
+          {options.labels.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Label</label>
+              <div className="flex flex-wrap gap-1.5">
+                {options.labels.map((l) => {
+                  const c = labelColors(l.color)
+                  const active = filters.label === l.id
+                  return (
+                    <button
+                      key={l.id}
+                      onClick={() => onChange({ label: active ? "" : l.id })}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors font-medium",
+                        active ? `${c.bg} ${c.text} border-transparent` : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      <span className={cn("w-1.5 h-1.5 rounded-full", c.dot)} />
+                      {l.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {activeCount > 0 && (
             <button

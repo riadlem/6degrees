@@ -18,17 +18,10 @@ export interface LinkedInConnection {
   "Email Address": string
 }
 
-export interface LinkedInSnapshotResponse {
-  elements: Array<{
-    snapshotDomain: string
-    snapshotData: unknown[]
-  }>
-  paging: {
-    total: number
-    start: number
-    count: number
-    links: Array<{ rel: string; href: string }>
-  }
+export interface ConnectionsPage {
+  connections: LinkedInConnection[]
+  total: number
+  hasNext: boolean
 }
 
 // Must be called before memberSnapshotData will return data.
@@ -47,13 +40,13 @@ export async function ensureMemberAuthorization(accessToken: string): Promise<vo
   }
 }
 
-// LinkedIn paginates elements by page index (0, 1, 2…), not by offset.
-async function fetchDomainPage(
+// Fetch a single page of connections by 0-based page index.
+// LinkedIn paginates by page index (0, 1, 2…) not byte offset.
+export async function fetchConnectionsPage(
   accessToken: string,
-  domain: string,
   pageIndex: number
-): Promise<LinkedInSnapshotResponse> {
-  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${pageIndex}&count=100`
+): Promise<ConnectionsPage> {
+  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=CONNECTIONS&start=${pageIndex}&count=100`
 
   const res = await fetch(url, {
     headers: LINKEDIN_HEADERS(accessToken),
@@ -62,9 +55,7 @@ async function fetchDomainPage(
 
   if (res.status === 429) {
     const retryAfter = res.headers.get("Retry-After") ?? "unknown"
-    throw new Error(
-      `LinkedIn API rate limit reached (200 calls/day). Retry after ${retryAfter}s.`
-    )
+    throw new Error(`LinkedIn API rate limit reached. Retry after ${retryAfter}s.`)
   }
 
   if (!res.ok) {
@@ -72,32 +63,15 @@ async function fetchDomainPage(
     throw new Error(`LinkedIn API error ${res.status}: ${body}`)
   }
 
-  return res.json()
-}
+  const data = await res.json()
+  const element = data.elements?.[0]
+  const connections = (element?.snapshotData as LinkedInConnection[]) ?? []
+  const total: number = data.paging?.total ?? 0
+  const hasNext: boolean = (data.paging?.links ?? []).some(
+    (l: { rel: string }) => l.rel === "next"
+  )
 
-export async function fetchAllConnections(
-  accessToken: string
-): Promise<LinkedInConnection[]> {
-  await ensureMemberAuthorization(accessToken)
-
-  const connections: LinkedInConnection[] = []
-  let pageIndex = 0
-
-  while (true) {
-    const data = await fetchDomainPage(accessToken, "CONNECTIONS", pageIndex)
-
-    const element = data.elements?.[0]
-    if (!element?.snapshotData?.length) break
-
-    connections.push(...(element.snapshotData as LinkedInConnection[]))
-
-    const hasNext = data.paging?.links?.some((l) => l.rel === "next")
-    if (!hasNext) break
-
-    pageIndex += 1
-  }
-
-  return connections
+  return { connections, total, hasNext }
 }
 
 // Parse LinkedIn's date format: "DD Mon YYYY" or "YYYY-MM-DD"

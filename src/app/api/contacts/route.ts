@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const industry = searchParams.get("industry") ?? ""
   const location = searchParams.get("location") ?? ""
   const position = searchParams.get("position") ?? ""
+  const labelId = searchParams.get("label") ?? ""
   const sort = searchParams.get("sort") ?? "name"
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const limit = parseInt(searchParams.get("limit") ?? "48", 10)
@@ -33,6 +34,7 @@ export async function GET(request: Request) {
     ...(industry && { industry: { contains: industry, mode: "insensitive" } }),
     ...(location && { location: { contains: location, mode: "insensitive" } }),
     ...(position && { position: { contains: position, mode: "insensitive" } }),
+    ...(labelId && { labels: { some: { labelId } } }),
   }
 
   const orderBy: Prisma.ContactOrderByWithRelationInput =
@@ -53,13 +55,13 @@ export async function GET(request: Request) {
       include: {
         notes: { orderBy: { createdAt: "desc" }, take: 1 },
         listMembers: { select: { listId: true } },
+        labels: { include: { label: { select: { id: true, name: true, color: true } } } },
       },
     }),
     prisma.contact.count({ where }),
   ])
 
-  // Distinct filter values for the current user
-  const [industries, companies, locations] = await Promise.all([
+  const [industries, companies, locations, labels] = await Promise.all([
     prisma.contact.findMany({
       where: { userId: session.user.id, industry: { not: null } },
       select: { industry: true },
@@ -78,6 +80,10 @@ export async function GET(request: Request) {
       distinct: ["location"],
       orderBy: { location: "asc" },
     }),
+    prisma.label.findMany({
+      where: { userId: session.user.id },
+      orderBy: { name: "asc" },
+    }),
   ])
 
   return Response.json({
@@ -89,6 +95,7 @@ export async function GET(request: Request) {
       industries: industries.map((r) => r.industry).filter(Boolean),
       companies: companies.map((r) => r.company).filter(Boolean),
       locations: locations.map((r) => r.location).filter(Boolean),
+      labels,
     },
   })
 }

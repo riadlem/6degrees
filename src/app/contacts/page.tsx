@@ -3,15 +3,18 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus } from "lucide-react"
+import { RefreshCw, ListPlus, Tag } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
+import ManageLabelsModal from "@/components/ManageLabelsModal"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", sort: "name",
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name",
 }
+
+type LabelOption = { id: string; name: string; color: string }
 
 type ApiResponse = {
   contacts: ContactSummary[]
@@ -22,6 +25,7 @@ type ApiResponse = {
     industries: (string | null)[]
     companies: (string | null)[]
     locations: (string | null)[]
+    labels: LabelOption[]
   }
 }
 
@@ -37,6 +41,7 @@ function ContactsContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
+  const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
 
   type SyncState =
     | { phase: "idle" }
@@ -47,6 +52,7 @@ function ContactsContent() {
     | { phase: "error"; message: string }
 
   const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" })
+  const [resumable, setResumable] = useState<{ cursor: number; total: number } | null>(null)
   const searchParams = useSearchParams()
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
@@ -57,12 +63,24 @@ function ContactsContent() {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
+  useEffect(() => {
+    if (status !== "authenticated") return
+    fetch("/api/linkedin/sync")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.hasResumable && d.cursor != null && d.total) {
+          setResumable({ cursor: d.cursor, total: d.total })
+        }
+      })
+      .catch(() => {})
+  }, [status])
+
   const fetchContacts = useCallback(async (f: FilterState, p: number) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({
         q: f.q, company: f.company, industry: f.industry,
-        location: f.location, position: f.position, sort: f.sort,
+        location: f.location, position: f.position, label: f.label, sort: f.sort,
         page: String(p), limit: "48",
       })
       const res = await fetch(`/api/contacts?${params}`)
@@ -87,10 +105,11 @@ function ContactsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
-  async function sync() {
+  async function sync(restart = false) {
+    setResumable(null)
     setSyncState({ phase: "connecting" })
     try {
-      const res = await fetch("/api/linkedin/sync", { method: "POST" })
+      const res = await fetch(`/api/linkedin/sync${restart ? "?restart=true" : ""}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))
         setSyncState({ phase: "error", message: json.error ?? "Sync failed" })
@@ -172,22 +191,33 @@ function ContactsContent() {
 
         <div className="flex items-center gap-2 shrink-0">
           {selectedIds.size > 0 && (
-            <button
-              onClick={() => setAddToListContacts(selectedContacts)}
-              className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-xl transition-colors font-medium"
-            >
-              <ListPlus size={15} />
-              Add {selectedIds.size} to list
-            </button>
+            <>
+              <button
+                onClick={() => setLabelContacts(selectedContacts)}
+                className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+              >
+                <Tag size={14} />
+                Label {selectedIds.size}
+              </button>
+              <button
+                onClick={() => setAddToListContacts(selectedContacts)}
+                className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-xl transition-colors font-medium"
+              >
+                <ListPlus size={15} />
+                Add {selectedIds.size} to list
+              </button>
+            </>
           )}
 
           <button
-            onClick={sync}
+            onClick={() => sync(false)}
             disabled={syncState.phase !== "idle"}
             className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
-            {syncState.phase === "idle" ? "Sync LinkedIn" : "Syncing…"}
+            {syncState.phase === "idle"
+              ? resumable ? "Resume sync" : "Sync LinkedIn"
+              : "Syncing…"}
           </button>
 
           <a
@@ -208,6 +238,21 @@ function ContactsContent() {
       {linkedinError && (
         <div className="mb-4 text-sm px-4 py-2.5 rounded-xl border bg-red-50 border-red-200 text-red-700">
           LinkedIn connection failed: {linkedinError}
+        </div>
+      )}
+      {resumable && syncState.phase === "idle" && (
+        <div className="mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl border bg-amber-50 border-amber-200 text-sm">
+          <span className="text-amber-800 font-medium">
+            Sync was interrupted — ~{resumable.cursor * 100} of {resumable.total} contacts synced.
+          </span>
+          <div className="flex items-center gap-3 shrink-0 ml-4">
+            <button onClick={() => sync(false)} className="text-amber-700 font-semibold hover:text-amber-900">
+              Resume
+            </button>
+            <button onClick={() => sync(true)} className="text-amber-500 hover:text-amber-700 text-xs">
+              Restart
+            </button>
+          </div>
         </div>
       )}
       {syncState.phase !== "idle" && (
@@ -241,7 +286,7 @@ function ContactsContent() {
       <div className="mb-5">
         <ContactFilters
           filters={filters}
-          options={data?.filters ?? { industries: [], companies: [], locations: [] }}
+          options={data?.filters ?? { industries: [], companies: [], locations: [], labels: [] }}
           total={data?.total ?? 0}
           onChange={handleFilterChange}
           onReset={handleReset}
@@ -323,6 +368,15 @@ function ContactsContent() {
           contacts={addToListContacts}
           onClose={() => { setAddToListContacts(null); setSelectedIds(new Set()) }}
           onDone={() => { setAddToListContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
+        />
+      )}
+
+      {/* Manage labels modal */}
+      {labelContacts && (
+        <ManageLabelsModal
+          contacts={labelContacts}
+          onClose={() => { setLabelContacts(null); setSelectedIds(new Set()) }}
+          onDone={() => { setLabelContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
         />
       )}
     </div>
