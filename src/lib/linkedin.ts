@@ -1,6 +1,5 @@
 const LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
-// Use the latest stable version: YYYYMM format
-const LINKEDIN_VERSION = "202311"
+const LINKEDIN_VERSION = "202501"
 
 export interface LinkedInConnection {
   "First Name": string
@@ -45,6 +44,12 @@ async function fetchDomainPage(
     const retryAfter = res.headers.get("Retry-After") ?? "unknown"
     throw new Error(
       `LinkedIn API rate limit reached (200 calls/day). Retry after ${retryAfter}s.`
+    )
+  }
+
+  if (res.status === 404) {
+    throw new Error(
+      "LinkedIn has no exported data available yet. Go to linkedin.com → Settings → Data Privacy → Get a copy of your data, request your data, wait for the email confirmation, then try syncing again."
     )
   }
 
