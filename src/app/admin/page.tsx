@@ -7,6 +7,7 @@ import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loade
 type StatusData = {
   env: {
     DATABASE_URL: boolean
+    DATABASE_URL_preview: string | null
     NEXTAUTH_URL: string | null
     NEXTAUTH_SECRET: boolean
     LINKEDIN_CLIENT_ID: boolean
@@ -106,19 +107,21 @@ function AdminContent() {
         </div>
         <div className="space-y-2.5">
           {[
-            { key: "DATABASE_URL", ok: data.env.DATABASE_URL },
+            { key: "DATABASE_URL", ok: data.env.DATABASE_URL, value: data.env.DATABASE_URL_preview },
             { key: "NEXTAUTH_SECRET", ok: data.env.NEXTAUTH_SECRET },
             { key: "NEXTAUTH_URL", ok: !!data.env.NEXTAUTH_URL, value: data.env.NEXTAUTH_URL },
             { key: "LINKEDIN_CLIENT_ID", ok: data.env.LINKEDIN_CLIENT_ID },
             { key: "LINKEDIN_CLIENT_SECRET", ok: data.env.LINKEDIN_CLIENT_SECRET },
             { key: "ADMIN_KEY", ok: data.env.ADMIN_KEY, warn: true },
           ].map(({ key: k, ok, value, warn }) => (
-            <div key={k} className="flex items-center gap-2.5">
-              <Dot ok={ok} warn={!ok && warn} />
-              <code className="text-xs text-gray-700 font-mono">{k}</code>
-              {value && <span className="text-xs text-gray-400 ml-auto font-mono">{value}</span>}
-              {!ok && !warn && <span className="text-xs text-red-500 ml-auto">missing</span>}
-              {!ok && warn && <span className="text-xs text-amber-500 ml-auto">not set (optional)</span>}
+            <div key={k} className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2.5">
+                <Dot ok={ok} warn={!ok && warn} />
+                <code className="text-xs text-gray-700 font-mono">{k}</code>
+                {!ok && !warn && <span className="text-xs text-red-500 ml-auto">missing</span>}
+                {!ok && warn && <span className="text-xs text-amber-500 ml-auto">not set (optional)</span>}
+              </div>
+              {value && <p className="text-xs text-gray-400 font-mono pl-6 break-all">{value}</p>}
             </div>
           ))}
         </div>

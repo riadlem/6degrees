@@ -12,8 +12,13 @@ const TABLES = ["User", "Account", "Session", "VerificationToken", "Contact", "C
 export async function GET(req: Request) {
   if (!checkKey(req)) return new Response("Forbidden", { status: 403 })
 
+  // Show safe parts of DATABASE_URL for verification (hide password)
+  const dbUrl = process.env.DATABASE_URL ?? ""
+  const dbUrlSafe = dbUrl.replace(/:([^:@]+)@/, ":***@")
+
   const env = {
     DATABASE_URL: !!process.env.DATABASE_URL,
+    DATABASE_URL_preview: dbUrlSafe || null,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? null,
     NEXTAUTH_SECRET: !!process.env.NEXTAUTH_SECRET,
     LINKEDIN_CLIENT_ID: !!process.env.LINKEDIN_CLIENT_ID,
