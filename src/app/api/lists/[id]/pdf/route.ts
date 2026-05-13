@@ -130,7 +130,7 @@ export async function GET(
     }) as Parameters<typeof renderToBuffer>[0]
   )
 
-  return new Response(buffer, {
+  return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="${list.name.replace(/[^a-z0-9]/gi, "_")}.pdf"`,
