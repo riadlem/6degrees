@@ -14,6 +14,8 @@ export interface LinkedInConnection {
   "Position": string
   "Company": string
   "Connected On": string
+  "URL": string
+  "Email Address": string
 }
 
 export interface LinkedInSnapshotResponse {
@@ -30,7 +32,7 @@ export interface LinkedInSnapshotResponse {
 }
 
 // Must be called before memberSnapshotData will return data.
-// 201 = created, 200/409 = already exists — all acceptable.
+// 201 = created, 409 = already exists — both are fine.
 export async function ensureMemberAuthorization(accessToken: string): Promise<void> {
   const res = await fetch(`${LINKEDIN_API_BASE}/memberAuthorizations`, {
     method: "POST",
@@ -45,13 +47,13 @@ export async function ensureMemberAuthorization(accessToken: string): Promise<vo
   }
 }
 
+// LinkedIn paginates elements by page index (0, 1, 2…), not by offset.
 async function fetchDomainPage(
   accessToken: string,
   domain: string,
-  start: number,
-  count: number
+  pageIndex: number
 ): Promise<LinkedInSnapshotResponse> {
-  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${start}&count=${count}`
+  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${pageIndex}&count=1`
 
   const res = await fetch(url, {
     headers: LINKEDIN_HEADERS(accessToken),
@@ -79,11 +81,10 @@ export async function fetchAllConnections(
   await ensureMemberAuthorization(accessToken)
 
   const connections: LinkedInConnection[] = []
-  let start = 0
-  const count = 100
+  let pageIndex = 0
 
   while (true) {
-    const data = await fetchDomainPage(accessToken, "CONNECTIONS", start, count)
+    const data = await fetchDomainPage(accessToken, "CONNECTIONS", pageIndex)
 
     const element = data.elements?.[0]
     if (!element?.snapshotData?.length) break
@@ -93,7 +94,7 @@ export async function fetchAllConnections(
     const hasNext = data.paging?.links?.some((l) => l.rel === "next")
     if (!hasNext) break
 
-    start += count
+    pageIndex += 1
   }
 
   return connections

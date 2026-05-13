@@ -43,6 +43,7 @@ export async function POST() {
           update: {
             position: conn["Position"] || null,
             company: conn["Company"] || null,
+            profileUrl: conn["URL"] || null,
             syncedAt: new Date(),
           },
           create: {
@@ -53,6 +54,7 @@ export async function POST() {
             position: conn["Position"] || null,
             company: conn["Company"] || null,
             connectedOn: parseLinkedInDate(conn["Connected On"]),
+            profileUrl: conn["URL"] || null,
           },
         })
         synced++
