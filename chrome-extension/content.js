@@ -34,11 +34,50 @@
   // ─── Scraper ─────────────────────────────────────────────────────────────────
 
   function scrapeName() {
-    const el = q(["h1.text-heading-xlarge", "h1[data-anonymize='name']", ".pv-top-card h1"])
-    if (!el) return { firstName: null, lastName: null }
-    const full = el.textContent.trim()
-    const parts = full.split(/\s+/)
-    return { firstName: parts[0] ?? null, lastName: parts.slice(1).join(" ") || null }
+    // Try progressively broader selectors; prefer aria-hidden spans inside headings
+    // to avoid duplicated screen-reader text.
+    const headingSelectors = [
+      "h1.text-heading-xlarge",
+      "h1[class*='text-heading']",
+      ".pv-text-details__left-panel h1",
+      ".ph5 h1",
+      "main h1",
+    ]
+
+    for (const sel of headingSelectors) {
+      const el = document.querySelector(sel)
+      if (!el) continue
+      // LinkedIn sometimes puts the rendered name in an aria-hidden span to
+      // avoid duplicating it for screen readers.
+      const inner = el.querySelector("span[aria-hidden='true']")
+      const full = (inner ?? el).textContent.trim()
+      if (!full || full.length > 100) continue
+
+      const parts = full.split(/\s+/).filter(Boolean)
+      if (parts.length >= 1) {
+        return {
+          firstName: parts[0],
+          lastName: parts.slice(1).join(" ") || null,
+        }
+      }
+    }
+
+    // Last resort: humanize the URL slug ("john-doe-42" → "John", "Doe")
+    return humanizeSlug(slugFromUrl())
+  }
+
+  function slugFromUrl() {
+    return window.location.pathname.replace(/^\/in\//, "").replace(/\/$/, "").split("/")[0] ?? ""
+  }
+
+  function humanizeSlug(slug) {
+    const parts = slug
+      .split("-")
+      .filter((p) => p.length > 0 && !/^\d+$/.test(p))
+      .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+    if (parts.length === 0) return { firstName: slug || "Unknown", lastName: null }
+    if (parts.length === 1) return { firstName: parts[0], lastName: null }
+    return { firstName: parts.slice(0, -1).join(" "), lastName: parts[parts.length - 1] }
   }
 
   function scrapePhoto() {
@@ -242,9 +281,11 @@
     const sharedConnections = scrapeSharedConnections()
     const experience = scrapeExperience()
     const education = scrapeEducation()
+    // Canonical URL: strip query params, ensure trailing slash
+    const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     return {
-      profileUrl: window.location.href.split("?")[0].replace(/\/$/, "") + "/",
+      profileUrl,
       firstName,
       lastName,
       headline: scrapeHeadline(),
