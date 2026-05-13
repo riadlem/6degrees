@@ -39,6 +39,12 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: "/",
   },
+  logger: {
+    error(code, metadata) {
+      console.error("[next-auth] error", code, JSON.stringify(metadata, null, 2))
+    },
+  },
+  debug: process.env.NODE_ENV === "development",
 }
 
 declare module "next-auth" {
