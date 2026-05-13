@@ -1,6 +1,13 @@
 const LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
 const LINKEDIN_VERSION = "202312"
 
+const LINKEDIN_HEADERS = (accessToken: string) => ({
+  Authorization: `Bearer ${accessToken}`,
+  "LinkedIn-Version": LINKEDIN_VERSION,
+  "X-Restli-Protocol-Version": "2.0.0",
+  "Content-Type": "application/json",
+})
+
 export interface LinkedInConnection {
   "First Name": string
   "Last Name": string
@@ -22,6 +29,22 @@ export interface LinkedInSnapshotResponse {
   }
 }
 
+// Must be called before memberSnapshotData will return data.
+// 201 = created, 200/409 = already exists — all acceptable.
+export async function ensureMemberAuthorization(accessToken: string): Promise<void> {
+  const res = await fetch(`${LINKEDIN_API_BASE}/memberAuthorizations`, {
+    method: "POST",
+    headers: LINKEDIN_HEADERS(accessToken),
+    body: JSON.stringify({}),
+    cache: "no-store",
+  })
+
+  if (!res.ok && res.status !== 409) {
+    const body = await res.text().catch(() => "")
+    throw new Error(`LinkedIn authorization failed ${res.status}: ${body}`)
+  }
+}
+
 async function fetchDomainPage(
   accessToken: string,
   domain: string,
@@ -31,12 +54,7 @@ async function fetchDomainPage(
   const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${start}&count=${count}`
 
   const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "LinkedIn-Version": LINKEDIN_VERSION,
-      "Content-Type": "application/json",
-    },
-    // Don't cache — fresh data every sync
+    headers: LINKEDIN_HEADERS(accessToken),
     cache: "no-store",
   })
 
@@ -44,12 +62,6 @@ async function fetchDomainPage(
     const retryAfter = res.headers.get("Retry-After") ?? "unknown"
     throw new Error(
       `LinkedIn API rate limit reached (200 calls/day). Retry after ${retryAfter}s.`
-    )
-  }
-
-  if (res.status === 404) {
-    throw new Error(
-      "LinkedIn has no exported data available yet. Go to linkedin.com → Settings → Data Privacy → Get a copy of your data, request your data, wait for the email confirmation, then try syncing again."
     )
   }
 
@@ -64,6 +76,8 @@ async function fetchDomainPage(
 export async function fetchAllConnections(
   accessToken: string
 ): Promise<LinkedInConnection[]> {
+  await ensureMemberAuthorization(accessToken)
+
   const connections: LinkedInConnection[] = []
   let start = 0
   const count = 100
