@@ -53,7 +53,7 @@ async function fetchDomainPage(
   domain: string,
   pageIndex: number
 ): Promise<LinkedInSnapshotResponse> {
-  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${pageIndex}&count=1`
+  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=${domain}&start=${pageIndex}&count=100`
 
   const res = await fetch(url, {
     headers: LINKEDIN_HEADERS(accessToken),
