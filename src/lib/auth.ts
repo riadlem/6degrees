@@ -10,17 +10,7 @@ export const authOptions: NextAuthOptions = {
     LinkedInProvider({
       clientId: process.env.LINKEDIN_CLIENT_ID!,
       clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: "openid profile email",
-        },
-      },
-      token: {
-        url: "https://www.linkedin.com/oauth/v2/accessToken",
-      },
-      userinfo: {
-        url: "https://api.linkedin.com/v2/userinfo",
-      },
+      client: { token_endpoint_auth_method: "client_secret_post" },
       profile(profile) {
         return {
           id: profile.sub,
