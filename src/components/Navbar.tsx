@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 
@@ -93,6 +93,14 @@ export default function Navbar() {
                   <p className="text-sm font-medium text-gray-900 truncate">{name}</p>
                   <p className="text-xs text-gray-500 truncate">{session.user?.email}</p>
                 </div>
+                <Link
+                  href="/extension"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <Puzzle size={14} />
+                  Chrome Extension
+                </Link>
                 <Link
                   href="/settings"
                   onClick={() => setMenuOpen(false)}

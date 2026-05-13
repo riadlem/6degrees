@@ -54,6 +54,8 @@ model User {
   image          String?
   password       String?
   extensionToken String?       @unique
+  syncCursor     Int?
+  syncTotal      Int?
   accounts       Account[]
   sessions       Session[]
   contacts       Contact[]

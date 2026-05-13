@@ -52,6 +52,7 @@ function ContactsContent() {
     | { phase: "error"; message: string }
 
   const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" })
+  const [resumable, setResumable] = useState<{ cursor: number; total: number } | null>(null)
   const searchParams = useSearchParams()
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
@@ -61,6 +62,18 @@ function ContactsContent() {
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
+
+  useEffect(() => {
+    if (status !== "authenticated") return
+    fetch("/api/linkedin/sync")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.hasResumable && d.cursor != null && d.total) {
+          setResumable({ cursor: d.cursor, total: d.total })
+        }
+      })
+      .catch(() => {})
+  }, [status])
 
   const fetchContacts = useCallback(async (f: FilterState, p: number) => {
     setLoading(true)
@@ -92,10 +105,11 @@ function ContactsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
-  async function sync() {
+  async function sync(restart = false) {
+    setResumable(null)
     setSyncState({ phase: "connecting" })
     try {
-      const res = await fetch("/api/linkedin/sync", { method: "POST" })
+      const res = await fetch(`/api/linkedin/sync${restart ? "?restart=true" : ""}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))
         setSyncState({ phase: "error", message: json.error ?? "Sync failed" })
@@ -196,12 +210,14 @@ function ContactsContent() {
           )}
 
           <button
-            onClick={sync}
+            onClick={() => sync(false)}
             disabled={syncState.phase !== "idle"}
             className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
-            {syncState.phase === "idle" ? "Sync LinkedIn" : "Syncing…"}
+            {syncState.phase === "idle"
+              ? resumable ? "Resume sync" : "Sync LinkedIn"
+              : "Syncing…"}
           </button>
 
           <a
@@ -222,6 +238,21 @@ function ContactsContent() {
       {linkedinError && (
         <div className="mb-4 text-sm px-4 py-2.5 rounded-xl border bg-red-50 border-red-200 text-red-700">
           LinkedIn connection failed: {linkedinError}
+        </div>
+      )}
+      {resumable && syncState.phase === "idle" && (
+        <div className="mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl border bg-amber-50 border-amber-200 text-sm">
+          <span className="text-amber-800 font-medium">
+            Sync was interrupted — ~{resumable.cursor * 100} of {resumable.total} contacts synced.
+          </span>
+          <div className="flex items-center gap-3 shrink-0 ml-4">
+            <button onClick={() => sync(false)} className="text-amber-700 font-semibold hover:text-amber-900">
+              Resume
+            </button>
+            <button onClick={() => sync(true)} className="text-amber-500 hover:text-amber-700 text-xs">
+              Restart
+            </button>
+          </div>
         </div>
       )}
       {syncState.phase !== "idle" && (
