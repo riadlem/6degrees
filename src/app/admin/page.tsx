@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loader2 } from "lucide-react"
 
@@ -26,7 +26,7 @@ function Dot({ ok, warn }: { ok: boolean; warn?: boolean }) {
   return <XCircle size={16} className="text-red-500 shrink-0" />
 }
 
-export default function AdminPage() {
+function AdminContent() {
   const searchParams = useSearchParams()
   const key = searchParams.get("key") ?? ""
 
@@ -189,5 +189,17 @@ export default function AdminPage() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-gray-400" />
+      </div>
+    }>
+      <AdminContent />
+    </Suspense>
   )
 }
