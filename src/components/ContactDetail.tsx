@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -13,6 +13,10 @@ type ListMembership = { listId: string; list: { id: string; name: string } }
 type ContactLabelEntry = { label: { id: string; name: string; color: string } }
 type LabelOption = { id: string; name: string; color: string }
 
+type ExperienceEntry = { title?: string; company?: string; location?: string; start?: string; end?: string }
+type EducationEntry = { school?: string; degree?: string; field?: string; start?: string; end?: string }
+type SharedConnection = { name: string; profileUrl?: string }
+
 type Contact = {
   id: string
   firstName: string
@@ -20,6 +24,8 @@ type Contact = {
   position: string | null
   company: string | null
   location: string | null
+  city: string | null
+  country: string | null
   industry: string | null
   headline: string | null
   profileUrl: string | null
@@ -27,6 +33,10 @@ type Contact = {
   commonConnections: number | null
   connectedOn: string | null
   coworkEnrichedAt: string | null
+  extensionSyncedAt: string | null
+  experience: ExperienceEntry[] | null
+  education: EducationEntry[] | null
+  sharedConnections: SharedConnection[] | null
   notes: Note[]
   listMembers: ListMembership[]
   labels: ContactLabelEntry[]
@@ -272,6 +282,99 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                 </div>
               )}
             </div>
+
+            {/* Experience */}
+            {contact.experience && contact.experience.length > 0 && (
+              <div className="px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <Briefcase size={13} className="text-gray-400" />
+                  <p className="text-xs font-medium text-gray-500">Experience</p>
+                </div>
+                <div className="space-y-3">
+                  {contact.experience.map((e, i) => (
+                    <div key={i} className="flex gap-3">
+                      <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+                        <Briefcase size={12} className="text-gray-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{e.title}</p>
+                        {e.company && <p className="text-xs text-gray-500">{e.company}</p>}
+                        {(e.start || e.end) && (
+                          <p className="text-xs text-gray-400">
+                            {e.start}{e.end ? ` – ${e.end}` : ""}
+                          </p>
+                        )}
+                        {e.location && <p className="text-xs text-gray-400">{e.location}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Education */}
+            {contact.education && contact.education.length > 0 && (
+              <div className="px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <GraduationCap size={13} className="text-gray-400" />
+                  <p className="text-xs font-medium text-gray-500">Education</p>
+                </div>
+                <div className="space-y-3">
+                  {contact.education.map((e, i) => (
+                    <div key={i} className="flex gap-3">
+                      <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+                        <GraduationCap size={12} className="text-gray-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800">{e.school}</p>
+                        {e.degree && <p className="text-xs text-gray-500">{e.degree}{e.field ? ` · ${e.field}` : ""}</p>}
+                        {(e.start || e.end) && (
+                          <p className="text-xs text-gray-400">
+                            {e.start}{e.end ? ` – ${e.end}` : ""}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Shared connections */}
+            {contact.sharedConnections && (contact.sharedConnections as SharedConnection[]).length > 0 && (
+              <div className="px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Users size={13} className="text-gray-400" />
+                  <p className="text-xs font-medium text-gray-500">
+                    Mutual connections ({(contact.sharedConnections as SharedConnection[]).length})
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(contact.sharedConnections as SharedConnection[]).slice(0, 12).map((sc, i) =>
+                    sc.profileUrl ? (
+                      <a
+                        key={i}
+                        href={sc.profileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full px-2.5 py-1 transition-colors"
+                      >
+                        {sc.name}
+                      </a>
+                    ) : (
+                      <span key={i} className="text-xs bg-gray-100 text-gray-700 rounded-full px-2.5 py-1">
+                        {sc.name}
+                      </span>
+                    )
+                  )}
+                  {(contact.sharedConnections as SharedConnection[]).length > 12 && (
+                    <span className="text-xs text-gray-400 self-center">
+                      +{(contact.sharedConnections as SharedConnection[]).length - 12} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Lists membership */}
             {contact.listMembers.length > 0 && (

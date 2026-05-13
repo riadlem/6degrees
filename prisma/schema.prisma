@@ -47,18 +47,19 @@ model VerificationToken {
 // ─── Core models ─────────────────────────────────────────────────────────────
 
 model User {
-  id            String        @id @default(cuid())
-  name          String?
-  email         String?       @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  accounts      Account[]
-  sessions      Session[]
-  contacts      Contact[]
-  lists         ContactList[]
-  labels        Label[]
-  lastSyncAt    DateTime?
+  id             String        @id @default(cuid())
+  name           String?
+  email          String?       @unique
+  emailVerified  DateTime?
+  image          String?
+  password       String?
+  extensionToken String?       @unique
+  accounts       Account[]
+  sessions       Session[]
+  contacts       Contact[]
+  lists          ContactList[]
+  labels         Label[]
+  lastSyncAt     DateTime?
 }
 
 model Contact {
@@ -81,6 +82,13 @@ model Contact {
   photoUrl         String?
   commonConnections Int?
   coworkEnrichedAt DateTime?
+  // Enriched via Chrome extension
+  city              String?
+  country           String?
+  experience        Json?
+  education         Json?
+  sharedConnections Json?
+  extensionSyncedAt DateTime?
   // Metadata
   syncedAt         DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
