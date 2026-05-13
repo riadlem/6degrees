@@ -1,5 +1,17 @@
 import prisma from "@/lib/prisma"
 
+// This endpoint is called from the Chrome extension (chrome-extension:// origin).
+// Security is token-based, so a permissive CORS origin is safe.
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+}
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS })
+}
+
 function extractSlug(profileUrl: string): string {
   const match = profileUrl.match(/linkedin\.com\/in\/([^/?#]+)/)
   return match ? match[1].toLowerCase() : profileUrl.toLowerCase()
@@ -21,17 +33,17 @@ function humanizeSlug(slug: string): { firstName: string; lastName: string } {
 export async function POST(req: Request) {
   const auth = req.headers.get("authorization") ?? ""
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : ""
-  if (!token) return new Response("Unauthorized", { status: 401 })
+  if (!token) return new Response("Unauthorized", { status: 401, headers: CORS })
 
   const user = await prisma.user.findUnique({
     where: { extensionToken: token },
     select: { id: true },
   })
-  if (!user) return new Response("Invalid token", { status: 401 })
+  if (!user) return new Response("Invalid token", { status: 401, headers: CORS })
 
   const body = await req.json().catch(() => null)
   if (!body?.profileUrl) {
-    return Response.json({ error: "profileUrl is required" }, { status: 400 })
+    return Response.json({ error: "profileUrl is required" }, { status: 400, headers: CORS })
   }
 
   const {
@@ -115,5 +127,5 @@ export async function POST(req: Request) {
     action = "created"
   }
 
-  return Response.json({ ok: true, action, contactId: contact.id })
+  return Response.json({ ok: true, action, contactId: contact.id }, { headers: CORS })
 }
