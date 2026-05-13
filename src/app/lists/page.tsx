@@ -168,7 +168,7 @@ export default function ListsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {list.shareEnabled && (
-                    <Share2 size={12} className="text-green-500" title="Shared" />
+                    <Share2 size={12} className="text-green-500" />
                   )}
                   <span className="text-xs text-gray-400">{formatDate(list.updatedAt)}</span>
                 </div>
