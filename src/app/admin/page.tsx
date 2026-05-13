@@ -6,7 +6,8 @@ import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loade
 
 type StatusData = {
   env: {
-    DATABASE_URL: boolean
+    POSTGRES_PRISMA_URL: boolean
+    POSTGRES_URL_NON_POOLING: boolean
     DATABASE_URL_preview: string | null
     NEXTAUTH_URL: string | null
     NEXTAUTH_SECRET: boolean
@@ -107,7 +108,8 @@ function AdminContent() {
         </div>
         <div className="space-y-2.5">
           {[
-            { key: "DATABASE_URL", ok: data.env.DATABASE_URL, value: data.env.DATABASE_URL_preview },
+            { key: "POSTGRES_PRISMA_URL", ok: data.env.POSTGRES_PRISMA_URL, value: data.env.DATABASE_URL_preview },
+            { key: "POSTGRES_URL_NON_POOLING", ok: data.env.POSTGRES_URL_NON_POOLING },
             { key: "NEXTAUTH_SECRET", ok: data.env.NEXTAUTH_SECRET },
             { key: "NEXTAUTH_URL", ok: !!data.env.NEXTAUTH_URL, value: data.env.NEXTAUTH_URL },
             { key: "LINKEDIN_CLIENT_ID", ok: data.env.LINKEDIN_CLIENT_ID },
