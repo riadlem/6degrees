@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
