@@ -1,0 +1,170 @@
+/* Loaded via chrome.runtime.getURL() into a shadow root — not subject to page CSP */
+
+#sd-fab {
+  position: fixed !important;
+  bottom: 24px !important;
+  right: 24px !important;
+  z-index: 2147483640 !important;
+  background: #0A66C2 !important;
+  color: #fff !important;
+  border-radius: 24px !important;
+  padding: 9px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  cursor: pointer !important;
+  box-shadow: 0 4px 16px rgba(10,102,194,0.4) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  user-select: none !important;
+  border: none !important;
+  transition: transform 0.15s, box-shadow 0.15s !important;
+  pointer-events: auto !important;
+}
+#sd-fab:hover { transform: translateY(-1px) !important; box-shadow: 0 6px 20px rgba(10,102,194,0.5) !important; }
+#sd-fab:active { transform: translateY(0) !important; }
+
+#sd-panel {
+  position: fixed !important;
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 360px !important;
+  background: #fff !important;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.15) !important;
+  z-index: 2147483641 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  overflow: hidden !important;
+  pointer-events: auto !important;
+}
+#sd-panel-header {
+  padding: 16px 20px !important;
+  border-bottom: 1px solid #f0f0f0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-shrink: 0 !important;
+}
+#sd-panel-header h2 {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #1a1a1a !important;
+  margin: 0 !important;
+}
+#sd-close {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px !important;
+  border: none !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  font-size: 18px !important;
+  color: #888 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+#sd-close:hover { background: #f4f4f4 !important; color: #444 !important; }
+#sd-panel-body {
+  flex: 1 !important;
+  overflow-y: auto !important;
+  padding: 16px 20px !important;
+}
+.sd-profile-header {
+  display: flex !important;
+  gap: 12px !important;
+  margin-bottom: 16px !important;
+}
+.sd-avatar {
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #0A66C2, #004182) !important;
+  flex-shrink: 0 !important;
+  object-fit: cover !important;
+}
+.sd-avatar-initials {
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, #0A66C2, #004182) !important;
+  flex-shrink: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: #fff !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+}
+.sd-name { font-size: 16px !important; font-weight: 700 !important; color: #1a1a1a !important; margin: 0 0 2px !important; }
+.sd-headline { font-size: 12px !important; color: #666 !important; margin: 0 !important; line-height: 1.4 !important; }
+.sd-meta { font-size: 11px !important; color: #888 !important; margin-top: 4px !important; }
+
+.sd-section { margin-bottom: 14px !important; }
+.sd-section-title {
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: #888 !important;
+  margin: 0 0 8px !important;
+  display: block !important;
+}
+.sd-list { list-style: none !important; padding: 0 !important; margin: 0 !important; }
+.sd-list li {
+  font-size: 12px !important;
+  color: #444 !important;
+  padding: 6px 0 !important;
+  border-bottom: 1px solid #f4f4f4 !important;
+  line-height: 1.4 !important;
+}
+.sd-list li:last-child { border-bottom: none !important; }
+.sd-list-title { font-weight: 600 !important; color: #1a1a1a !important; font-size: 12px !important; display: block !important; }
+.sd-list-sub { color: #666 !important; font-size: 11px !important; display: block !important; }
+.sd-badge {
+  display: inline-block !important;
+  background: #EBF3FF !important;
+  color: #0A66C2 !important;
+  border-radius: 12px !important;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  margin-right: 4px !important;
+  margin-bottom: 4px !important;
+}
+.sd-empty { color: #aaa !important; font-size: 12px !important; font-style: italic !important; }
+
+#sd-panel-footer {
+  padding: 14px 20px !important;
+  border-top: 1px solid #f0f0f0 !important;
+  flex-shrink: 0 !important;
+}
+#sd-save-btn {
+  width: 100% !important;
+  background: #0A66C2 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 12px !important;
+  padding: 11px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: background 0.15s !important;
+  display: block !important;
+  box-sizing: border-box !important;
+}
+#sd-save-btn:hover { background: #004182 !important; }
+#sd-save-btn:disabled { background: #7ab0e0 !important; cursor: not-allowed !important; }
+#sd-status {
+  margin-top: 8px !important;
+  font-size: 12px !important;
+  text-align: center !important;
+  min-height: 16px !important;
+  display: block !important;
+}
+#sd-status.ok { color: #16a34a !important; }
+#sd-status.err { color: #dc2626 !important; }
