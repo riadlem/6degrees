@@ -14,8 +14,10 @@ CREATE TABLE IF NOT EXISTS "User" (
   "email" TEXT UNIQUE,
   "emailVerified" TIMESTAMPTZ(3),
   "image" TEXT,
+  "password" TEXT,
   "lastSyncAt" TIMESTAMPTZ(3)
 );
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "password" TEXT;
 
 CREATE TABLE IF NOT EXISTS "Account" (
   "id" TEXT NOT NULL PRIMARY KEY,
