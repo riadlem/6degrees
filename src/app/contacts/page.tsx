@@ -38,8 +38,15 @@ function ContactsContent() {
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
 
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<string | null>(null)
+  type SyncState =
+    | { phase: "idle" }
+    | { phase: "connecting" }
+    | { phase: "fetching"; total?: number }
+    | { phase: "syncing"; synced: number; failed: number; total: number }
+    | { phase: "done"; synced: number; failed: number }
+    | { phase: "error"; message: string }
+
+  const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" })
   const searchParams = useSearchParams()
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
@@ -81,20 +88,50 @@ function ContactsContent() {
   }, [page])
 
   async function sync() {
-    setSyncing(true)
-    setSyncResult(null)
+    setSyncState({ phase: "connecting" })
     try {
       const res = await fetch("/api/linkedin/sync", { method: "POST" })
-      const json = await res.json()
-      if (json.error) {
-        setSyncResult(`Error: ${json.error}`)
-      } else {
-        setSyncResult(`✓ Synced ${json.synced} contacts (${json.failed} failed)`)
-        fetchContacts(filters, page)
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => ({}))
+        setSyncState({ phase: "error", message: json.error ?? "Sync failed" })
+        setTimeout(() => setSyncState({ phase: "idle" }), 6000)
+        return
       }
-    } finally {
-      setSyncing(false)
-      setTimeout(() => setSyncResult(null), 5000)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === "status") {
+              setSyncState({ phase: "fetching", total: event.total })
+            } else if (event.type === "progress") {
+              setSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, total: event.total })
+              if (event.synced % 50 === 0) { setPage(1); fetchContacts(filters, 1) }
+            } else if (event.type === "done") {
+              setSyncState({ phase: "done", synced: event.synced, failed: event.failed })
+              setPage(1); fetchContacts(filters, 1)
+              setTimeout(() => setSyncState({ phase: "idle" }), 6000)
+            } else if (event.type === "error") {
+              setSyncState({ phase: "error", message: event.message })
+              setTimeout(() => setSyncState({ phase: "idle" }), 6000)
+            }
+          } catch { /* malformed SSE line */ }
+        }
+      }
+    } catch (err) {
+      setSyncState({ phase: "error", message: err instanceof Error ? err.message : "Unknown error" })
+      setTimeout(() => setSyncState({ phase: "idle" }), 6000)
     }
   }
 
@@ -146,11 +183,11 @@ function ContactsContent() {
 
           <button
             onClick={sync}
-            disabled={syncing}
+            disabled={syncState.phase !== "idle"}
             className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
-            <RefreshCw size={14} className={syncing ? "animate-spin" : ""} />
-            {syncing ? "Syncing…" : "Sync LinkedIn"}
+            <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
+            {syncState.phase === "idle" ? "Sync LinkedIn" : "Syncing…"}
           </button>
 
           <a
@@ -173,9 +210,30 @@ function ContactsContent() {
           LinkedIn connection failed: {linkedinError}
         </div>
       )}
-      {syncResult && (
-        <div className={`mb-4 text-sm px-4 py-2.5 rounded-xl border ${syncResult.startsWith("Error") ? "bg-red-50 border-red-200 text-red-700" : "bg-green-50 border-green-200 text-green-700"}`}>
-          {syncResult}
+      {syncState.phase !== "idle" && (
+        <div className={`mb-4 rounded-xl border overflow-hidden ${syncState.phase === "error" ? "bg-red-50 border-red-200" : syncState.phase === "done" ? "bg-green-50 border-green-200" : "bg-blue-50 border-blue-200"}`}>
+          <div className="flex items-center justify-between px-4 py-2.5 text-sm font-medium">
+            <span className={syncState.phase === "error" ? "text-red-700" : syncState.phase === "done" ? "text-green-700" : "text-blue-700"}>
+              {syncState.phase === "connecting" && "Connecting to LinkedIn…"}
+              {syncState.phase === "fetching" && (syncState.total ? `Found ${syncState.total} connections, syncing…` : "Fetching connections…")}
+              {syncState.phase === "syncing" && `Syncing ${syncState.synced} / ${syncState.total} contacts…`}
+              {syncState.phase === "done" && `✓ Synced ${syncState.synced} contacts${syncState.failed ? ` (${syncState.failed} failed)` : ""}`}
+              {syncState.phase === "error" && `Error: ${syncState.message}`}
+            </span>
+            {syncState.phase === "syncing" && (
+              <span className="text-blue-500 text-xs tabular-nums">
+                {Math.round((syncState.synced / syncState.total) * 100)}%
+              </span>
+            )}
+          </div>
+          {syncState.phase === "syncing" && (
+            <div className="h-1 bg-blue-100">
+              <div
+                className="h-1 bg-blue-500 transition-all duration-300"
+                style={{ width: `${Math.round((syncState.synced / syncState.total) * 100)}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
