@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCw, ListPlus } from "lucide-react"
@@ -25,7 +25,7 @@ type ApiResponse = {
   }
 }
 
-export default function ContactsPage() {
+function ContactsContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
@@ -268,5 +268,13 @@ export default function ContactsPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function ContactsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <ContactsContent />
+    </Suspense>
   )
 }
