@@ -3,7 +3,7 @@ import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "./prisma"
 import { storeAuthError } from "./auth-error-store"
-import { verifyPassword } from "@/app/api/auth/register/route"
+import { verifyPassword } from "@/lib/password"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
