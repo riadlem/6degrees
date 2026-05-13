@@ -175,11 +175,11 @@ function AdminContent() {
       </section>
 
       {/* Actions */}
-      {data.db.connected && !allTablesOk && (
+      {data.db.connected && (
         <section className="bg-white border border-gray-200 rounded-2xl p-5">
-          <h2 className="font-semibold text-gray-900 text-sm mb-1">Initialize Database</h2>
+          <h2 className="font-semibold text-gray-900 text-sm mb-1">Sync Schema</h2>
           <p className="text-xs text-gray-500 mb-4">
-            {missingTables.length} table{missingTables.length !== 1 ? "s" : ""} missing: {missingTables.join(", ")}. This will run <code className="bg-gray-100 px-1 rounded">CREATE TABLE IF NOT EXISTS</code> for all tables — safe to run multiple times.
+            Runs <code className="bg-gray-100 px-1 rounded">CREATE TABLE IF NOT EXISTS</code> and <code className="bg-gray-100 px-1 rounded">ALTER TABLE … ADD COLUMN IF NOT EXISTS</code> for all tables and columns. Safe to run multiple times.
           </p>
           <button
             onClick={initDb}
@@ -187,17 +187,17 @@ function AdminContent() {
             className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-medium transition-colors"
           >
             {initializing && <Loader2 size={14} className="animate-spin" />}
-            {initializing ? "Initializing…" : "Initialize Database"}
+            {initializing ? "Running…" : "Sync Schema"}
           </button>
           {initResult && (
-            <div className={`mt-3 text-xs px-3 py-2 rounded-lg ${initResult.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700 font-mono break-all"}`}>
+            <div className={`mt-3 text-xs px-3 py-2 rounded-lg whitespace-pre-wrap break-all ${initResult.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700 font-mono"}`}>
               {initResult.message}
             </div>
           )}
         </section>
       )}
 
-      {data.db.connected && allTablesOk && (
+      {data.db.connected && allTablesOk && !initResult && (
         <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-100 rounded-2xl px-5 py-4">
           <CheckCircle size={16} />
           All tables present. Database is ready.
