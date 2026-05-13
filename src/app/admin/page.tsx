@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loader2 } from "lucide-react"
 
 type StatusData = {
+  lastAuthError: { code: string; message: string; ts: string } | null
   env: {
     POSTGRES_PRISMA_URL: boolean
     POSTGRES_URL_NON_POOLING: boolean
@@ -99,6 +100,15 @@ function AdminContent() {
           Refresh
         </button>
       </div>
+
+      {/* Last auth error */}
+      {data.lastAuthError && (
+        <section className="bg-red-50 border border-red-200 rounded-2xl p-5">
+          <h2 className="font-semibold text-red-800 text-sm mb-2">Last Sign-in Error · {data.lastAuthError.ts}</h2>
+          <p className="text-xs font-mono text-red-700 font-bold mb-1">{data.lastAuthError.code}</p>
+          <p className="text-xs font-mono text-red-600 break-all whitespace-pre-wrap">{data.lastAuthError.message}</p>
+        </section>
+      )}
 
       {/* Environment Variables */}
       <section className="bg-white border border-gray-200 rounded-2xl p-5">

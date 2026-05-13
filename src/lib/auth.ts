@@ -2,6 +2,7 @@ import { NextAuthOptions } from "next-auth"
 import LinkedInProvider from "next-auth/providers/linkedin"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "./prisma"
+import { storeAuthError } from "./auth-error-store"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
@@ -41,7 +42,9 @@ export const authOptions: NextAuthOptions = {
   },
   logger: {
     error(code, metadata) {
-      console.error("[next-auth] error", code, JSON.stringify(metadata, null, 2))
+      storeAuthError(String(code), metadata)
+      const msg = metadata instanceof Error ? metadata.message : JSON.stringify(metadata)
+      console.error(`[next-auth] ${code}: ${msg}`)
     },
   },
   debug: process.env.NODE_ENV === "development",
