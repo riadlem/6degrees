@@ -1,45 +1,40 @@
 import { NextAuthOptions } from "next-auth"
-import LinkedInProvider from "next-auth/providers/linkedin"
+import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "./prisma"
 import { storeAuthError } from "./auth-error-store"
+import { verifyPassword } from "@/app/api/auth/register/route"
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
+  session: { strategy: "jwt" },
   providers: [
-    LinkedInProvider({
-      clientId: process.env.LINKEDIN_CLIENT_ID!,
-      clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          scope: "openid profile email",
-        },
+    CredentialsProvider({
+      name: "Email",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
       },
-      token: {
-        url: "https://www.linkedin.com/oauth/v2/accessToken",
-      },
-      userinfo: {
-        url: "https://api.linkedin.com/v2/userinfo",
-      },
-      profile(profile) {
-        return {
-          id: profile.sub,
-          name: profile.name ?? `${profile.given_name} ${profile.family_name}`,
-          email: profile.email,
-          image: profile.picture,
-        }
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null
+        const user = await (prisma.user as any).findUnique({ where: { email: credentials.email.toLowerCase() } }) as { id: string; name: string | null; email: string | null; image: string | null; password: string | null } | null
+        if (!user?.password) return null
+        if (!verifyPassword(credentials.password, user.password)) return null
+        return { id: user.id, name: user.name, email: user.email, image: user.image }
       },
     }),
   ],
   callbacks: {
-    session: async ({ session, user }) => ({
+    jwt: async ({ token, user }) => {
+      if (user) token.id = user.id
+      return token
+    },
+    session: async ({ session, token }) => ({
       ...session,
-      user: { ...session.user, id: user.id },
+      user: { ...session.user, id: token.id as string },
     }),
   },
-  pages: {
-    signIn: "/",
-  },
+  pages: { signIn: "/" },
   logger: {
     error(code, metadata) {
       storeAuthError(String(code), metadata)
@@ -47,16 +42,14 @@ export const authOptions: NextAuthOptions = {
       console.error(`[next-auth] ${code}: ${msg}`)
     },
   },
-  debug: process.env.NODE_ENV === "development",
 }
 
 declare module "next-auth" {
   interface Session {
-    user: {
-      id: string
-      name?: string | null
-      email?: string | null
-      image?: string | null
-    }
+    user: { id: string; name?: string | null; email?: string | null; image?: string | null }
   }
+}
+
+declare module "next-auth/jwt" {
+  interface JWT { id: string }
 }
