@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma"
+import { getLastAuthError } from "@/lib/auth-error-store"
 
 function checkKey(req: Request) {
   const key = new URL(req.url).searchParams.get("key")
@@ -50,5 +51,5 @@ export async function GET(req: Request) {
     }
   }
 
-  return Response.json({ env, db: { connected, error: dbError, tables } })
+  return Response.json({ env, db: { connected, error: dbError, tables }, lastAuthError: getLastAuthError() })
 }
