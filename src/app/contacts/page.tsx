@@ -121,6 +121,8 @@ function ContactsContent() {
       const decoder = new TextDecoder()
       let buffer = ""
 
+      let gotTerminal = false
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -138,15 +140,31 @@ function ContactsContent() {
               setSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, total: event.total })
               if (event.synced % 50 === 0) { setPage(1); fetchContacts(filters, 1) }
             } else if (event.type === "done") {
+              gotTerminal = true
               setSyncState({ phase: "done", synced: event.synced, failed: event.failed })
               setPage(1); fetchContacts(filters, 1)
               setTimeout(() => setSyncState({ phase: "idle" }), 6000)
             } else if (event.type === "error") {
+              gotTerminal = true
               setSyncState({ phase: "error", message: event.message })
               setTimeout(() => setSyncState({ phase: "idle" }), 6000)
             }
           } catch { /* malformed SSE line */ }
         }
+      }
+
+      if (!gotTerminal) {
+        // Stream closed without a terminal event — server timed out or was killed
+        setSyncState({
+          phase: "error",
+          message: "Connection lost — server timed out. Your progress is saved; use Resume to continue.",
+        })
+        // Re-check for resumable cursor
+        fetch("/api/linkedin/sync")
+          .then((r) => r.json())
+          .then((d) => { if (d.hasResumable && d.cursor != null && d.total) setResumable({ cursor: d.cursor, total: d.total }) })
+          .catch(() => {})
+        setTimeout(() => setSyncState({ phase: "idle" }), 8000)
       }
     } catch (err) {
       setSyncState({ phase: "error", message: err instanceof Error ? err.message : "Unknown error" })
