@@ -1,12 +1,29 @@
 const LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
 const LINKEDIN_VERSION = "202312"
 
-const LINKEDIN_HEADERS = (accessToken: string) => ({
+// GET requests must not include Content-Type; only POST needs it.
+const LINKEDIN_GET_HEADERS = (accessToken: string) => ({
   Authorization: `Bearer ${accessToken}`,
   "LinkedIn-Version": LINKEDIN_VERSION,
   "X-Restli-Protocol-Version": "2.0.0",
+})
+
+const LINKEDIN_POST_HEADERS = (accessToken: string) => ({
+  ...LINKEDIN_GET_HEADERS(accessToken),
   "Content-Type": "application/json",
 })
+
+function fetchWithTimeout(url: string, options: RequestInit, ms = 30_000): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { ...options, signal: ctrl.signal })
+    .then((r) => { clearTimeout(timer); return r })
+    .catch((e) => {
+      clearTimeout(timer)
+      if (e?.name === "AbortError") throw new Error(`LinkedIn API timed out after ${ms / 1000}s`)
+      throw e
+    })
+}
 
 export interface LinkedInConnection {
   "First Name": string
@@ -27,12 +44,16 @@ export interface ConnectionsPage {
 // Must be called before memberSnapshotData will return data.
 // 201 = created, 409 = already exists — both are fine.
 export async function ensureMemberAuthorization(accessToken: string): Promise<void> {
-  const res = await fetch(`${LINKEDIN_API_BASE}/memberAuthorizations`, {
-    method: "POST",
-    headers: LINKEDIN_HEADERS(accessToken),
-    body: JSON.stringify({}),
-    cache: "no-store",
-  })
+  const res = await fetchWithTimeout(
+    `${LINKEDIN_API_BASE}/memberAuthorizations`,
+    {
+      method: "POST",
+      headers: LINKEDIN_POST_HEADERS(accessToken),
+      body: JSON.stringify({}),
+      cache: "no-store",
+    },
+    20_000,
+  )
 
   if (!res.ok && res.status !== 409) {
     const body = await res.text().catch(() => "")
@@ -41,21 +62,23 @@ export async function ensureMemberAuthorization(accessToken: string): Promise<vo
 }
 
 // Fetch a single page of connections by 0-based page index.
-// LinkedIn paginates by page index (0, 1, 2…) not byte offset.
 export async function fetchConnectionsPage(
   accessToken: string,
-  pageIndex: number
+  pageIndex: number,
 ): Promise<ConnectionsPage> {
-  const url = `${LINKEDIN_API_BASE}/memberSnapshotData?q=criteria&domain=CONNECTIONS&start=${pageIndex}&count=100`
+  const url =
+    `${LINKEDIN_API_BASE}/memberSnapshotData` +
+    `?q=criteria&domain=CONNECTIONS&start=${pageIndex}&count=100`
 
-  const res = await fetch(url, {
-    headers: LINKEDIN_HEADERS(accessToken),
-    cache: "no-store",
-  })
+  const res = await fetchWithTimeout(
+    url,
+    { headers: LINKEDIN_GET_HEADERS(accessToken), cache: "no-store" },
+    30_000,
+  )
 
   if (res.status === 429) {
     const retryAfter = res.headers.get("Retry-After") ?? "unknown"
-    throw new Error(`LinkedIn API rate limit reached. Retry after ${retryAfter}s.`)
+    throw new Error(`LinkedIn rate limit hit. Retry after ${retryAfter}s.`)
   }
 
   if (!res.ok) {
@@ -68,7 +91,7 @@ export async function fetchConnectionsPage(
   const connections = (element?.snapshotData as LinkedInConnection[]) ?? []
   const total: number = data.paging?.total ?? 0
   const hasNext: boolean = (data.paging?.links ?? []).some(
-    (l: { rel: string }) => l.rel === "next"
+    (l: { rel: string }) => l.rel === "next",
   )
 
   return { connections, total, hasNext }
@@ -83,7 +106,5 @@ export function parseLinkedInDate(raw: string): Date | null {
 
 // Deterministic key used for upsert de-duplication
 export function connectionKey(c: LinkedInConnection): string {
-  return [c["First Name"], c["Last Name"], c["Connected On"]]
-    .join("|")
-    .toLowerCase()
+  return [c["First Name"], c["Last Name"], c["Connected On"]].join("|").toLowerCase()
 }
