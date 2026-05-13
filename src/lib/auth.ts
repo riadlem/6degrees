@@ -11,8 +11,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
       authorization: {
         params: {
-          // r_dma_portability_self_serve requires DMA product approval on your LinkedIn app
-          scope: "openid profile email r_dma_portability_self_serve",
+          scope: "openid profile email",
         },
       },
       token: {
