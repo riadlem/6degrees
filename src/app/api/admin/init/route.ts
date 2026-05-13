@@ -112,11 +112,24 @@ CREATE TABLE IF NOT EXISTS "ContactListMember" (
 export async function POST(req: Request) {
   if (!checkKey(req)) return new Response("Forbidden", { status: 403 })
 
-  try {
-    await prisma.$executeRawUnsafe(SQL)
-    return Response.json({ ok: true, message: "Database initialized successfully" })
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e)
-    return Response.json({ ok: false, message }, { status: 500 })
+  const statements = SQL
+    .split(";")
+    .map(s => s.trim())
+    .filter(s => s.length > 0)
+
+  const errors: string[] = []
+
+  for (const stmt of statements) {
+    try {
+      await prisma.$executeRawUnsafe(stmt)
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e))
+    }
   }
+
+  if (errors.length > 0) {
+    return Response.json({ ok: false, message: errors.join("\n") }, { status: 500 })
+  }
+
+  return Response.json({ ok: true, message: `Database initialized successfully (${statements.length} statements)` })
 }
