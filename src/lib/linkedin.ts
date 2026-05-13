@@ -1,5 +1,5 @@
 const LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
-const LINKEDIN_VERSION = "202501"
+const LINKEDIN_VERSION = "202312"
 
 export interface LinkedInConnection {
   "First Name": string
