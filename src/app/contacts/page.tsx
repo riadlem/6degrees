@@ -3,15 +3,18 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus } from "lucide-react"
+import { RefreshCw, ListPlus, Tag } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
+import ManageLabelsModal from "@/components/ManageLabelsModal"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", sort: "name",
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name",
 }
+
+type LabelOption = { id: string; name: string; color: string }
 
 type ApiResponse = {
   contacts: ContactSummary[]
@@ -22,6 +25,7 @@ type ApiResponse = {
     industries: (string | null)[]
     companies: (string | null)[]
     locations: (string | null)[]
+    labels: LabelOption[]
   }
 }
 
@@ -37,6 +41,7 @@ function ContactsContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
+  const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
 
   type SyncState =
     | { phase: "idle" }
@@ -62,7 +67,7 @@ function ContactsContent() {
     try {
       const params = new URLSearchParams({
         q: f.q, company: f.company, industry: f.industry,
-        location: f.location, position: f.position, sort: f.sort,
+        location: f.location, position: f.position, label: f.label, sort: f.sort,
         page: String(p), limit: "48",
       })
       const res = await fetch(`/api/contacts?${params}`)
@@ -172,13 +177,22 @@ function ContactsContent() {
 
         <div className="flex items-center gap-2 shrink-0">
           {selectedIds.size > 0 && (
-            <button
-              onClick={() => setAddToListContacts(selectedContacts)}
-              className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-xl transition-colors font-medium"
-            >
-              <ListPlus size={15} />
-              Add {selectedIds.size} to list
-            </button>
+            <>
+              <button
+                onClick={() => setLabelContacts(selectedContacts)}
+                className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+              >
+                <Tag size={14} />
+                Label {selectedIds.size}
+              </button>
+              <button
+                onClick={() => setAddToListContacts(selectedContacts)}
+                className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-xl transition-colors font-medium"
+              >
+                <ListPlus size={15} />
+                Add {selectedIds.size} to list
+              </button>
+            </>
           )}
 
           <button
@@ -241,7 +255,7 @@ function ContactsContent() {
       <div className="mb-5">
         <ContactFilters
           filters={filters}
-          options={data?.filters ?? { industries: [], companies: [], locations: [] }}
+          options={data?.filters ?? { industries: [], companies: [], locations: [], labels: [] }}
           total={data?.total ?? 0}
           onChange={handleFilterChange}
           onReset={handleReset}
@@ -323,6 +337,15 @@ function ContactsContent() {
           contacts={addToListContacts}
           onClose={() => { setAddToListContacts(null); setSelectedIds(new Set()) }}
           onDone={() => { setAddToListContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
+        />
+      )}
+
+      {/* Manage labels modal */}
+      {labelContacts && (
+        <ManageLabelsModal
+          contacts={labelContacts}
+          onClose={() => { setLabelContacts(null); setSelectedIds(new Set()) }}
+          onDone={() => { setLabelContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
         />
       )}
     </div>

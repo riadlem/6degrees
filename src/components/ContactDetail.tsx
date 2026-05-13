@@ -3,12 +3,15 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
+import LabelBadge from "./LabelBadge"
 
 type Note = { id: string; content: string; createdAt: string }
 type ListMembership = { listId: string; list: { id: string; name: string } }
+type ContactLabelEntry = { label: { id: string; name: string; color: string } }
+type LabelOption = { id: string; name: string; color: string }
 
 type Contact = {
   id: string
@@ -26,6 +29,7 @@ type Contact = {
   coworkEnrichedAt: string | null
   notes: Note[]
   listMembers: ListMembership[]
+  labels: ContactLabelEntry[]
 }
 
 interface Props {
@@ -41,6 +45,8 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [enriching, setEnriching] = useState(false)
   const [editingField, setEditingField] = useState<string | null>(null)
   const [editValue, setEditValue] = useState("")
+  const [allLabels, setAllLabels] = useState<LabelOption[]>([])
+  const [addingLabel, setAddingLabel] = useState(false)
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return
@@ -56,6 +62,33 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   useEffect(() => {
     fetchContact()
   }, [fetchContact])
+
+  useEffect(() => {
+    if (contactId) {
+      fetch("/api/labels").then((r) => r.json()).then(setAllLabels)
+    }
+  }, [contactId])
+
+  async function addLabel(labelId: string) {
+    if (!contact) return
+    await fetch(`/api/labels/${labelId}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactIds: [contact.id] }),
+    })
+    setAddingLabel(false)
+    fetchContact()
+  }
+
+  async function removeLabel(labelId: string) {
+    if (!contact) return
+    await fetch(`/api/labels/${labelId}/members`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactIds: [contact.id] }),
+    })
+    fetchContact()
+  }
 
   async function addNote() {
     if (!noteText.trim() || !contact) return
@@ -257,6 +290,54 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                 </div>
               </div>
             )}
+
+            {/* Labels */}
+            <div className="px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2 mb-2">
+                <Tag size={13} className="text-gray-400" />
+                <p className="text-xs font-medium text-gray-500">Labels</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5 items-center">
+                {contact.labels.map(({ label }) => (
+                  <LabelBadge key={label.id} label={label} onRemove={() => removeLabel(label.id)} />
+                ))}
+
+                {addingLabel ? (
+                  <div className="relative">
+                    <div className="absolute top-full left-0 mt-1 z-10 bg-white border border-gray-200 rounded-xl shadow-lg p-1 min-w-[160px] max-h-48 overflow-y-auto">
+                      {allLabels.filter((l) => !contact.labels.some((cl) => cl.label.id === l.id)).length === 0 ? (
+                        <p className="text-xs text-gray-400 px-2 py-1.5">All labels applied</p>
+                      ) : (
+                        allLabels
+                          .filter((l) => !contact.labels.some((cl) => cl.label.id === l.id))
+                          .map((l) => (
+                            <button
+                              key={l.id}
+                              onClick={() => addLabel(l.id)}
+                              className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm"
+                            >
+                              <LabelBadge label={l} />
+                            </button>
+                          ))
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setAddingLabel(false)}
+                      className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-200"
+                    >
+                      <X size={10} /> Close
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setAddingLabel(true)}
+                    className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-gray-400 transition-colors"
+                  >
+                    <Plus size={10} /> Add label
+                  </button>
+                )}
+              </div>
+            </div>
 
             {/* Notes */}
             <div className="px-5 py-4">

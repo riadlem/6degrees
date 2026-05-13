@@ -2,6 +2,7 @@
 
 import { Users, Building2, MapPin, Calendar, StickyNote, Plus } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
+import LabelBadge from "./LabelBadge"
 
 export type ContactSummary = {
   id: string
@@ -16,6 +17,7 @@ export type ContactSummary = {
   connectedOn: string | null
   notes: { id: string }[]
   listMembers: { listId: string }[]
+  labels: { label: { id: string; name: string; color: string } }[]
 }
 
 interface Props {
@@ -155,6 +157,18 @@ export default function ContactCard({
             </button>
           )}
         </div>
+
+        {/* Label chips */}
+        {contact.labels.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {contact.labels.slice(0, 2).map(({ label }) => (
+              <LabelBadge key={label.id} label={label} />
+            ))}
+            {contact.labels.length > 2 && (
+              <span className="text-xs text-gray-400 self-center">+{contact.labels.length - 2}</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

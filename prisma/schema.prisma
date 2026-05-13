@@ -57,6 +57,7 @@ model User {
   sessions      Session[]
   contacts      Contact[]
   lists         ContactList[]
+  labels        Label[]
   lastSyncAt    DateTime?
 }
 
@@ -87,6 +88,7 @@ model Contact {
   user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   notes       ContactNote[]
   listMembers ContactListMember[]
+  labels      ContactLabel[]
 
   @@unique([userId, linkedinKey])
   @@index([userId])
@@ -130,4 +132,29 @@ model ContactListMember {
   contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([listId, contactId])
+}
+
+model Label {
+  id        String         @id @default(cuid())
+  userId    String
+  name      String
+  color     String         @default("blue")
+  createdAt DateTime       @default(now())
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts ContactLabel[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model ContactLabel {
+  contactId  String
+  labelId    String
+  assignedAt DateTime @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  label   Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, labelId])
 }
