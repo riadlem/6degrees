@@ -46,7 +46,7 @@ export async function GET(request: Request) {
         { position: { contains: q, mode: "insensitive" } },
       ],
     }),
-    ...(company && { company: { contains: company, mode: "insensitive" } }),
+    ...(company && { company: { equals: company, mode: "insensitive" } }),
     ...(industry && { industry: { contains: industry, mode: "insensitive" } }),
     ...(location && { location: { contains: location, mode: "insensitive" } }),
     ...(position && { position: { contains: position, mode: "insensitive" } }),
