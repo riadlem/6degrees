@@ -1,5 +1,6 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
+import LinkedInProvider from "next-auth/providers/linkedin"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import prisma from "./prisma"
 import { storeAuthError } from "./auth-error-store"
@@ -9,6 +10,13 @@ export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as NextAuthOptions["adapter"],
   session: { strategy: "jwt" },
   providers: [
+    LinkedInProvider({
+      clientId: process.env.LINKEDIN_CLIENT_ID!,
+      clientSecret: process.env.LINKEDIN_CLIENT_SECRET!,
+      // Lets an existing email/password user also sign in via LinkedIn
+      // with the same email without hitting OAuthAccountNotLinked.
+      allowDangerousEmailAccountLinking: true,
+    }),
     CredentialsProvider({
       name: "Email",
       credentials: {
@@ -17,7 +25,7 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        const user = await (prisma.user as any).findUnique({ where: { email: credentials.email.toLowerCase() } }) as { id: string; name: string | null; email: string | null; image: string | null; password: string | null } | null
+        const user = await prisma.user.findUnique({ where: { email: credentials.email.toLowerCase() } })
         if (!user?.password) return null
         if (!verifyPassword(credentials.password, user.password)) return null
         return { id: user.id, name: user.name, email: user.email, image: user.image }
@@ -25,6 +33,12 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    async signIn({ account, profile }) {
+      // Block LinkedIn sign-in when LinkedIn returns no email — without email
+      // we can't link to an existing user or create a meaningful account.
+      if (account?.provider === "linkedin" && !profile?.email) return false
+      return true
+    },
     jwt: async ({ token, user }) => {
       if (user) token.id = user.id
       return token
