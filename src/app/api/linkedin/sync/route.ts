@@ -30,7 +30,7 @@ export async function GET() {
   })
 
   return Response.json({
-    hasResumable: user?.syncCursor != null,
+    hasResumable: (user?.syncCursor ?? 0) > 0,
     cursor: user?.syncCursor ?? null,
     total: user?.syncTotal ?? null,
     lastSyncAt: user?.lastSyncAt ?? null,
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     select: { syncCursor: true, syncTotal: true },
   })
 
-  const resuming = !restart && userState?.syncCursor != null
+  const resuming = !restart && (userState?.syncCursor ?? 0) > 0
   let pageIndex = resuming ? userState!.syncCursor! : 0
   let total = resuming && userState?.syncTotal ? userState.syncTotal : 0
   let synced = pageIndex * 100
