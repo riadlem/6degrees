@@ -93,24 +93,19 @@
   }
 
   function scrapePhoto() {
-    // og:image is set before JS runs and reliably points to the real photo
-    const og = document.querySelector('meta[property="og:image"]')
-    if (og) {
-      const src = og.getAttribute("content") ?? ""
-      if (isValidPhoto(src)) return src
+    // LinkedIn CDN URLs for profile photos always contain "profile-displayphoto"
+    // Background/banner images contain "profile-displaybackgroundimage" — skip those
+    for (const img of document.querySelectorAll("img")) {
+      const src = img.src || img.getAttribute("data-delayed-url") || ""
+      if (src.includes("profile-displayphoto") && isValidPhoto(src)) return src
     }
-    // Fallback: known class patterns
-    const selectors = [
+    // Fallback: class-based selectors (older LinkedIn layouts)
+    for (const sel of [
       ".pv-top-card-profile-picture__image--show",
       ".pv-top-card-profile-picture img",
       "img[data-anonymize='headshot-photo']",
       ".profile-photo-edit__preview",
-      ".pv-top-card__photo img",
-      "img.EntityPhoto-circle-9",
-      ".presence-entity__image",
-      ".artdeco-entity-image--circle-9",
-    ]
-    for (const sel of selectors) {
+    ]) {
       try {
         for (const img of document.querySelectorAll(sel)) {
           const src = img.src || img.getAttribute("data-delayed-url") || ""
@@ -118,20 +113,13 @@
         }
       } catch { /* bad selector */ }
     }
-    // Last resort: first LinkedIn CDN image in the profile header section
-    const header = document.querySelector(".scaffold-layout__main section, main section")
-    if (header) {
-      for (const img of header.querySelectorAll("img")) {
-        const src = img.src || img.getAttribute("data-delayed-url") || ""
-        if (isValidPhoto(src)) return src
-      }
-    }
     return null
   }
 
   function isValidPhoto(src) {
     if (!src) return false
-    if (src.includes("ghost") || src.includes("placeholder") || src.includes("static.licdn")) return false
+    if (src.includes("profile-displaybackgroundimage") || src.includes("ghost") ||
+        src.includes("placeholder") || src.includes("static.licdn")) return false
     return src.includes("media.licdn.com") || src.includes("mediaproxy.linkedin.com") || src.includes("dms.licdn.com")
   }
 
@@ -157,16 +145,26 @@
   }
 
   function scrapeLocation() {
-    const candidates = document.querySelectorAll(".text-body-small")
-    for (const el of candidates) {
+    // LinkedIn's location span in the top card uses these combined classes
+    const specific = text([
+      ".text-body-small.inline.t-black--light.break-words",
+      ".pv-top-card--list-bullet li",
+      "[data-field='location']",
+    ])
+    if (specific && !specific.match(/^\d/) && !specific.toLowerCase().includes("connection")) return specific
+
+    // Broad fallback: scan all small-body text, skipping numeric/badge strings
+    for (const el of document.querySelectorAll(".text-body-small")) {
       const t = (el.textContent ?? "").trim()
       if (
-        t && t.length > 2 && t.length < 100 &&
+        t.length > 3 && t.length < 80 &&
+        !t.match(/^\d/) &&
+        !t.includes("connection") && !t.includes("follower") &&
         !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
-        (t.includes(",") || /Area|Region|Greater|France|Germany|Spain|Italy|UK|US|Canada/.test(t) || t.split(" ").length <= 4)
+        (t.includes(",") || /\b(Area|Region|Greater|Metropolitan)\b/.test(t))
       ) return t
     }
-    return text([".pv-top-card--list-bullet li", "[data-field='location']"])
+    return null
   }
 
   function scrapeConnectionDegree() {
@@ -226,6 +224,14 @@
     return { start: parts[0]?.trim() || null, end: parts[1]?.trim() || null }
   }
 
+  // LinkedIn shows "Company Name · Full-time" or "City, Country · On-site" — strip the suffix
+  function cleanDotSuffix(s) {
+    return s ? s.split("·")[0].trim() : null
+  }
+
+  // Employment-type keywords that may appear fused into the company span
+  const EMP_TYPE_RE = /^(Full-time|Part-time|Self-employed|Freelance|Contract|Internship|Apprenticeship|Seasonal)$/i
+
   function scrapeExperience() {
     const section = scrapeSection("experience", "Experience")
     if (!section) return []
@@ -237,28 +243,46 @@
       const allSpans = [...li.querySelectorAll("span[aria-hidden='true']")]
         .map((s) => s.textContent.trim()).filter(Boolean)
       const dateSpans = allSpans.filter((s) => durationRe.test(s) || dateStartRe.test(s))
-      const textSpans = allSpans.filter((s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1)
+      // Strip employment-type-only spans and date spans from text candidates
+      const textSpans = allSpans.filter(
+        (s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1 && !EMP_TYPE_RE.test(s)
+      )
       if (textSpans.length === 0) return
 
       const nested = li.querySelectorAll("li.artdeco-list__item, li[class*='pvs-list__item']")
       if (nested.length > 0) {
-        const company = textSpans[0]
+        // Multi-role group: first textSpan is the company
+        const company = cleanDotSuffix(textSpans[0])
         nested.forEach((role) => {
           const rs = [...role.querySelectorAll("span[aria-hidden='true']")].map((s) => s.textContent.trim()).filter(Boolean)
           const rd = rs.filter((s) => durationRe.test(s) || dateStartRe.test(s))
-          const rt = rs.filter((s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1)
-          if (rt[0]) items.push({ title: rt[0], company, location: rt[2] ?? null, ...parseDateRange(rd[0]) })
+          const rt = rs.filter((s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1 && !EMP_TYPE_RE.test(s))
+          if (rt[0]) items.push({ title: rt[0], company, location: cleanDotSuffix(rt[1]) ?? null, ...parseDateRange(rd[0]) })
         })
       } else {
         items.push({
           title: textSpans[0],
-          company: textSpans[1] ?? null,
-          location: textSpans[2] ?? null,
+          company: cleanDotSuffix(textSpans[1]) ?? null,
+          location: cleanDotSuffix(textSpans[2]) ?? null,
           ...parseDateRange(dateSpans[0]),
         })
       }
     })
     return items.filter((e) => e.title)
+  }
+
+  function scrapeIndustry() {
+    // LinkedIn shows industry on the profile page in a few different places
+    const fromAttr = text(["[data-field='industry']", "[aria-label*='industry' i]"])
+    if (fromAttr) return fromAttr
+    // Some layouts surface it as a small text near the top card
+    for (const el of document.querySelectorAll(".text-body-small, .text-body-medium")) {
+      const t = (el.textContent ?? "").trim()
+      // LinkedIn industry values are typically 1–4 words, no numbers, no "·"
+      if (t && t.length > 3 && t.length < 60 && !t.includes("·") && !t.match(/\d/) &&
+          el.closest("[data-section='industryName'], .pv-top-card-section__industry")) return t
+    }
+    return null
   }
 
   function scrapeEducation() {
@@ -299,6 +323,7 @@
       location,
       city,
       country,
+      industry: scrapeIndustry(),
       degree: scrapeConnectionDegree(),
       commonConnections: scrapeMutualConnections(),
       sharedConnections: scrapeSharedConnections(),
@@ -378,6 +403,7 @@
       : `<div class="sd-avatar-initials">${esc(initials(p.firstName, p.lastName))}</div>`
 
     const degreeBadge = p.degree ? `<span class="sd-badge">${esc(p.degree)}°</span>` : ""
+    const industryBadge = p.industry ? `<span class="sd-badge">${esc(p.industry)}</span>` : ""
 
     const expHtml = p.experience.length > 0
       ? `<ul class="sd-list">${p.experience.map((e) => `
@@ -415,7 +441,7 @@
           <div>
             <p class="sd-name">${esc((p.firstName ?? "") + " " + (p.lastName ?? "")).trim()}</p>
             ${p.headline ? `<p class="sd-headline">${esc(p.headline)}</p>` : ""}
-            <div class="sd-meta">${degreeBadge}${p.location ? esc(p.location) : ""}${p.commonConnections != null ? ` · ${p.commonConnections} mutual` : ""}</div>
+            <div class="sd-meta">${degreeBadge}${industryBadge}${p.location ? esc(p.location) : ""}${p.commonConnections != null ? ` · ${p.commonConnections} mutual` : ""}</div>
           </div>
         </div>
         <div class="sd-section"><p class="sd-section-title">Experience</p>${expHtml}</div>
