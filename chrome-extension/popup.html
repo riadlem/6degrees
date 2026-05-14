@@ -90,6 +90,29 @@
     .status-dot.connected { background: #22c55e; }
     .status-dot.error { background: #ef4444; }
     .connection-status { font-size: 11px; color: #666; display: flex; align-items: center; margin-top: 8px; }
+
+    .update-banner {
+      display: none;
+      margin: 0 0 12px;
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .update-banner.reload {
+      background: #fffbeb;
+      border: 1px solid #f59e0b;
+      color: #92400e;
+    }
+    .update-banner.reinstall {
+      background: #fef2f2;
+      border: 1px solid #ef4444;
+      color: #991b1b;
+    }
+    .update-banner strong { display: block; margin-bottom: 2px; }
+    .update-banner a { color: inherit; font-weight: 600; }
+
+    .version-line { font-size: 10px; color: #bbb; text-align: center; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -114,6 +137,8 @@
   </div>
 
   <div class="body">
+    <div id="updateBanner" class="update-banner"></div>
+
     <div class="field">
       <label>6Degrees URL</label>
       <input id="apiUrl" type="url" placeholder="https://your-app.vercel.app" />
@@ -137,6 +162,7 @@
       Get your token at <strong>6Degrees → Settings</strong>.<br />
       On a LinkedIn <code>/in/</code> profile, click <strong>Save to 6Degrees</strong>.
     </p>
+    <p class="version-line" id="versionLine">v<span id="installedVersion"></span></p>
   </div>
 
   <script src="popup.js"></script>

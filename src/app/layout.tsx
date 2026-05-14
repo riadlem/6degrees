@@ -8,6 +8,21 @@ export const metadata: Metadata = {
   description: "Navigate and organise your LinkedIn network",
 }
 
+function BuildStamp() {
+  const raw = process.env.NEXT_PUBLIC_BUILD_DATE ?? ""
+  const hash = process.env.NEXT_PUBLIC_BUILD_HASH ?? ""
+  if (!raw) return null
+  const date = new Date(raw)
+  const label = isNaN(date.getTime())
+    ? raw
+    : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+  return (
+    <footer className="text-center text-[10px] text-gray-300 py-4 select-none">
+      Updated {label}{hash ? ` · ${hash}` : ""}
+    </footer>
+  )
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -15,6 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SessionProvider>
           <Navbar />
           <main className="pt-14">{children}</main>
+          <BuildStamp />
         </SessionProvider>
       </body>
     </html>
