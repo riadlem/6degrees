@@ -453,9 +453,9 @@ function ContactsContent() {
       ) : allContacts.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 text-sm">
-            {meta?.total === 0
-              ? "No contacts yet — sync your LinkedIn network to get started."
-              : "No contacts match your filters."}
+            {filters.q || filters.company || filters.industry || filters.location || filters.position || filters.label || filters.preferredCompanies
+              ? "No contacts match your filters."
+              : "No contacts yet — sync your LinkedIn network to get started."}
           </p>
         </div>
       ) : view === "grid" ? (
