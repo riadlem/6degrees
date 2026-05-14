@@ -49,8 +49,8 @@ function ContactsContent() {
 
   type ImportState =
     | { phase: "idle" }
-    | { phase: "importing"; synced: number; failed: number; total: number; current?: string }
-    | { phase: "done"; synced: number; failed: number }
+    | { phase: "importing"; synced: number; skipped: number; failed: number; total: number; current?: string }
+    | { phase: "done"; synced: number; skipped: number; failed: number }
     | { phase: "error"; message: string }
   const [importState, setImportState] = useState<ImportState>({ phase: "idle" })
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -186,7 +186,7 @@ function ContactsContent() {
     const formData = new FormData()
     formData.append("file", file)
 
-    setImportState({ phase: "importing", synced: 0, failed: 0, total: 0 })
+    setImportState({ phase: "importing", synced: 0, skipped: 0, failed: 0, total: 0 })
 
     try {
       const res = await fetch("/api/linkedin/import", { method: "POST", body: formData })
@@ -212,9 +212,9 @@ function ContactsContent() {
           try {
             const event = JSON.parse(line.slice(6))
             if (event.type === "progress") {
-              setImportState({ phase: "importing", synced: event.synced, failed: event.failed, total: event.total, current: event.current })
+              setImportState({ phase: "importing", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed, total: event.total, current: event.current })
             } else if (event.type === "done") {
-              setImportState({ phase: "done", synced: event.synced, failed: event.failed })
+              setImportState({ phase: "done", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed })
               fetchPage(filters, 1, false)
               setTimeout(() => setImportState({ phase: "idle" }), 5000)
             } else if (event.type === "error") {
@@ -381,7 +381,11 @@ function ContactsContent() {
                   {importState.current && <span className="ml-1 text-violet-500 font-normal truncate max-w-[200px] inline-block align-bottom">{importState.current}</span>}
                 </>
               )}
-              {importState.phase === "done" && `✓ Imported ${importState.synced} contacts${importState.failed ? ` (${importState.failed} skipped)` : ""}`}
+              {importState.phase === "done" && [
+                `✓ Imported ${importState.synced} new contacts`,
+                importState.skipped ? `, ${importState.skipped} already existed` : "",
+                importState.failed  ? `, ${importState.failed} failed` : "",
+              ].join("")}
               {importState.phase === "error" && `Import error: ${importState.message}`}
             </span>
             {importState.phase === "importing" && importState.total > 0 && (
