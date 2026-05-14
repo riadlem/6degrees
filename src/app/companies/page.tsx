@@ -43,6 +43,7 @@ export type Company = {
   isPartner: boolean
   size: CompanySize | null
   type: CompanyType | null
+  parentCompany: string | null
   industry: string | null
   photos: string[]
 }
@@ -132,19 +133,23 @@ function TypeChips({
 
 function CompanyRow({
   company,
+  allCompanyNames,
   onSetStatus,
   onSetSize,
   onSetPartner,
   onSetType,
+  onSetParent,
   onRename,
   onContactClick,
   onAddToList,
 }: {
   company: Company
+  allCompanyNames: string[]
   onSetStatus: (name: string, status: "preferred" | "ignored" | "none") => void
   onSetSize: (name: string, size: CompanySize | null) => void
   onSetPartner: (name: string, isPartner: boolean) => void
   onSetType: (name: string, type: CompanyType | null) => void
+  onSetParent: (name: string, parent: string | null) => void
   onRename: (oldName: string, newName: string) => void
   onContactClick: (id: string) => void
   onAddToList: (contacts: ContactSummary[]) => void
@@ -154,6 +159,8 @@ function CompanyRow({
   const [loading, setLoading] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState("")
+  const [editingParent, setEditingParent] = useState(false)
+  const [parentValue, setParentValue] = useState("")
 
   async function expand() {
     if (expanded) { setExpanded(false); return }
@@ -187,6 +194,26 @@ function CompanyRow({
     e.stopPropagation()
     setRenaming(false)
   }
+
+  function startEditParent(e: React.MouseEvent) {
+    e.stopPropagation()
+    setParentValue(company.parentCompany ?? "")
+    setEditingParent(true)
+  }
+  function commitParent(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+    const trimmed = parentValue.trim()
+    onSetParent(company.name, trimmed || null)
+    setEditingParent(false)
+  }
+  function cancelParent(e: React.MouseEvent) {
+    e.stopPropagation()
+    setEditingParent(false)
+  }
+
+  const filteredParentSuggestions = parentValue.trim().length > 0
+    ? allCompanyNames.filter((n) => n.toLowerCase().includes(parentValue.toLowerCase()) && n !== company.name).slice(0, 6)
+    : []
 
   const starStatus = company.preferred ? "none" : "preferred"
   const ignoreStatus = company.ignored ? "none" : "ignored"
@@ -238,6 +265,7 @@ function CompanyRow({
               <button onClick={cancelRename} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={14} /></button>
             </div>
           ) : (
+            <>
             <div className="flex items-center gap-1.5 flex-wrap">
               <p className="font-semibold text-gray-900 text-sm truncate">{company.name}</p>
               <button
@@ -247,6 +275,15 @@ function CompanyRow({
               >
                 <Pencil size={11} />
               </button>
+              {!company.parentCompany && (
+                <button
+                  onClick={startEditParent}
+                  title="Set parent company"
+                  className="opacity-0 group-hover/name:opacity-100 text-gray-300 hover:text-indigo-400 transition-opacity shrink-0 text-[10px] font-medium"
+                >
+                  ↳
+                </button>
+              )}
               {company.isPartner && (
                 <span className="text-[10px] font-medium text-blue-600 bg-blue-100 rounded-full px-1.5 py-0.5 shrink-0">partner</span>
               )}
@@ -266,9 +303,62 @@ function CompanyRow({
                   {typeLabel.label}
                 </span>
               )}
+              {/* Parent company badge */}
+              {company.parentCompany && !editingParent && (
+                <button
+                  onClick={startEditParent}
+                  title="Change parent company"
+                  className="text-[10px] font-medium text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5 border border-indigo-200 shrink-0 hover:bg-indigo-100 transition-colors"
+                >
+                  ↳ {company.parentCompany}
+                </button>
+              )}
             </div>
+            {/* Parent edit inline input */}
+            {editingParent && (
+              <div className="relative mt-1" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={parentValue}
+                    onChange={(e) => setParentValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitParent(e)
+                      if (e.key === "Escape") cancelParent(e as unknown as React.MouseEvent)
+                    }}
+                    placeholder="Parent company name…"
+                    className="flex-1 text-xs border border-indigo-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white min-w-0"
+                  />
+                  <button onClick={commitParent} className="text-green-500 hover:text-green-600 shrink-0"><Check size={12} /></button>
+                  <button onClick={cancelParent} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={12} /></button>
+                  {company.parentCompany && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onSetParent(company.name, null); setEditingParent(false) }}
+                      title="Remove parent"
+                      className="text-red-400 hover:text-red-600 shrink-0 text-[10px]"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {filteredParentSuggestions.length > 0 && (
+                  <div className="absolute z-20 top-full left-0 mt-0.5 w-64 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-40 overflow-y-auto">
+                    {filteredParentSuggestions.map((name) => (
+                      <button
+                        key={name}
+                        onClick={(e) => { e.stopPropagation(); onSetParent(company.name, name); setEditingParent(false) }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 truncate"
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            </>
           )}
-          {!renaming && company.industry && (
+          {!renaming && !editingParent && company.industry && (
             <p className="text-xs text-gray-400 truncate">{company.industry}</p>
           )}
         </div>
@@ -416,6 +506,34 @@ export default function CompaniesPage() {
     })
   }
 
+  async function setParent(name: string, parentCompany: string | null) {
+    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, parentCompany }))
+    await fetch("/api/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company: name, parentCompany }),
+    })
+  }
+
+  const [autoTagging, setAutoTagging] = useState(false)
+  const [autoTagResult, setAutoTagResult] = useState<number | null>(null)
+
+  async function autoTag() {
+    setAutoTagging(true)
+    setAutoTagResult(null)
+    try {
+      const res = await fetch("/api/companies/auto-tag", { method: "POST" })
+      if (res.ok) {
+        const data = await res.json()
+        setAutoTagResult(data.tagged)
+        if (data.tagged > 0) load()
+      }
+    } finally {
+      setAutoTagging(false)
+      setTimeout(() => setAutoTagResult(null), 5000)
+    }
+  }
+
   async function renameCompany(oldName: string, newName: string) {
     const trimmed = newName.trim()
     if (!trimmed || trimmed === oldName) return
@@ -484,6 +602,21 @@ export default function CompaniesPage() {
             {ignored.length > 0 && <span className="ml-1 text-gray-400">({ignored.length} ignored)</span>}
           </p>
         </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={autoTag}
+            disabled={autoTagging}
+            title="Auto-detect subsidiaries for LVMH, Kering, BNP Paribas, big tech, etc."
+            className="text-xs font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+          >
+            {autoTagging ? "Detecting…" : "Auto-detect subsidiaries"}
+          </button>
+          {autoTagResult !== null && (
+            <span className="text-xs text-indigo-600">
+              {autoTagResult > 0 ? `↳ ${autoTagResult} tagged` : "None found"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Search + size filter */}
@@ -551,7 +684,7 @@ export default function CompaniesPage() {
               </button>
               {showReview && suspicious.map((c) => (
                 <div key={c.name} className="border-l-2 border-amber-400 pl-1">
-                  <CompanyRow company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                  <CompanyRow company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
                 </div>
               ))}
             </div>
@@ -564,7 +697,7 @@ export default function CompaniesPage() {
                 <Star size={11} fill="currentColor" /> Preferred
               </p>
               {preferred.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -576,7 +709,7 @@ export default function CompaniesPage() {
                 <Handshake size={11} /> Partners
               </p>
               {partners.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -588,7 +721,7 @@ export default function CompaniesPage() {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4">All companies</p>
               )}
               {neutral.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -605,7 +738,7 @@ export default function CompaniesPage() {
                 {showIgnored ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
               {showIgnored && ignored.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}

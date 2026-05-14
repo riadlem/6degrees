@@ -18,31 +18,55 @@ export async function GET(req: Request) {
     }),
     prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, isPartner: true, ignored: true, type: true },
+      select: { company: true, isPartner: true, ignored: true, type: true, parentCompany: true },
     }).catch(async () => {
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
       return prisma.companyPreference.findMany({
         where: { userId },
-        select: { company: true, isPartner: true, ignored: true, type: true },
-      }).catch(() => [] as { company: string; isPartner: boolean; ignored: boolean; type: string | null }[])
+        select: { company: true, isPartner: true, ignored: true, type: true, parentCompany: true },
+      }).catch(() => [] as { company: string; isPartner: boolean; ignored: boolean; type: string | null; parentCompany: string | null }[])
     }),
   ])
 
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
+  const countMap = new Map(groups.map((g) => [g.company!, g._count.id]))
 
-  const companies = groups
-    .filter((g) => g.company != null && g._count.id >= min)
-    .map((g) => {
-      const pref = prefMap.get(g.company!)
-      return {
-        name:      g.company!,
-        count:     g._count.id,
-        isPartner: pref?.isPartner ?? false,
-        ignored:   pref?.ignored  ?? false,
-        type:      pref?.type     ?? null,
-      }
+  // Build parent → subsidiaries map and set of all subsidiary names
+  const subsidiariesByParent = new Map<string, string[]>()
+  const subsidiaryNames = new Set<string>()
+  for (const pref of prefs) {
+    if (!pref.parentCompany) continue
+    subsidiaryNames.add(pref.company)
+    const arr = subsidiariesByParent.get(pref.parentCompany) ?? []
+    arr.push(pref.company)
+    subsidiariesByParent.set(pref.parentCompany, arr)
+  }
+
+  const companies: {
+    name: string; count: number; isPartner: boolean; type: string | null; subsidiaries: string[]
+  }[] = []
+
+  for (const g of groups) {
+    const name = g.company!
+    // Subsidiaries are folded into their parent — skip them as standalone tiles
+    if (subsidiaryNames.has(name)) continue
+
+    const pref = prefMap.get(name)
+    if (pref?.ignored) continue
+
+    const subs = subsidiariesByParent.get(name) ?? []
+    const totalCount = g._count.id + subs.reduce((acc, sub) => acc + (countMap.get(sub) ?? 0), 0)
+    if (totalCount < min) continue
+
+    companies.push({
+      name,
+      count: totalCount,
+      isPartner: pref?.isPartner ?? false,
+      type: pref?.type ?? null,
+      subsidiaries: subs,
     })
-    .filter((c) => !c.ignored)
+  }
 
   return Response.json({ companies })
 }

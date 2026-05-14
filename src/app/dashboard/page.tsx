@@ -71,6 +71,7 @@ type TreemapItem = {
   count: number
   isPartner: boolean
   type: string | null
+  subsidiaries: string[]
 }
 type TreeCell = TreemapItem & { x: number; y: number; w: number; h: number }
 
@@ -238,7 +239,7 @@ function CompanyTreemap({
           return (
             <button
               key={cell.name}
-              title={`${cell.name}: ${cell.count} contacts`}
+              title={`${cell.name}: ${cell.count} contacts${cell.subsidiaries.length > 0 ? ` (incl. ${cell.subsidiaries.join(", ")})` : ""}`}
               onClick={() => router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)}
               style={{
                 position: "absolute",
