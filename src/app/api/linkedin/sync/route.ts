@@ -101,15 +101,11 @@ export async function POST(req: Request) {
         let hasNext = true
 
         while (hasNext) {
-          // Save cursor before fetching so a crash/timeout leaves a resumable state
-          await saveCursor(pageIndex, total)
-
           ping()
           const page = await fetchConnectionsPage(accessToken, pageIndex)
 
           if (page.connections.length === 0) {
             if (pageIndex === 0) {
-              // No data at all — DMA data may have expired; user must re-request export
               send({
                 type: "error",
                 message:
@@ -117,7 +113,6 @@ export async function POST(req: Request) {
                   "request a new one at linkedin.com/mypreferences/d/download-my-data and try again in 24 h.",
               })
             } else {
-              // Finished earlier than expected (total was an overestimate)
               await prisma.user.update({
                 where: { id: userId },
                 data: { syncCursor: null, syncTotal: null, lastSyncAt: new Date() },
@@ -161,13 +156,17 @@ export async function POST(req: Request) {
             } catch {
               failed++
             }
-            // Send progress every 10 contacts so the client can show live activity
             if ((i + 1) % 10 === 0 || i === page.connections.length - 1) {
               const current = `${conn["First Name"]} ${conn["Last Name"]}`.trim()
               send({ type: "progress", synced, failed, total, current })
             }
           }
+
           pageIndex++
+          // Save cursor AFTER the page is fully written — cursor = next page to fetch.
+          // This ensures resume always starts from an unprocessed page rather than
+          // re-syncing contacts that were already saved in the previous run.
+          await saveCursor(pageIndex, total)
         }
 
         await prisma.user.update({
