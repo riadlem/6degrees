@@ -120,11 +120,26 @@ function ContactsContent() {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
-
       let gotTerminal = false
 
+      // Race each chunk read against a 45-second stall timeout.
+      // The server sends keepalives every 20s, so 45s means the connection
+      // is truly dead if no data arrives — avoids hanging forever when Vercel
+      // kills the function but the TCP connection stays open.
+      const readChunk = () =>
+        new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+          const t = setTimeout(
+            () => reject(new Error("Stream stalled — server stopped responding. Your progress is saved; use Resume to continue.")),
+            45_000,
+          )
+          reader.read().then(
+            (r) => { clearTimeout(t); resolve(r) },
+            (e) => { clearTimeout(t); reject(e) },
+          )
+        })
+
       while (true) {
-        const { done, value } = await reader.read()
+        const { done, value } = await readChunk()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split("\n")
