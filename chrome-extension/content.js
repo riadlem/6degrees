@@ -93,24 +93,67 @@
   }
 
   function scrapePhoto() {
-    const img = q([
+    // og:image is set before JS runs and reliably points to the real photo
+    const og = document.querySelector('meta[property="og:image"]')
+    if (og) {
+      const src = og.getAttribute("content") ?? ""
+      if (isValidPhoto(src)) return src
+    }
+    // Fallback: known class patterns
+    const selectors = [
       ".pv-top-card-profile-picture__image--show",
+      ".pv-top-card-profile-picture img",
       "img[data-anonymize='headshot-photo']",
       ".profile-photo-edit__preview",
       ".pv-top-card__photo img",
-      "section.artdeco-card img.EntityPhoto-circle-9",
-    ])
-    if (!img) return null
-    const src = img.src || img.getAttribute("data-delayed-url") || ""
-    return src && !src.includes("ghost") && !src.includes("placeholder") ? src : null
+      "img.EntityPhoto-circle-9",
+      ".presence-entity__image",
+      ".artdeco-entity-image--circle-9",
+    ]
+    for (const sel of selectors) {
+      try {
+        for (const img of document.querySelectorAll(sel)) {
+          const src = img.src || img.getAttribute("data-delayed-url") || ""
+          if (isValidPhoto(src)) return src
+        }
+      } catch { /* bad selector */ }
+    }
+    // Last resort: first LinkedIn CDN image in the profile header section
+    const header = document.querySelector(".scaffold-layout__main section, main section")
+    if (header) {
+      for (const img of header.querySelectorAll("img")) {
+        const src = img.src || img.getAttribute("data-delayed-url") || ""
+        if (isValidPhoto(src)) return src
+      }
+    }
+    return null
+  }
+
+  function isValidPhoto(src) {
+    if (!src) return false
+    if (src.includes("ghost") || src.includes("placeholder") || src.includes("static.licdn")) return false
+    return src.includes("media.licdn.com") || src.includes("mediaproxy.linkedin.com") || src.includes("dms.licdn.com")
   }
 
   function scrapeHeadline() {
-    return text([
-      ".text-body-medium.break-words",
-      "[data-field='headline']",
-      ".pv-top-card--list .text-body-medium",
-    ])
+    // Prefer scoping to the top-card to avoid grabbing unrelated .text-body-medium nodes
+    const topCard = document.querySelector(".pv-top-card, .scaffold-layout__main > section, main section")
+    if (topCard) {
+      for (const sel of [
+        ".text-body-medium.break-words",
+        "[data-field='headline']",
+        ".text-body-medium",
+      ]) {
+        try {
+          const el = topCard.querySelector(sel)
+          const t = el?.textContent?.trim()
+          // Skip short/generic text (connection count, degree badges, etc.)
+          if (t && t.length > 5 && !t.match(/^\d+/) && !t.includes("connection")) return t
+        } catch { /* skip */ }
+      }
+    }
+    // Fallback: document-wide
+    return text([".text-body-medium.break-words", "[data-field='headline']"])
   }
 
   function scrapeLocation() {
@@ -146,15 +189,22 @@
   }
 
   function scrapeSharedConnections() {
+    const currentSlug = slugFromUrl()
+    const seen = new Set()
     const results = []
     const section = [...document.querySelectorAll("section")].find(
       (s) => s.textContent.includes("mutual connection")
     )
     if (!section) return results
     section.querySelectorAll("a[href*='/in/']").forEach((a) => {
+      // Skip links to the profile currently being viewed
+      if (a.href.toLowerCase().includes(`/in/${currentSlug}`)) return
       const name = (a.querySelector("span[aria-hidden='true']")?.textContent ?? a.textContent).trim()
       const profileUrl = a.href.split("?")[0]
-      if (name && profileUrl.includes("/in/")) results.push({ name, profileUrl })
+      // Skip empty names and deduplicate
+      if (!name || !profileUrl.includes("/in/") || seen.has(profileUrl)) return
+      seen.add(profileUrl)
+      results.push({ name, profileUrl })
     })
     return results
   }
@@ -400,9 +450,25 @@
     status.textContent = ""
     status.className = ""
 
-    const result = await new Promise((resolve) =>
-      chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: currentProfile }, resolve)
-    )
+    let result
+    try {
+      result = await Promise.race([
+        new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: currentProfile }, (response) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message || "Extension messaging error"))
+            } else {
+              resolve(response)
+            }
+          })
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Timed out — check API URL and token in the popup")), 15000)
+        ),
+      ])
+    } catch (err) {
+      result = { ok: false, error: err.message }
+    }
 
     btn.disabled = false
     btn.textContent = "Save contact"
