@@ -15,10 +15,11 @@ export async function GET() {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
+    // Graceful fallback: table may not exist yet if prisma db push hasn't run
     prisma.companyPreference.findMany({
       where: { userId },
       select: { company: true },
-    }),
+    }).catch(() => [] as { company: string }[]),
   ])
 
   const preferredSet = new Set(prefs.map((p) => p.company))
@@ -84,14 +85,18 @@ export async function POST(req: Request) {
 
   const userId = session.user.id
 
-  if (preferred) {
-    await prisma.companyPreference.upsert({
-      where: { userId_company: { userId, company } },
-      create: { userId, company },
-      update: {},
-    })
-  } else {
-    await prisma.companyPreference.deleteMany({ where: { userId, company } })
+  try {
+    if (preferred) {
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company } },
+        create: { userId, company },
+        update: {},
+      })
+    } else {
+      await prisma.companyPreference.deleteMany({ where: { userId, company } })
+    }
+  } catch {
+    return Response.json({ ok: false, error: "Preferences table not ready — deploy will fix this" }, { status: 503 })
   }
 
   return Response.json({ ok: true })
