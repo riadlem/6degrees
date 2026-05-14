@@ -85,7 +85,7 @@ export async function POST(req: Request) {
 
   const userId = session.user.id
 
-  try {
+  const save = async () => {
     if (preferred) {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company } },
@@ -95,8 +95,32 @@ export async function POST(req: Request) {
     } else {
       await prisma.companyPreference.deleteMany({ where: { userId, company } })
     }
+  }
+
+  try {
+    await save()
   } catch {
-    return Response.json({ ok: false, error: "Preferences table not ready — deploy will fix this" }, { status: 503 })
+    // Table likely doesn't exist yet — create it once then retry.
+    try {
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS "CompanyPreference" (
+          "id"      TEXT NOT NULL,
+          "userId"  TEXT NOT NULL,
+          "company" TEXT NOT NULL,
+          CONSTRAINT "CompanyPreference_pkey"              PRIMARY KEY ("id"),
+          CONSTRAINT "CompanyPreference_userId_company_key" UNIQUE ("userId", "company"),
+          CONSTRAINT "CompanyPreference_userId_fkey"        FOREIGN KEY ("userId")
+            REFERENCES "User"("id") ON DELETE CASCADE
+        )
+      `
+      await prisma.$executeRaw`
+        CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"
+        ON "CompanyPreference"("userId")
+      `
+      await save()
+    } catch {
+      return Response.json({ ok: false, error: "Could not save preference" }, { status: 503 })
+    }
   }
 
   return Response.json({ ok: true })
