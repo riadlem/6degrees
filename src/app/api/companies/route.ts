@@ -17,12 +17,11 @@ export async function GET() {
     }),
     prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, ignored: true },
-    }).catch(() => [] as { company: string; ignored: boolean }[]),
+      select: { company: true, ignored: true, isPartner: true, size: true },
+    }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null }[]),
   ])
 
-  const preferredSet = new Set(prefs.filter((p) => !p.ignored).map((p) => p.company))
-  const ignoredSet  = new Set(prefs.filter((p) =>  p.ignored).map((p) => p.company))
+  const prefMap = new Map(prefs.map((p) => [p.company, p]))
 
   const companyNames = rows.map((r) => r.company as string)
 
@@ -57,43 +56,73 @@ export async function GET() {
 
   const companies = rows
     .filter((r) => r.company)
-    .map((r) => ({
-      name:      r.company as string,
-      count:     r._count.id,
-      preferred: preferredSet.has(r.company as string),
-      ignored:   ignoredSet.has(r.company as string),
-      industry:  industryByCompany.get(r.company as string) ?? null,
-      photos:    photosByCompany.get(r.company as string) ?? [],
-    }))
+    .map((r) => {
+      const pref = prefMap.get(r.company as string)
+      return {
+        name:      r.company as string,
+        count:     r._count.id,
+        preferred: pref ? !pref.ignored : false,
+        ignored:   pref?.ignored ?? false,
+        isPartner: pref?.isPartner ?? false,
+        size:      pref?.size ?? null,
+        industry:  industryByCompany.get(r.company as string) ?? null,
+        photos:    photosByCompany.get(r.company as string) ?? [],
+      }
+    })
 
-  // preferred first → neutral → ignored last; within each group sort by count desc
+  // partner+preferred → preferred → partner-only → neutral → ignored
   companies.sort((a, b) => {
-    if (a.ignored  !== b.ignored)  return a.ignored  ? 1 : -1
-    if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
+    if (a.ignored !== b.ignored) return a.ignored ? 1 : -1
+    const aScore = (a.isPartner ? 2 : 0) + (a.preferred ? 1 : 0)
+    const bScore = (b.isPartner ? 2 : 0) + (b.preferred ? 1 : 0)
+    if (aScore !== bScore) return bScore - aScore
     return b.count - a.count
   })
 
   return Response.json({ companies })
 }
 
-// POST body: { company: string; status: "preferred" | "ignored" | "none" }
+// POST body: one of:
+//   { company, status: "preferred" | "ignored" | "none" }
+//   { company, size: "small" | "medium" | "corporate" | "fortune500" | null }
+//   { company, isPartner: boolean }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const { company, status } = await req.json() as { company?: string; status?: string }
-  if (!company) return new Response("Bad request", { status: 400 })
+  const body = await req.json() as {
+    company?: string
+    status?: string
+    size?: string | null
+    isPartner?: boolean
+  }
+  if (!body.company) return new Response("Bad request", { status: 400 })
 
   const userId = session.user.id
+  const { company } = body
 
   const save = async () => {
-    if (status === "none") {
-      await prisma.companyPreference.deleteMany({ where: { userId, company } })
-    } else {
+    if ("status" in body) {
+      if (body.status === "none") {
+        await prisma.companyPreference.deleteMany({ where: { userId, company } })
+      } else {
+        await prisma.companyPreference.upsert({
+          where: { userId_company: { userId, company } },
+          create: { userId, company, ignored: body.status === "ignored" },
+          update: { ignored: body.status === "ignored" },
+        })
+      }
+    } else if ("size" in body) {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company } },
-        create: { userId, company, ignored: status === "ignored" },
-        update: { ignored: status === "ignored" },
+        create: { userId, company, size: body.size ?? null },
+        update: { size: body.size ?? null },
+      })
+    } else if ("isPartner" in body) {
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company } },
+        create: { userId, company, isPartner: !!body.isPartner },
+        update: { isPartner: !!body.isPartner },
       })
     }
   }
@@ -101,7 +130,7 @@ export async function POST(req: Request) {
   try {
     await save()
   } catch {
-    // Table likely missing — create it (self-healing migration) then retry.
+    // Table or columns missing — self-heal then retry.
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "CompanyPreference" (
@@ -118,6 +147,14 @@ export async function POST(req: Request) {
       await prisma.$executeRaw`
         ALTER TABLE "CompanyPreference"
         ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "isPartner" BOOLEAN NOT NULL DEFAULT FALSE
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "size" TEXT
       `
       await prisma.$executeRaw`
         CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"
