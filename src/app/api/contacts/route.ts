@@ -34,6 +34,8 @@ export async function GET(request: Request) {
 
   const where: Prisma.ContactWhereInput = {
     userId,
+    // Exclude contacts with no name (deactivated LinkedIn accounts)
+    NOT: { firstName: "", lastName: "" },
     // When filtering to preferred companies, only show those contacts
     ...(preferredOnly && preferredCompanies.length > 0 && { company: { in: preferredCompanies } }),
     // When not filtering to preferred, hide contacts from ignored companies (unless a specific company is requested)

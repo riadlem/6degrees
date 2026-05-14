@@ -135,6 +135,7 @@ export async function POST(req: Request) {
 
           for (let i = 0; i < page.connections.length; i++) {
             const conn = page.connections[i]
+            if (!conn["First Name"] && !conn["Last Name"]) { synced++; continue }
             const key = connectionKey(conn)
             try {
               await prisma.contact.upsert({
