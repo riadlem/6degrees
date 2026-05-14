@@ -1,7 +1,7 @@
 const SUSPICIOUS_NAMES = new Set([
   "nda","n/a","na","n/d","nd","tbd","tba","-","--","...","private",
   "confidential","stealth","stealth startup","self-employed","self employed",
-  "freelance","freelancer","independent","independent contractor",
+  "freelance","freelancer","independent","independant","independent contractor","independant contractor",
   "consultant","various","none","unknown","undisclosed","not disclosed",
 ])
 

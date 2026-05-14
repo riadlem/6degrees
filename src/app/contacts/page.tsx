@@ -60,6 +60,13 @@ function ContactsContent() {
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
 
+  // Apply ?company= URL param on first load (e.g. from treemap click-through)
+  useEffect(() => {
+    const company = searchParams.get("company")
+    if (company) setFilters((f) => ({ ...f, company }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 

@@ -18,7 +18,14 @@ export async function GET() {
     prisma.companyPreference.findMany({
       where: { userId },
       select: { company: true, ignored: true, isPartner: true, size: true, type: true },
-    }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null }[]),
+    }).catch(async () => {
+      // type column doesn't exist yet — add it, then retry
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
+      return prisma.companyPreference.findMany({
+        where: { userId },
+        select: { company: true, ignored: true, isPartner: true, size: true, type: true },
+      }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null }[])
+    }),
   ])
 
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
