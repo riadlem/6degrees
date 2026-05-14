@@ -4,12 +4,27 @@ import prisma from "@/lib/prisma"
 // Security is token-based, so a permissive CORS origin is safe.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 }
 
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS })
+}
+
+// Used by the extension popup to verify a token is valid before saving.
+export async function GET(req: Request) {
+  const auth = req.headers.get("authorization") ?? ""
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : ""
+  if (!token) return Response.json({ ok: false }, { status: 401, headers: CORS })
+
+  const user = await prisma.user.findUnique({
+    where: { extensionToken: token },
+    select: { id: true },
+  })
+  if (!user) return Response.json({ ok: false }, { status: 401, headers: CORS })
+
+  return Response.json({ ok: true }, { headers: CORS })
 }
 
 function extractSlug(profileUrl: string): string {

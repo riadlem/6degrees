@@ -79,11 +79,16 @@ saveBtn.addEventListener("click", async () => {
   saveBtn.textContent = "Verifying…"
 
   try {
-    const res = await fetch(`${apiUrl}/api/extension/token`, {
+    const res = await fetch(`${apiUrl}/api/extension/enrich`, {
       headers: { Authorization: `Bearer ${apiToken}` },
     })
     if (res.status === 404) {
       showStatus("URL not found — check your 6Degrees URL", "err")
+      saveBtn.disabled = false; saveBtn.textContent = "Save settings"
+      return
+    }
+    if (res.status === 401) {
+      showStatus("Invalid token — generate a new one in Settings", "err")
       saveBtn.disabled = false; saveBtn.textContent = "Save settings"
       return
     }

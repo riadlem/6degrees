@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Star, Users, ChevronDown, ChevronUp, Search, X } from "lucide-react"
+import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import ContactRow from "@/components/ContactRow"
 import ContactDetail from "@/components/ContactDetail"
@@ -14,6 +14,7 @@ type Company = {
   name: string
   count: number
   preferred: boolean
+  ignored: boolean
   industry: string | null
   photos: string[]
 }
@@ -45,12 +46,12 @@ function AvatarStack({ photos, name, count }: { photos: string[]; name: string; 
 
 function CompanyRow({
   company,
-  onTogglePreferred,
+  onSetStatus,
   onContactClick,
   onAddToList,
 }: {
   company: Company
-  onTogglePreferred: (name: string, preferred: boolean) => void
+  onSetStatus: (name: string, status: "preferred" | "ignored" | "none") => void
   onContactClick: (id: string) => void
   onAddToList: (contacts: ContactSummary[]) => void
 }) {
@@ -75,15 +76,23 @@ function CompanyRow({
     }
   }
 
+  const starStatus = company.preferred ? "none" : "preferred"
+  const ignoreStatus = company.ignored ? "none" : "ignored"
+
   return (
-    <div className={cn("border rounded-xl overflow-hidden transition-colors", company.preferred ? "border-amber-300 bg-amber-50/30" : "border-gray-200 bg-white")}>
+    <div className={cn(
+      "border rounded-xl overflow-hidden transition-colors",
+      company.preferred ? "border-amber-300 bg-amber-50/30" :
+      company.ignored   ? "border-gray-200 bg-gray-50/50 opacity-60" :
+                          "border-gray-200 bg-white"
+    )}>
       <div
         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50/50 transition-colors"
         onClick={expand}
       >
         {/* Star */}
         <button
-          onClick={(e) => { e.stopPropagation(); onTogglePreferred(company.name, !company.preferred) }}
+          onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, starStatus) }}
           className={cn("shrink-0 transition-colors", company.preferred ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-400")}
           title={company.preferred ? "Remove from preferred" : "Mark as preferred"}
         >
@@ -96,6 +105,9 @@ function CompanyRow({
             <p className="font-semibold text-gray-900 text-sm truncate">{company.name}</p>
             {company.preferred && (
               <span className="text-[10px] font-medium text-amber-600 bg-amber-100 rounded-full px-1.5 py-0.5 shrink-0">preferred</span>
+            )}
+            {company.ignored && (
+              <span className="text-[10px] font-medium text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 shrink-0">ignored</span>
             )}
           </div>
           {company.industry && (
@@ -113,6 +125,16 @@ function CompanyRow({
           <span className="text-xs text-gray-500 mr-1">{company.count}</span>
           <Users size={14} className="inline" />
         </div>
+
+        {/* Ignore button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, ignoreStatus) }}
+          className={cn("shrink-0 transition-colors", company.ignored ? "text-gray-400 hover:text-gray-600" : "text-gray-200 hover:text-gray-400")}
+          title={company.ignored ? "Unignore" : "Ignore company"}
+        >
+          <EyeOff size={15} />
+        </button>
+
         <div className="shrink-0 text-gray-400 ml-1">
           {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
         </div>
@@ -151,6 +173,7 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
+  const [showIgnored, setShowIgnored] = useState(false)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
 
@@ -175,30 +198,34 @@ export default function CompaniesPage() {
     if (status === "authenticated") load()
   }, [status, load])
 
-  async function togglePreferred(name: string, preferred: boolean) {
-    setCompanies((prev) =>
-      [...prev]
-        .map((c) => (c.name === name ? { ...c, preferred } : c))
-        .sort((a, b) => {
-          if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
-          return b.count - a.count
-        })
-    )
+  async function setStatus(name: string, newStatus: "preferred" | "ignored" | "none") {
+    // Optimistic update
+    setCompanies((prev) => {
+      const updated = prev.map((c) => {
+        if (c.name !== name) return c
+        return {
+          ...c,
+          preferred: newStatus === "preferred",
+          ignored:   newStatus === "ignored",
+        }
+      })
+      updated.sort((a, b) => {
+        if (a.ignored  !== b.ignored)  return a.ignored  ? 1 : -1
+        if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
+        return b.count - a.count
+      })
+      return updated
+    })
+
     const res = await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ company: name, preferred }),
+      body: JSON.stringify({ company: name, status: newStatus }),
     })
+
     if (!res.ok) {
-      // Revert optimistic update if save failed
-      setCompanies((prev) =>
-        [...prev]
-          .map((c) => (c.name === name ? { ...c, preferred: !preferred } : c))
-          .sort((a, b) => {
-            if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
-            return b.count - a.count
-          })
-      )
+      // Revert: reload from server
+      load()
     }
   }
 
@@ -207,7 +234,8 @@ export default function CompaniesPage() {
     : companies
 
   const preferred = filtered.filter((c) => c.preferred)
-  const rest = filtered.filter((c) => !c.preferred)
+  const neutral   = filtered.filter((c) => !c.preferred && !c.ignored)
+  const ignored   = filtered.filter((c) => c.ignored)
 
   if (status === "loading" || loading) {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
@@ -219,7 +247,10 @@ export default function CompaniesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Companies</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {session?.user?.name}&apos;s network — {companies.length} companies
+            {session?.user?.name}&apos;s network — {companies.filter((c) => !c.ignored).length} companies
+            {ignored.length > 0 && (
+              <span className="ml-1 text-gray-400">({ignored.length} ignored)</span>
+            )}
           </p>
         </div>
       </div>
@@ -245,7 +276,7 @@ export default function CompaniesPage() {
         <div className="text-center py-20 text-gray-400 text-sm">
           No companies yet — sync your LinkedIn contacts first.
         </div>
-      ) : filtered.length === 0 ? (
+      ) : filtered.filter((c) => !c.ignored).length === 0 && !showIgnored ? (
         <div className="text-center py-20 text-gray-400 text-sm">No companies match &ldquo;{q}&rdquo;</div>
       ) : (
         <div className="space-y-3">
@@ -259,7 +290,7 @@ export default function CompaniesPage() {
                 <CompanyRow
                   key={c.name}
                   company={c}
-                  onTogglePreferred={togglePreferred}
+                  onSetStatus={setStatus}
                   onContactClick={setActiveContactId}
                   onAddToList={setAddToListContacts}
                 />
@@ -267,17 +298,40 @@ export default function CompaniesPage() {
             </div>
           )}
 
-          {/* All companies */}
-          {rest.length > 0 && (
+          {/* Neutral companies */}
+          {neutral.length > 0 && (
             <div className="space-y-2">
               {preferred.length > 0 && (
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4">All companies</p>
               )}
-              {rest.map((c) => (
+              {neutral.map((c) => (
                 <CompanyRow
                   key={c.name}
                   company={c}
-                  onTogglePreferred={togglePreferred}
+                  onSetStatus={setStatus}
+                  onContactClick={setActiveContactId}
+                  onAddToList={setAddToListContacts}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Ignored section */}
+          {ignored.length > 0 && (
+            <div className="space-y-2 mt-6">
+              <button
+                onClick={() => setShowIgnored((v) => !v)}
+                className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1.5 hover:text-gray-500 transition-colors"
+              >
+                <EyeOff size={11} />
+                Ignored ({ignored.length})
+                {showIgnored ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+              {showIgnored && ignored.map((c) => (
+                <CompanyRow
+                  key={c.name}
+                  company={c}
+                  onSetStatus={setStatus}
                   onContactClick={setActiveContactId}
                   onAddToList={setAddToListContacts}
                 />

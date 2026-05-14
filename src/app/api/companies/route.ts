@@ -15,16 +15,15 @@ export async function GET() {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
-    // Graceful fallback: table may not exist yet if prisma db push hasn't run
     prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true },
-    }).catch(() => [] as { company: string }[]),
+      select: { company: true, ignored: true },
+    }).catch(() => [] as { company: string; ignored: boolean }[]),
   ])
 
-  const preferredSet = new Set(prefs.map((p) => p.company))
+  const preferredSet = new Set(prefs.filter((p) => !p.ignored).map((p) => p.company))
+  const ignoredSet  = new Set(prefs.filter((p) =>  p.ignored).map((p) => p.company))
 
-  // For each company grab top-4 photo URLs and the most common industry
   const companyNames = rows.map((r) => r.company as string)
 
   const [samples, industries] = await Promise.all([
@@ -49,7 +48,6 @@ export async function GET() {
     photosByCompany.set(s.company, arr)
   }
 
-  // Most common industry per company (first in groupBy result since ordered by count desc)
   const industryByCompany = new Map<string, string>()
   for (const r of industries) {
     if (r.company && r.industry && !industryByCompany.has(r.company)) {
@@ -60,15 +58,17 @@ export async function GET() {
   const companies = rows
     .filter((r) => r.company)
     .map((r) => ({
-      name: r.company as string,
-      count: r._count.id,
+      name:      r.company as string,
+      count:     r._count.id,
       preferred: preferredSet.has(r.company as string),
-      industry: industryByCompany.get(r.company as string) ?? null,
-      photos: photosByCompany.get(r.company as string) ?? [],
+      ignored:   ignoredSet.has(r.company as string),
+      industry:  industryByCompany.get(r.company as string) ?? null,
+      photos:    photosByCompany.get(r.company as string) ?? [],
     }))
 
-  // Preferred first, then by count desc
+  // preferred first → neutral → ignored last; within each group sort by count desc
   companies.sort((a, b) => {
+    if (a.ignored  !== b.ignored)  return a.ignored  ? 1 : -1
     if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
     return b.count - a.count
   })
@@ -76,42 +76,48 @@ export async function GET() {
   return Response.json({ companies })
 }
 
+// POST body: { company: string; status: "preferred" | "ignored" | "none" }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const { company, preferred } = await req.json()
+  const { company, status } = await req.json() as { company?: string; status?: string }
   if (!company) return new Response("Bad request", { status: 400 })
 
   const userId = session.user.id
 
   const save = async () => {
-    if (preferred) {
+    if (status === "none") {
+      await prisma.companyPreference.deleteMany({ where: { userId, company } })
+    } else {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company } },
-        create: { userId, company },
-        update: {},
+        create: { userId, company, ignored: status === "ignored" },
+        update: { ignored: status === "ignored" },
       })
-    } else {
-      await prisma.companyPreference.deleteMany({ where: { userId, company } })
     }
   }
 
   try {
     await save()
   } catch {
-    // Table likely doesn't exist yet — create it once then retry.
+    // Table likely missing — create it (self-healing migration) then retry.
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "CompanyPreference" (
           "id"      TEXT NOT NULL,
           "userId"  TEXT NOT NULL,
           "company" TEXT NOT NULL,
-          CONSTRAINT "CompanyPreference_pkey"              PRIMARY KEY ("id"),
-          CONSTRAINT "CompanyPreference_userId_company_key" UNIQUE ("userId", "company"),
-          CONSTRAINT "CompanyPreference_userId_fkey"        FOREIGN KEY ("userId")
+          "ignored" BOOLEAN NOT NULL DEFAULT FALSE,
+          CONSTRAINT "CompanyPreference_pkey"               PRIMARY KEY ("id"),
+          CONSTRAINT "CompanyPreference_userId_company_key"  UNIQUE ("userId", "company"),
+          CONSTRAINT "CompanyPreference_userId_fkey"         FOREIGN KEY ("userId")
             REFERENCES "User"("id") ON DELETE CASCADE
         )
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE
       `
       await prisma.$executeRaw`
         CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"

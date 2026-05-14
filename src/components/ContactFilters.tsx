@@ -1,6 +1,6 @@
 "use client"
 
-import { Search, X, SlidersHorizontal } from "lucide-react"
+import { Search, X, SlidersHorizontal, Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { labelColors } from "@/lib/label-colors"
@@ -13,6 +13,7 @@ export interface FilterState {
   position: string
   label: string
   sort: string
+  preferredCompanies: boolean
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -79,7 +80,7 @@ function FilterSelect({
 
 export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
-  const activeCount = [filters.company, filters.industry, filters.location, filters.position, filters.label].filter(Boolean).length
+  const activeCount = [filters.company, filters.industry, filters.location, filters.position, filters.label].filter(Boolean).length + (filters.preferredCompanies ? 1 : 0)
 
   return (
     <div className="space-y-4">
@@ -105,9 +106,23 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
 
       {/* Filter toggle (mobile) + count */}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-gray-500">
-          <span className="font-semibold text-gray-900">{total}</span> contact{total !== 1 ? "s" : ""}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-gray-500">
+            <span className="font-semibold text-gray-900">{total}</span> contact{total !== 1 ? "s" : ""}
+          </p>
+          <button
+            onClick={() => onChange({ preferredCompanies: !filters.preferredCompanies })}
+            className={cn(
+              "flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors font-medium",
+              filters.preferredCompanies
+                ? "bg-amber-50 border-amber-300 text-amber-700"
+                : "border-gray-200 text-gray-500 hover:bg-gray-50"
+            )}
+          >
+            <Star size={11} fill={filters.preferredCompanies ? "currentColor" : "none"} />
+            Preferred
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           {/* Sort dropdown — always visible */}
           <select
