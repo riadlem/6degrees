@@ -17,8 +17,8 @@ export async function GET() {
     }),
     prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, ignored: true, isPartner: true, size: true },
-    }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null }[]),
+      select: { company: true, ignored: true, isPartner: true, size: true, type: true },
+    }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null }[]),
   ])
 
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
@@ -26,6 +26,7 @@ export async function GET() {
   const companyNames = rows.map((r) => r.company as string)
 
   const [samples, industries] = await Promise.all([
+
     prisma.contact.findMany({
       where: { userId, company: { in: companyNames }, photoUrl: { not: null } },
       select: { company: true, photoUrl: true, id: true },
@@ -65,6 +66,7 @@ export async function GET() {
         ignored:   pref?.ignored ?? false,
         isPartner: pref?.isPartner ?? false,
         size:      pref?.size ?? null,
+        type:      pref?.type ?? null,
         industry:  industryByCompany.get(r.company as string) ?? null,
         photos:    photosByCompany.get(r.company as string) ?? [],
       }
@@ -86,6 +88,7 @@ export async function GET() {
 //   { company, status: "preferred" | "ignored" | "none" }
 //   { company, size: "small" | "medium" | "corporate" | "fortune500" | null }
 //   { company, isPartner: boolean }
+//   { company, type: "brand" | "non-brand" | "independent" | null }
 //   { company, newName: string }  ← rename/merge: moves all contacts + migrates preference
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
@@ -96,6 +99,7 @@ export async function POST(req: Request) {
     status?: string
     size?: string | null
     isPartner?: boolean
+    type?: string | null
     newName?: string
   }
   if (!body.company) return new Response("Bad request", { status: 400 })
@@ -116,7 +120,7 @@ export async function POST(req: Request) {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company: newName } },
         update: {},
-        create: { userId, company: newName, ignored: oldPref.ignored, isPartner: oldPref.isPartner, size: oldPref.size },
+        create: { userId, company: newName, ignored: oldPref.ignored, isPartner: oldPref.isPartner, size: oldPref.size, type: oldPref.type },
       })
     }
     return Response.json({ ok: true })
@@ -144,6 +148,12 @@ export async function POST(req: Request) {
         where: { userId_company: { userId, company } },
         create: { userId, company, isPartner: !!body.isPartner },
         update: { isPartner: !!body.isPartner },
+      })
+    } else if ("type" in body) {
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company } },
+        create: { userId, company, type: body.type ?? null },
+        update: { type: body.type ?? null },
       })
     }
   }
@@ -176,6 +186,10 @@ export async function POST(req: Request) {
       await prisma.$executeRaw`
         ALTER TABLE "CompanyPreference"
         ADD COLUMN IF NOT EXISTS "size" TEXT
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "type" TEXT
       `
       await prisma.$executeRaw`
         CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"

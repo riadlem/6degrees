@@ -5,12 +5,14 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
+import { isSuspicious } from "@/lib/company-utils"
 import ContactRow from "@/components/ContactRow"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
 import { type ContactSummary } from "@/components/ContactCard"
 
 export type CompanySize = "small" | "medium" | "corporate" | "fortune500"
+export type CompanyType = "brand" | "non-brand" | "independent"
 
 const SIZE_OPTIONS: { value: CompanySize; label: string; short: string }[] = [
   { value: "small",      label: "Small",       short: "S"    },
@@ -19,12 +21,19 @@ const SIZE_OPTIONS: { value: CompanySize; label: string; short: string }[] = [
   { value: "fortune500", label: "Fortune 500", short: "F500" },
 ]
 
-const SIZE_COLORS: Record<CompanySize, string> = {
+const SIZE_COLORS: Record<string, string> = {
   small:      "bg-emerald-50 text-emerald-700 border-emerald-200",
   medium:     "bg-sky-50 text-sky-700 border-sky-200",
   corporate:  "bg-violet-50 text-violet-700 border-violet-200",
   fortune500: "bg-amber-50 text-amber-700 border-amber-200",
+  untagged:   "bg-gray-100 text-gray-600 border-gray-300",
 }
+
+const TYPE_OPTIONS: { value: CompanyType; label: string; color: string }[] = [
+  { value: "brand",       label: "Brand",     color: "bg-violet-50 text-violet-700 border-violet-200" },
+  { value: "non-brand",   label: "Non-brand", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  { value: "independent", label: "Indep.",    color: "bg-amber-50 text-amber-700 border-amber-200" },
+]
 
 export type Company = {
   name: string
@@ -33,6 +42,7 @@ export type Company = {
   ignored: boolean
   isPartner: boolean
   size: CompanySize | null
+  type: CompanyType | null
   industry: string | null
   photos: string[]
 }
@@ -91,14 +101,33 @@ function SizeChips({
   )
 }
 
-const SUSPICIOUS_NAMES = new Set([
-  "nda","n/a","na","n/d","nd","tbd","tba","-","--","...","private",
-  "confidential","stealth","stealth startup","self-employed","self employed",
-  "freelance","freelancer","independent","independent contractor",
-  "consultant","various","none","unknown","undisclosed","not disclosed",
-])
-function isSuspicious(name: string): boolean {
-  return SUSPICIOUS_NAMES.has(name.toLowerCase().trim())
+function TypeChips({
+  value,
+  onChange,
+}: {
+  value: CompanyType | null
+  onChange: (type: CompanyType | null) => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {TYPE_OPTIONS.map((opt) => {
+        const active = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            onClick={(e) => { e.stopPropagation(); onChange(active ? null : opt.value) }}
+            title={opt.label}
+            className={cn(
+              "text-[10px] font-semibold px-1.5 py-0.5 rounded border transition-colors",
+              active ? opt.color : "border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600"
+            )}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function CompanyRow({
@@ -106,6 +135,7 @@ function CompanyRow({
   onSetStatus,
   onSetSize,
   onSetPartner,
+  onSetType,
   onRename,
   onContactClick,
   onAddToList,
@@ -114,6 +144,7 @@ function CompanyRow({
   onSetStatus: (name: string, status: "preferred" | "ignored" | "none") => void
   onSetSize: (name: string, size: CompanySize | null) => void
   onSetPartner: (name: string, isPartner: boolean) => void
+  onSetType: (name: string, type: CompanyType | null) => void
   onRename: (oldName: string, newName: string) => void
   onContactClick: (id: string) => void
   onAddToList: (contacts: ContactSummary[]) => void
@@ -159,6 +190,7 @@ function CompanyRow({
 
   const starStatus = company.preferred ? "none" : "preferred"
   const ignoreStatus = company.ignored ? "none" : "ignored"
+  const typeLabel = company.type ? TYPE_OPTIONS.find((o) => o.value === company.type) : null
 
   return (
     <div className={cn(
@@ -229,6 +261,11 @@ function CompanyRow({
                   {SIZE_OPTIONS.find((o) => o.value === company.size)?.label}
                 </span>
               )}
+              {typeLabel && (
+                <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0", typeLabel.color)}>
+                  {typeLabel.label}
+                </span>
+              )}
             </div>
           )}
           {!renaming && company.industry && (
@@ -236,9 +273,10 @@ function CompanyRow({
           )}
         </div>
 
-        {/* Size chips — hidden on mobile, visible on sm+ */}
-        <div className="hidden sm:block shrink-0" onClick={(e) => e.stopPropagation()}>
+        {/* Size + type chips — hidden on mobile */}
+        <div className="hidden sm:flex flex-col gap-1 shrink-0 items-end" onClick={(e) => e.stopPropagation()}>
           <SizeChips value={company.size} onChange={(size) => onSetSize(company.name, size)} />
+          <TypeChips value={company.type} onChange={(type) => onSetType(company.name, type)} />
         </div>
 
         {/* Avatar stack */}
@@ -266,10 +304,16 @@ function CompanyRow({
         </div>
       </div>
 
-      {/* Mobile size chips row */}
-      <div className="sm:hidden px-3 pb-2 -mt-1 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-        <span className="text-[10px] text-gray-400">Size:</span>
-        <SizeChips value={company.size} onChange={(size) => onSetSize(company.name, size)} />
+      {/* Mobile size + type chips row */}
+      <div className="sm:hidden px-3 pb-2 -mt-1 flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-400">Size:</span>
+          <SizeChips value={company.size} onChange={(size) => onSetSize(company.name, size)} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-400">Type:</span>
+          <TypeChips value={company.type} onChange={(type) => onSetType(company.name, type)} />
+        </div>
       </div>
 
       {expanded && (
@@ -305,7 +349,7 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
-  const [sizeFilter, setSizeFilter] = useState<CompanySize | null>(null)
+  const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
   const [showIgnored, setShowIgnored] = useState(false)
   const [showReview, setShowReview] = useState(true)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
@@ -363,6 +407,15 @@ export default function CompaniesPage() {
     if (!res.ok) load()
   }
 
+  async function setType(name: string, type: CompanyType | null) {
+    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, type }))
+    await fetch("/api/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company: name, type }),
+    })
+  }
+
   async function renameCompany(oldName: string, newName: string) {
     const trimmed = newName.trim()
     if (!trimmed || trimmed === oldName) return
@@ -386,10 +439,23 @@ export default function CompaniesPage() {
     if (!res.ok) load()
   }
 
+  function toggleSizeFilter(val: string) {
+    setSizeFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(val)) next.delete(val)
+      else next.add(val)
+      return next
+    })
+  }
+
   const textMatch = (c: Company) =>
     !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.industry?.toLowerCase().includes(q.toLowerCase())
 
-  const sizeMatch = (c: Company) => !sizeFilter || c.size === sizeFilter
+  const sizeMatch = (c: Company) => {
+    if (sizeFilters.size === 0) return true
+    if (sizeFilters.has("untagged") && c.size === null) return true
+    return c.size !== null && sizeFilters.has(c.size)
+  }
 
   const preferred  = companies.filter((c) => c.preferred && !c.ignored && !isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
   const partners   = companies.filter((c) => c.isPartner && !c.preferred && !c.ignored && !isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
@@ -398,6 +464,11 @@ export default function CompaniesPage() {
   const suspicious = companies.filter((c) => !c.ignored && isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
 
   const visibleCount = preferred.length + partners.length + neutral.length
+
+  const allSizeOptions = [
+    ...SIZE_OPTIONS,
+    { value: "untagged", label: "Untagged", short: "?" },
+  ]
 
   if (status === "loading" || loading) {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
@@ -433,14 +504,14 @@ export default function CompaniesPage() {
           )}
         </div>
 
-        {/* Size filter chips */}
+        {/* Multi-select size filter chips — includes Untagged */}
         <div className="flex items-center gap-1 shrink-0">
-          {SIZE_OPTIONS.map((opt) => {
-            const active = sizeFilter === opt.value
+          {allSizeOptions.map((opt) => {
+            const active = sizeFilters.has(opt.value)
             return (
               <button
                 key={opt.value}
-                onClick={() => setSizeFilter(active ? null : opt.value)}
+                onClick={() => toggleSizeFilter(opt.value)}
                 title={opt.label}
                 className={cn(
                   "text-xs font-semibold px-2.5 py-2 rounded-lg border transition-colors",
@@ -451,6 +522,11 @@ export default function CompaniesPage() {
               </button>
             )
           })}
+          {sizeFilters.size > 0 && (
+            <button onClick={() => setSizeFilters(new Set())} className="text-gray-400 hover:text-gray-600 ml-1" title="Clear size filter">
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -458,7 +534,7 @@ export default function CompaniesPage() {
         <div className="text-center py-20 text-gray-400 text-sm">
           No companies yet — sync your LinkedIn contacts first.
         </div>
-      ) : visibleCount === 0 && !showIgnored ? (
+      ) : visibleCount === 0 && !showIgnored && suspicious.length === 0 ? (
         <div className="text-center py-20 text-gray-400 text-sm">No companies match your filters.</div>
       ) : (
         <div className="space-y-3">
@@ -475,7 +551,7 @@ export default function CompaniesPage() {
               </button>
               {showReview && suspicious.map((c) => (
                 <div key={c.name} className="border-l-2 border-amber-400 pl-1">
-                  <CompanyRow company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                  <CompanyRow company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
                 </div>
               ))}
             </div>
@@ -488,7 +564,7 @@ export default function CompaniesPage() {
                 <Star size={11} fill="currentColor" /> Preferred
               </p>
               {preferred.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -500,7 +576,7 @@ export default function CompaniesPage() {
                 <Handshake size={11} /> Partners
               </p>
               {partners.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -512,7 +588,7 @@ export default function CompaniesPage() {
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4">All companies</p>
               )}
               {neutral.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
@@ -529,7 +605,7 @@ export default function CompaniesPage() {
                 {showIgnored ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
               {showIgnored && ignored.map((c) => (
-                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
+                <CompanyRow key={c.name} company={c} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
               ))}
             </div>
           )}
