@@ -61,6 +61,7 @@ model User {
   contacts       Contact[]
   lists          ContactList[]
   labels         Label[]
+  companyPrefs   CompanyPreference[]
   lastSyncAt     DateTime?
 }
 
@@ -155,6 +156,16 @@ model Label {
   contacts ContactLabel[]
 
   @@unique([userId, name])
+  @@index([userId])
+}
+
+model CompanyPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  company   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, company])
   @@index([userId])
 }
 
