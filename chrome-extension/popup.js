@@ -7,7 +7,7 @@ const statusText = document.getElementById("statusText")
 
 // Load saved settings
 chrome.storage.local.get(["apiUrl", "apiToken"], ({ apiUrl, apiToken }) => {
-  if (apiUrl) urlInput.value = apiUrl
+  urlInput.value = apiUrl || "https://6degrees-one.vercel.app"
   if (apiToken) tokenInput.value = apiToken
   updateConnectionIndicator(apiUrl, apiToken)
 })
