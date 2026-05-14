@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye } from "lucide-react"
+import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye, Download, Maximize2 } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { labelColors } from "@/lib/label-colors"
 import { isSuspicious } from "@/lib/company-utils"
@@ -78,16 +79,23 @@ const PALETTE = [
   "#EF4444","#06B6D4","#84CC16","#A855F7","#64748B",
 ]
 
-// Semantic colors: partner > brand > non-brand > independent > hash fallback
 function colorForCompany(item: TreemapItem): string {
-  if (item.isPartner)              return "#2563EB"  // blue-600
-  if (item.type === "brand")       return "#7C3AED"  // violet-600
-  if (item.type === "non-brand")   return "#059669"  // emerald-600
-  if (item.type === "independent") return "#D97706"  // amber-600
+  if (item.isPartner)              return "#2563EB"
+  if (item.type === "brand")       return "#7C3AED"
+  if (item.type === "non-brand")   return "#059669"
+  if (item.type === "independent") return "#D97706"
   let h = 0
   for (let i = 0; i < item.name.length; i++) h = (h * 31 + item.name.charCodeAt(i)) | 0
   return PALETTE[Math.abs(h) % PALETTE.length]
 }
+
+const COLOR_LEGEND = [
+  { color: "#2563EB", label: "Partner" },
+  { color: "#7C3AED", label: "Brand" },
+  { color: "#059669", label: "Non-brand" },
+  { color: "#D97706", label: "Independent" },
+  { color: "#6366F1", label: "Untagged" },
+]
 
 function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: number): TreeCell[] {
   if (items.length === 0) return []
@@ -109,11 +117,20 @@ function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: 
   }
 }
 
-function CompanyTreemap({ data }: { data: TreemapItem[] }) {
+function CompanyTreemap({
+  data,
+  height = 400,
+  onExpand,
+}: {
+  data: TreemapItem[]
+  height?: number | string
+  onExpand?: () => void
+}) {
   const router = useRouter()
   const ref = useRef<HTMLDivElement>(null)
   const [dims, setDims] = useState({ w: 0, h: 0 })
   const [logos, setLogos] = useState<Record<string, string>>({})
+  const [failedLogos, setFailedLogos] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const el = ref.current
@@ -125,15 +142,26 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
 
   useEffect(() => {
     if (!data.length) return
-    data.forEach(({ name }) => {
+    setFailedLogos(new Set())
+    // Immediately set guessed logos via Clearbit Logo API (no request needed, instant)
+    const guessed: Record<string, string> = {}
+    for (const { name } of data) {
+      const domain = name.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim().split(/\s+/)[0] + ".com"
+      guessed[name] = `https://logo.clearbit.com/${domain}`
+    }
+    setLogos(guessed)
+    // Upgrade with autocomplete for accurate domains
+    for (const { name } of data) {
       fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(name)}&limit=1`)
         .then((r) => r.json())
-        .then((results: Array<{ logo?: string; domain?: string }>) => {
-          const logo = results[0]?.logo
-          if (logo) setLogos((prev) => ({ ...prev, [name]: logo }))
+        .then((results: Array<{ logo?: string }>) => {
+          if (results[0]?.logo) {
+            setLogos((prev) => ({ ...prev, [name]: results[0].logo! }))
+            setFailedLogos((prev) => { const n = new Set(prev); n.delete(name); return n })
+          }
         })
         .catch(() => {})
-    })
+    }
   }, [data])
 
   const cells = useMemo(
@@ -141,53 +169,115 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
     [data, dims]
   )
 
-  return (
-    <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-100" style={{ height: 400 }}>
-      {cells.map((cell) => {
-        const color = colorForCompany(cell)
-        const logo = logos[cell.name]
-        const cellW = cell.w - 2
-        const cellH = cell.h - 2
-        const showLogo = cellW > 28 && cellH > 28
-        const showName = cellW > 60 && cellH > 52
+  function handleExport() {
+    if (!cells.length || !dims.w || !dims.h) return
+    const dpr = window.devicePixelRatio || 1
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(dims.w * dpr)
+    canvas.height = Math.round(dims.h * dpr)
+    const ctx = canvas.getContext("2d")!
+    ctx.scale(dpr, dpr)
+    ctx.fillStyle = "#D1D5DB"
+    ctx.fillRect(0, 0, dims.w, dims.h)
+    for (const cell of cells) {
+      const cw = cell.w - 2, ch = cell.h - 2, cx = cell.x + 1, cy = cell.y + 1
+      ctx.fillStyle = colorForCompany(cell)
+      ctx.beginPath()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((ctx as any).roundRect) (ctx as any).roundRect(cx, cy, cw, ch, 4)
+      else ctx.rect(cx, cy, cw, ch)
+      ctx.fill()
+      if (cw > 60 && ch > 52) {
+        ctx.fillStyle = "rgba(255,255,255,0.9)"
+        ctx.font = "600 9px system-ui,sans-serif"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(cell.name, cx + cw / 2, cy + ch / 2 - (ch > 38 ? 6 : 0), cw - 8)
+      }
+      if (ch > 30) {
+        ctx.fillStyle = "rgba(255,255,255,0.65)"
+        ctx.font = "700 8px system-ui,sans-serif"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "bottom"
+        ctx.fillText(String(cell.count), cx + cw / 2, cy + ch - 4, cw - 8)
+      }
+    }
+    const a = document.createElement("a")
+    a.download = "6degrees-treemap.png"
+    a.href = canvas.toDataURL("image/png")
+    a.click()
+  }
 
-        return (
+  return (
+    <div className="relative">
+      <div className="absolute top-2 right-2 z-10 flex gap-1">
+        <button
+          onClick={handleExport}
+          title="Export PNG"
+          className="text-white/70 hover:text-white bg-black/25 hover:bg-black/40 rounded p-1 transition-colors"
+        >
+          <Download size={13} />
+        </button>
+        {onExpand && (
           <button
-            key={cell.name}
-            title={`${cell.name}: ${cell.count} contacts`}
-            onClick={() => router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)}
-            style={{ position: "absolute", left: cell.x + 1, top: cell.y + 1, width: cellW, height: cellH, backgroundColor: color }}
-            className="rounded overflow-hidden flex flex-col items-center justify-center gap-0.5 hover:brightness-110 active:brightness-90 transition-[filter]"
+            onClick={onExpand}
+            title="Full screen"
+            className="text-white/70 hover:text-white bg-black/25 hover:bg-black/40 rounded p-1 transition-colors"
           >
-            {showLogo && (
-              <>
-                {logo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={logo}
-                    alt=""
-                    style={{ width: cellW > 80 ? 28 : 18, height: cellW > 80 ? 28 : 18 }}
-                    className="rounded object-contain bg-white/20 p-0.5 shrink-0"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
-                  />
-                ) : (
-                  <span className="text-[10px] font-bold text-white/80">
-                    {initials(cell.name.split(" ")[0] ?? "", cell.name.split(" ")[1] ?? "")}
-                  </span>
-                )}
-                {showName && (
-                  <span className="text-[9px] font-semibold text-white/90 leading-tight px-1 w-full text-center truncate">
-                    {cell.name}
-                  </span>
-                )}
-                {cellH > 40 && (
-                  <span className="text-[9px] font-bold text-white/70">{cell.count}</span>
-                )}
-              </>
-            )}
+            <Maximize2 size={13} />
           </button>
-        )
-      })}
+        )}
+      </div>
+      <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-200" style={{ height }}>
+        {cells.map((cell) => {
+          const logo = !failedLogos.has(cell.name) ? logos[cell.name] : undefined
+          const cellW = cell.w - 2, cellH = cell.h - 2
+          const showContent = cellW > 28 && cellH > 28
+          const showName = cellW > 60 && cellH > 52
+
+          return (
+            <button
+              key={cell.name}
+              title={`${cell.name}: ${cell.count} contacts`}
+              onClick={() => router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)}
+              style={{
+                position: "absolute",
+                left: cell.x + 1, top: cell.y + 1,
+                width: cellW, height: cellH,
+                backgroundColor: colorForCompany(cell),
+              }}
+              className="rounded overflow-hidden flex flex-col items-center justify-center gap-0.5 hover:brightness-110 active:brightness-90 transition-[filter]"
+            >
+              {showContent && (
+                <>
+                  {logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={logo}
+                      alt=""
+                      style={{ width: cellW > 80 ? 26 : 16, height: cellW > 80 ? 26 : 16 }}
+                      className="rounded object-contain bg-white/20 p-0.5 shrink-0"
+                      onError={() => setFailedLogos((prev) => new Set([...prev, cell.name]))}
+                    />
+                  ) : (
+                    <span className="text-[10px] font-bold text-white/80 shrink-0">
+                      {initials(cell.name.split(" ")[0] ?? "", cell.name.split(" ")[1] ?? "")}
+                    </span>
+                  )}
+                  {showName && (
+                    <span className="text-[9px] font-semibold text-white/90 leading-tight px-1 w-full text-center truncate">
+                      {cell.name}
+                    </span>
+                  )}
+                  {cellH > 40 && (
+                    <span className="text-[9px] font-bold text-white/70">{cell.count}</span>
+                  )}
+                </>
+              )}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -341,6 +431,7 @@ export default function DashboardPage() {
   const [partnerOnly, setPartnerOnly] = useState(false)
   const [minThreshold, setMinThreshold] = useState(2)
   const [hideSuspicious, setHideSuspicious] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -374,7 +465,7 @@ export default function DashboardPage() {
 
   const treemapData = allTreemapData
     .filter((c) => c.count >= minThreshold)
-    .filter((c) => !hideSuspicious || !isSuspicious(c.name))
+    .filter((c) => !hideSuspicious || (!isSuspicious(c.name) && c.type !== "independent"))
 
   const filtered = companies.filter((c) => {
     if (partnerOnly && !c.isPartner) return false
@@ -438,13 +529,13 @@ export default function DashboardPage() {
                   className="w-3.5 h-3.5 accent-amber-500 rounded"
                 />
                 <Eye size={11} />
-                Hide freelance / NDA
+                Hide freelance / NDA / Independent
               </label>
             </div>
           </div>
 
           {treemapData.length > 0 ? (
-            <CompanyTreemap data={treemapData} />
+            <CompanyTreemap data={treemapData} onExpand={() => setFullscreen(true)} />
           ) : (
             <div className="flex items-center justify-center h-24 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400">
               No companies above threshold
@@ -533,6 +624,32 @@ export default function DashboardPage() {
       )}
 
       <ContactDetail contactId={activeContactId} onClose={() => setActiveContactId(null)} />
+
+      {fullscreen && createPortal(
+        <div className="fixed inset-0 z-[100] bg-gray-950 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 shrink-0">
+            <span className="text-white font-semibold text-sm">Company Map</span>
+            <button
+              onClick={() => setFullscreen(false)}
+              className="text-white/70 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 p-3">
+            <CompanyTreemap data={treemapData} height="100%" />
+          </div>
+          <div className="flex items-center gap-4 px-4 pb-3 flex-wrap">
+            {COLOR_LEGEND.map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
+                <span className="text-[10px] text-gray-400">{label}</span>
+              </div>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
