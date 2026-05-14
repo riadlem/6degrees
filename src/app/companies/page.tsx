@@ -184,11 +184,22 @@ export default function CompaniesPage() {
           return b.count - a.count
         })
     )
-    await fetch("/api/companies", {
+    const res = await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ company: name, preferred }),
     })
+    if (!res.ok) {
+      // Revert optimistic update if save failed
+      setCompanies((prev) =>
+        [...prev]
+          .map((c) => (c.name === name ? { ...c, preferred: !preferred } : c))
+          .sort((a, b) => {
+            if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
+            return b.count - a.count
+          })
+      )
+    }
   }
 
   const filtered = q
