@@ -3,13 +3,14 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings, Puzzle } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 
 const navLinks = [
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/lists", label: "Lists", icon: List },
+  { href: "/enrich", label: "Enrich", icon: Sparkles },
 ]
 
 export default function Navbar() {
