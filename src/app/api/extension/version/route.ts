@@ -16,13 +16,14 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.1.0",
+  latest:                "1.1.1",
   reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.1.0",
+  reloadRequiredBelow:   "1.1.1",
   notes: [
+    "v1.1.1: Version shown in popup header; photo scraping also checks data-ghost-url",
+    "        (LinkedIn lazy-loaded images).",
     "v1.1.0: Fixed photo detection (avatar vs background), company name parsing,",
-    "        location scraping, CORS, pagination bug (sync now completes fully),",
-    "        mutual-connection deduplication, 45s stream-stall detection.",
+    "        location scraping, CORS, pagination bug, mutual-connection deduplication.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────

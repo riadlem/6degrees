@@ -10,6 +10,7 @@ const installedVersionEl = document.getElementById("installedVersion")
 
 const { version: INSTALLED_VERSION } = chrome.runtime.getManifest()
 installedVersionEl.textContent = INSTALLED_VERSION
+document.getElementById("headerVersion").textContent = `v${INSTALLED_VERSION}`
 
 // Simple semver comparison — returns negative if a < b, 0 if equal, positive if a > b
 function semverCmp(a, b) {

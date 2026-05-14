@@ -134,7 +134,8 @@ export async function POST(req: Request) {
             send({ type: "status", message: `Found ${total} connections, syncing…`, total })
           }
 
-          for (const conn of page.connections) {
+          for (let i = 0; i < page.connections.length; i++) {
+            const conn = page.connections[i]
             const key = connectionKey(conn)
             try {
               await prisma.contact.upsert({
@@ -160,9 +161,12 @@ export async function POST(req: Request) {
             } catch {
               failed++
             }
+            // Send progress every 10 contacts so the client can show live activity
+            if ((i + 1) % 10 === 0 || i === page.connections.length - 1) {
+              const current = `${conn["First Name"]} ${conn["Last Name"]}`.trim()
+              send({ type: "progress", synced, failed, total, current })
+            }
           }
-
-          send({ type: "progress", synced, failed, total })
           pageIndex++
         }
 

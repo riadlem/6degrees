@@ -96,7 +96,7 @@
     // LinkedIn CDN URLs for profile photos always contain "profile-displayphoto"
     // Background/banner images contain "profile-displaybackgroundimage" — skip those
     for (const img of document.querySelectorAll("img")) {
-      const src = img.src || img.getAttribute("data-delayed-url") || ""
+      const src = img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
       if (src.includes("profile-displayphoto") && isValidPhoto(src)) return src
     }
     // Fallback: class-based selectors (older LinkedIn layouts)
@@ -108,7 +108,7 @@
     ]) {
       try {
         for (const img of document.querySelectorAll(sel)) {
-          const src = img.src || img.getAttribute("data-delayed-url") || ""
+          const src = img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
           if (isValidPhoto(src)) return src
         }
       } catch { /* bad selector */ }

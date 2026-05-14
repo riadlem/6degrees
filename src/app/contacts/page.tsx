@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus, Tag } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
 import ManageLabelsModal from "@/components/ManageLabelsModal"
+import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
   q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name",
@@ -43,16 +44,7 @@ function ContactsContent() {
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
 
-  type SyncState =
-    | { phase: "idle" }
-    | { phase: "connecting" }
-    | { phase: "fetching"; total?: number }
-    | { phase: "syncing"; synced: number; failed: number; total: number }
-    | { phase: "done"; synced: number; failed: number }
-    | { phase: "error"; message: string }
-
-  const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" })
-  const [resumable, setResumable] = useState<{ cursor: number; total: number | null } | null>(null)
+  const { syncState, resumable, setResumable, sync } = useSyncContext()
   const searchParams = useSearchParams()
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
@@ -105,87 +97,15 @@ function ContactsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
-  async function sync(restart = false) {
-    setResumable(null)
-    setSyncState({ phase: "connecting" })
-    try {
-      const res = await fetch(`/api/linkedin/sync${restart ? "?restart=true" : ""}`, { method: "POST" })
-      if (!res.ok || !res.body) {
-        const json = await res.json().catch(() => ({}))
-        setSyncState({ phase: "error", message: json.error ?? "Sync failed" })
-        setTimeout(() => setSyncState({ phase: "idle" }), 6000)
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let gotTerminal = false
-
-      // Race each chunk read against a 45-second stall timeout.
-      // The server sends keepalives every 20s, so 45s means the connection
-      // is truly dead if no data arrives — avoids hanging forever when Vercel
-      // kills the function but the TCP connection stays open.
-      const readChunk = () =>
-        new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
-          const t = setTimeout(
-            () => reject(new Error("Stream stalled — server stopped responding. Your progress is saved; use Resume to continue.")),
-            45_000,
-          )
-          reader.read().then(
-            (r) => { clearTimeout(t); resolve(r) },
-            (e) => { clearTimeout(t); reject(e) },
-          )
-        })
-
-      while (true) {
-        const { done, value } = await readChunk()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          try {
-            const event = JSON.parse(line.slice(6))
-            if (event.type === "status") {
-              setSyncState({ phase: "fetching", total: event.total })
-            } else if (event.type === "progress") {
-              setSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, total: event.total })
-              if (event.synced % 50 === 0) { setPage(1); fetchContacts(filters, 1) }
-            } else if (event.type === "done") {
-              gotTerminal = true
-              setSyncState({ phase: "done", synced: event.synced, failed: event.failed })
-              setPage(1); fetchContacts(filters, 1)
-              setTimeout(() => setSyncState({ phase: "idle" }), 6000)
-            } else if (event.type === "error") {
-              gotTerminal = true
-              setSyncState({ phase: "error", message: event.message })
-              setTimeout(() => setSyncState({ phase: "idle" }), 6000)
-            }
-          } catch { /* malformed SSE line */ }
-        }
-      }
-
-      if (!gotTerminal) {
-        // Stream closed without a terminal event — server timed out or was killed
-        setSyncState({
-          phase: "error",
-          message: "Connection lost — server timed out. Your progress is saved; use Resume to continue.",
-        })
-        // Re-check for resumable cursor
-        fetch("/api/linkedin/sync")
-          .then((r) => r.json())
-          .then((d) => { if (d.hasResumable && d.cursor != null && d.total) setResumable({ cursor: d.cursor, total: d.total }) })
-          .catch(() => {})
-        setTimeout(() => setSyncState({ phase: "idle" }), 8000)
-      }
-    } catch (err) {
-      setSyncState({ phase: "error", message: err instanceof Error ? err.message : "Unknown error" })
-      setTimeout(() => setSyncState({ phase: "idle" }), 6000)
+  // Refresh contact list as sync progresses
+  useEffect(() => {
+    if (syncState.phase === "done") {
+      setPage(1); fetchContacts(filters, 1)
+    } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
+      fetchContacts(filters, page)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncState])
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -242,6 +162,14 @@ function ContactsContent() {
             </>
           )}
 
+          <a
+            href="/enrich"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+          >
+            <Sparkles size={14} />
+            Enrich
+          </a>
+
           <button
             onClick={() => sync(true)}
             disabled={syncState.phase !== "idle"}
@@ -294,8 +222,13 @@ function ContactsContent() {
           <div className="flex items-center justify-between px-4 py-2.5 text-sm font-medium">
             <span className={syncState.phase === "error" ? "text-red-700" : syncState.phase === "done" ? "text-green-700" : "text-blue-700"}>
               {syncState.phase === "connecting" && "Connecting to LinkedIn…"}
-              {syncState.phase === "fetching" && (syncState.total ? `Found ${syncState.total} connections, syncing…` : "Fetching connections…")}
-              {syncState.phase === "syncing" && `Syncing ${syncState.synced} / ${syncState.total} contacts…`}
+              {syncState.phase === "fetching" && (syncState.message ?? (syncState.total ? `Found ${syncState.total} connections, syncing…` : "Fetching connections…"))}
+              {syncState.phase === "syncing" && (
+                <>
+                  Syncing {syncState.synced} / {syncState.total} contacts…
+                  {syncState.current && <span className="ml-1 text-blue-500 font-normal truncate max-w-[200px] inline-block align-bottom">{syncState.current}</span>}
+                </>
+              )}
               {syncState.phase === "done" && `✓ Synced ${syncState.synced} contacts${syncState.failed ? ` (${syncState.failed} failed)` : ""}`}
               {syncState.phase === "error" && `Error: ${syncState.message}`}
             </span>

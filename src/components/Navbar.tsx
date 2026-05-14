@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { useSyncContext } from "@/contexts/SyncContext"
 
 const navLinks = [
   { href: "/contacts", label: "Contacts", icon: Users },
@@ -17,6 +18,7 @@ export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
+  const { syncState } = useSyncContext()
 
   if (!session) return null
 
@@ -28,6 +30,17 @@ export default function Navbar() {
     .join("")
     .toUpperCase()
     .slice(0, 2)
+
+  const syncPct =
+    syncState.phase === "syncing"
+      ? Math.round((syncState.synced / syncState.total) * 100)
+      : null
+
+  const syncLabel =
+    syncState.phase === "connecting" ? "Connecting…" :
+    syncState.phase === "fetching" ? (syncState.total ? `Syncing ${syncState.total} contacts…` : "Fetching…") :
+    syncState.phase === "syncing" ? `Syncing ${syncState.synced} / ${syncState.total}` :
+    null
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200 h-14">
@@ -60,11 +73,22 @@ export default function Navbar() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Active network label */}
-        <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-          <span className="font-medium text-gray-700">{name.split(" ")[0]}&apos;s network</span>
-        </div>
+        {/* Sync indicator (visible on all pages while sync is running) */}
+        {syncLabel && (
+          <div className="hidden sm:flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block animate-pulse" />
+            {syncLabel}
+            {syncPct != null && <span className="font-semibold">{syncPct}%</span>}
+          </div>
+        )}
+
+        {/* Active network label (hidden while syncing) */}
+        {!syncLabel && (
+          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+            <span className="font-medium text-gray-700">{name.split(" ")[0]}&apos;s network</span>
+          </div>
+        )}
 
         {/* User menu */}
         <div className="relative">
@@ -122,6 +146,16 @@ export default function Navbar() {
           )}
         </div>
       </div>
+
+      {/* Sync progress strip at bottom of navbar */}
+      {(syncState.phase === "fetching" || syncState.phase === "syncing" || syncState.phase === "connecting") && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-100">
+          <div
+            className="h-full bg-blue-500 transition-all duration-500"
+            style={{ width: syncPct != null ? `${syncPct}%` : "15%" }}
+          />
+        </div>
+      )}
     </nav>
   )
 }

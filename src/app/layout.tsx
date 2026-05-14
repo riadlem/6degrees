@@ -15,7 +15,7 @@ function BuildStamp() {
   const date = new Date(raw)
   const label = isNaN(date.getTime())
     ? raw
-    : date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+    : date.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
   return (
     <footer className="text-center text-[10px] text-gray-300 py-4 select-none">
       Updated {label}{hash ? ` · ${hash}` : ""}
