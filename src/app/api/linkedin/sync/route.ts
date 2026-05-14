@@ -29,17 +29,8 @@ export async function GET() {
     select: { syncCursor: true, syncTotal: true, lastSyncAt: true },
   })
 
-  // A stale cursor=0 from an old run means "page 0 not yet saved" — same as no cursor.
-  // Clean it up so the resume banner doesn't appear.
-  if (user?.syncCursor === 0) {
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: { syncCursor: null, syncTotal: null },
-    })
-  }
-
   return Response.json({
-    hasResumable: user?.syncCursor != null && user.syncCursor > 0,
+    hasResumable: user?.syncCursor != null,
     cursor: user?.syncCursor ?? null,
     total: user?.syncTotal ?? null,
     lastSyncAt: user?.lastSyncAt ?? null,
@@ -106,6 +97,10 @@ export async function POST(req: Request) {
         await ensureMemberAuthorization(accessToken)
 
         send({ type: "status", message: resuming ? `Resuming sync…` : "Fetching connections…", total })
+
+        // Save cursor=0 immediately so that if interrupted during the very first
+        // page, the sync is still resumable (rather than silently restarting).
+        if (!resuming) await saveCursor(0, 0)
 
         let hasNext = true
 
