@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus, Tag } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
@@ -241,6 +241,14 @@ function ContactsContent() {
               </button>
             </>
           )}
+
+          <a
+            href="/enrich"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+          >
+            <Sparkles size={14} />
+            Enrich
+          </a>
 
           <button
             onClick={() => sync(true)}
