@@ -83,7 +83,7 @@ export async function POST(req: Request) {
 
   // Run upserts in parallel batches to stay well within the 300s timeout.
   // Sequential upserts at ~50-100ms each would take 4-8 minutes for 5k contacts.
-  const BATCH_SIZE = 10
+  const BATCH_SIZE = 50
 
   const stream = new ReadableStream({
     async start(controller) {
