@@ -66,9 +66,10 @@ export async function fetchConnectionsPage(
   accessToken: string,
   pageIndex: number,
 ): Promise<ConnectionsPage> {
+  const offset = pageIndex * 100          // start = item offset, not page index
   const url =
     `${LINKEDIN_API_BASE}/memberSnapshotData` +
-    `?q=criteria&domain=CONNECTIONS&start=${pageIndex}&count=100`
+    `?q=criteria&domain=CONNECTIONS&start=${offset}&count=100`
 
   const res = await fetchWithTimeout(
     url,
