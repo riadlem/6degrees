@@ -76,6 +76,8 @@ function ContactsContent() {
       .then((d) => {
         if (d.hasResumable && d.cursor != null) {
           setResumable({ cursor: d.cursor, total: d.total ?? null })
+        } else {
+          setResumable(null)
         }
       })
       .catch(() => {})

@@ -85,6 +85,11 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
             } else if (event.type === "error") {
               gotTerminal = true
               setSyncState({ phase: "error", message: event.message })
+              // Check whether the server kept a cursor so Resume button can appear
+              fetch("/api/linkedin/sync")
+                .then((r) => r.json())
+                .then((d) => { if (d.hasResumable && d.cursor != null) setResumable({ cursor: d.cursor, total: d.total ?? null }) })
+                .catch(() => {})
               setTimeout(() => setSyncState({ phase: "idle" }), 6000)
             }
           } catch { /* malformed SSE line */ }
