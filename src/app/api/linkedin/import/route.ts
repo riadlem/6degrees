@@ -81,6 +81,10 @@ export async function POST(req: Request) {
   let synced = 0
   let failed = 0
 
+  // Run upserts in parallel batches to stay well within the 300s timeout.
+  // Sequential upserts at ~50-100ms each would take 4-8 minutes for 5k contacts.
+  const BATCH_SIZE = 10
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
@@ -89,38 +93,40 @@ export async function POST(req: Request) {
 
       send({ type: "status", message: `Importing ${total} connections from CSV…`, total })
 
-      for (let i = 0; i < connections.length; i++) {
-        const conn = connections[i]
-        const key = connectionKey(conn)
-        try {
-          await prisma.contact.upsert({
-            where: { userId_linkedinKey: { userId, linkedinKey: key } },
-            update: {
-              position: conn["Position"] || null,
-              company:  conn["Company"]  || null,
-              profileUrl: conn["URL"]    || null,
-              syncedAt: new Date(),
-            },
-            create: {
-              userId,
-              linkedinKey: key,
-              firstName:   conn["First Name"],
-              lastName:    conn["Last Name"],
-              position:    conn["Position"]   || null,
-              company:     conn["Company"]    || null,
-              connectedOn: parseLinkedInDate(conn["Connected On"]),
-              profileUrl:  conn["URL"]        || null,
-            },
-          })
-          synced++
-        } catch {
-          failed++
-        }
+      for (let i = 0; i < connections.length; i += BATCH_SIZE) {
+        const batch = connections.slice(i, i + BATCH_SIZE)
 
-        if ((i + 1) % 25 === 0 || i === connections.length - 1) {
-          const current = `${conn["First Name"]} ${conn["Last Name"]}`.trim()
-          send({ type: "progress", synced, failed, total, current })
-        }
+        const results = await Promise.allSettled(
+          batch.map((conn) => {
+            const key = connectionKey(conn)
+            return prisma.contact.upsert({
+              where: { userId_linkedinKey: { userId, linkedinKey: key } },
+              update: {
+                position: conn["Position"] || null,
+                company:  conn["Company"]  || null,
+                profileUrl: conn["URL"]    || null,
+                syncedAt: new Date(),
+              },
+              create: {
+                userId,
+                linkedinKey: key,
+                firstName:   conn["First Name"],
+                lastName:    conn["Last Name"],
+                position:    conn["Position"]   || null,
+                company:     conn["Company"]    || null,
+                connectedOn: parseLinkedInDate(conn["Connected On"]),
+                profileUrl:  conn["URL"]        || null,
+              },
+            })
+          })
+        )
+
+        synced += results.filter((r) => r.status === "fulfilled").length
+        failed  += results.filter((r) => r.status === "rejected").length
+
+        const last = batch[batch.length - 1]
+        const current = `${last["First Name"]} ${last["Last Name"]}`.trim()
+        send({ type: "progress", synced, failed, total, current })
       }
 
       await prisma.user.update({
