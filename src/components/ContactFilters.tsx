@@ -28,15 +28,21 @@ interface Props {
   filters: FilterState
   options: FilterOptions
   total: number
+  view: "grid" | "list"
+  onViewChange: (v: "grid" | "list") => void
   onChange: (f: Partial<FilterState>) => void
   onReset: () => void
 }
 
 const SORT_OPTIONS = [
-  { value: "name", label: "Name A–Z" },
-  { value: "company", label: "Company" },
-  { value: "connected", label: "Recently connected" },
-  { value: "recent", label: "Recently synced" },
+  { value: "name",          label: "Name A–Z" },
+  { value: "name_desc",     label: "Name Z–A" },
+  { value: "company",       label: "Company A–Z" },
+  { value: "connected",     label: "Recently connected" },
+  { value: "connected_asc", label: "Oldest connection" },
+  { value: "mutual",        label: "Most mutual" },
+  { value: "recent",        label: "Recently synced" },
+  { value: "location",      label: "Location A–Z" },
 ]
 
 function FilterSelect({
@@ -71,7 +77,7 @@ function FilterSelect({
   )
 }
 
-export default function ContactFilters({ filters, options, total, onChange, onReset }: Props) {
+export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
   const activeCount = [filters.company, filters.industry, filters.location, filters.position, filters.label].filter(Boolean).length
 
@@ -98,52 +104,73 @@ export default function ContactFilters({ filters, options, total, onChange, onRe
       </div>
 
       {/* Filter toggle (mobile) + count */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-gray-500">
           <span className="font-semibold text-gray-900">{total}</span> contact{total !== 1 ? "s" : ""}
         </p>
-        <button
-          onClick={() => setOpen(!open)}
-          className={cn(
-            "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors",
-            open || activeCount > 0
-              ? "bg-blue-50 border-blue-200 text-blue-700"
-              : "border-gray-200 text-gray-600 hover:bg-gray-50"
-          )}
-        >
-          <SlidersHorizontal size={14} />
-          Filters
-          {activeCount > 0 && (
-            <span className="bg-blue-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-              {activeCount}
-            </span>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Sort dropdown — always visible */}
+          <select
+            value={filters.sort}
+            onChange={(e) => onChange({ sort: e.target.value })}
+            className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-600"
+          >
+            {SORT_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+
+          {/* Filters toggle */}
+          <button
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors",
+              open || activeCount > 0
+                ? "bg-blue-50 border-blue-200 text-blue-700"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            )}
+          >
+            <SlidersHorizontal size={14} />
+            Filters
+            {activeCount > 0 && (
+              <span className="bg-blue-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                {activeCount}
+              </span>
+            )}
+          </button>
+
+          {/* View toggle */}
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => onViewChange("grid")}
+              className={cn("px-2.5 py-1.5 transition-colors", view === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+              title="Grid view"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+                <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+                <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+                <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+              </svg>
+            </button>
+            <button
+              onClick={() => onViewChange("list")}
+              className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+              title="List view"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <rect x="1" y="2" width="12" height="2" rx="1" fill="currentColor"/>
+                <rect x="1" y="6" width="12" height="2" rx="1" fill="currentColor"/>
+                <rect x="1" y="10" width="12" height="2" rx="1" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Expanded filters */}
       {open && (
         <div className="space-y-3 pt-1">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Sort by</label>
-            <div className="flex flex-wrap gap-2">
-              {SORT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => onChange({ sort: opt.value })}
-                  className={cn(
-                    "text-xs px-3 py-1.5 rounded-full border transition-colors",
-                    filters.sort === opt.value
-                      ? "bg-blue-600 border-blue-600 text-white"
-                      : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Title / Role</label>
             <input

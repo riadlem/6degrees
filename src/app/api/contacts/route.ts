@@ -38,13 +38,14 @@ export async function GET(request: Request) {
   }
 
   const orderBy: Prisma.ContactOrderByWithRelationInput =
-    sort === "company"
-      ? { company: "asc" }
-      : sort === "connected"
-      ? { connectedOn: "desc" }
-      : sort === "recent"
-      ? { syncedAt: "desc" }
-      : { firstName: "asc" }
+    sort === "company"        ? { company: "asc" } :
+    sort === "connected"      ? { connectedOn: "desc" } :
+    sort === "connected_asc"  ? { connectedOn: "asc" } :
+    sort === "recent"         ? { syncedAt: "desc" } :
+    sort === "location"       ? { location: "asc" } :
+    sort === "mutual"         ? { commonConnections: "desc" } :
+    sort === "name_desc"      ? { lastName: "desc" } :
+    { firstName: "asc" }
 
   const [contacts, total] = await Promise.all([
     prisma.contact.findMany({
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
       take: limit,
       include: {
         notes: { orderBy: { createdAt: "desc" }, take: 1 },
-        listMembers: { select: { listId: true } },
+        listMembers: { select: { listId: true, list: { select: { name: true } } } },
         labels: { include: { label: { select: { id: true, name: true, color: true } } } },
       },
     }),

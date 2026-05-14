@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCw, ListPlus, Tag, Sparkles } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
+import ContactRow from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
@@ -17,10 +18,8 @@ const DEFAULT_FILTERS: FilterState = {
 
 type LabelOption = { id: string; name: string; color: string }
 
-type ApiResponse = {
-  contacts: ContactSummary[]
+type ApiMeta = {
   total: number
-  page: number
   pages: number
   filters: {
     industries: (string | null)[]
@@ -35,9 +34,13 @@ function ContactsContent() {
   const router = useRouter()
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
-  const [data, setData] = useState<ApiResponse | null>(null)
+  const [allContacts, setAllContacts] = useState<ContactSummary[]>([])
+  const [meta, setMeta] = useState<ApiMeta | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [page, setPage] = useState(1)
+  const [hasMore, setHasMore] = useState(false)
+  const [view, setView] = useState<"grid" | "list">("grid")
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
@@ -50,6 +53,17 @@ function ContactsContent() {
   const linkedinError = searchParams.get("linkedin_error")
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // Persist view preference
+  useEffect(() => {
+    const saved = localStorage.getItem("contactsView") as "grid" | "list" | null
+    if (saved) setView(saved)
+  }, [])
+  function handleViewChange(v: "grid" | "list") {
+    setView(v)
+    localStorage.setItem("contactsView", v)
+  }
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -67,8 +81,9 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  const fetchContacts = useCallback(async (f: FilterState, p: number) => {
-    setLoading(true)
+  const fetchPage = useCallback(async (f: FilterState, p: number, append: boolean) => {
+    if (!append) setLoading(true)
+    else setLoadingMore(true)
     try {
       const params = new URLSearchParams({
         q: f.q, company: f.company, industry: f.industry,
@@ -76,33 +91,60 @@ function ContactsContent() {
         page: String(p), limit: "48",
       })
       const res = await fetch(`/api/contacts?${params}`)
-      if (res.ok) setData(await res.json())
+      if (!res.ok) return
+      const data = await res.json()
+      setMeta({ total: data.total, pages: data.pages, filters: data.filters })
+      if (append) {
+        setAllContacts((prev) => [...prev, ...data.contacts])
+      } else {
+        setAllContacts(data.contacts)
+      }
+      setHasMore(p < data.pages)
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }, [])
 
-  // Debounce filter changes
+  // Debounce filter changes → reset to page 1
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       setPage(1)
-      fetchContacts(filters, 1)
+      setSelectedIds(new Set())
+      fetchPage(filters, 1, false)
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [filters, fetchContacts])
+  }, [filters, fetchPage])
 
+  // Load next page when page increments beyond 1
   useEffect(() => {
-    fetchContacts(filters, page)
+    if (page > 1) fetchPage(filters, page, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
-  // Refresh contact list as sync progresses
+  // IntersectionObserver sentinel for infinite scroll
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          setPage((p) => p + 1)
+        }
+      },
+      { rootMargin: "300px" }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore])
+
+  // Refresh on sync progress / completion
   useEffect(() => {
     if (syncState.phase === "done") {
-      setPage(1); fetchContacts(filters, 1)
+      setPage(1); fetchPage(filters, 1, false)
     } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
-      fetchContacts(filters, page)
+      fetchPage(filters, 1, false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState])
@@ -128,8 +170,7 @@ function ContactsContent() {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
   }
 
-  const contacts = data?.contacts ?? []
-  const selectedContacts = contacts.filter((c) => selectedIds.has(c.id))
+  const selectedContacts = allContacts.filter((c) => selectedIds.has(c.id))
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -203,9 +244,7 @@ function ContactsContent() {
         <div className="mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl border bg-amber-50 border-amber-200 text-sm">
           <span className="text-amber-800 font-medium">
             Previous sync interrupted
-            {resumable.total
-              ? ` — ~${resumable.cursor * 100} of ${resumable.total} contacts synced`
-              : ""}.
+            {resumable.total ? ` — ~${resumable.cursor * 100} of ${resumable.total} contacts synced` : ""}.
           </span>
           <div className="flex items-center gap-3 shrink-0 ml-4">
             <button onClick={() => sync(false)} className="text-amber-700 font-semibold hover:text-amber-900">
@@ -234,7 +273,7 @@ function ContactsContent() {
             </span>
             {syncState.phase === "syncing" && (
               <span className="text-blue-500 text-xs tabular-nums">
-                {Math.round((syncState.synced / syncState.total) * 100)}%
+                {Math.round((syncState.synced / Math.max(syncState.synced, syncState.total)) * 100)}%
               </span>
             )}
           </div>
@@ -242,7 +281,7 @@ function ContactsContent() {
             <div className="h-1 bg-blue-100">
               <div
                 className="h-1 bg-blue-500 transition-all duration-300"
-                style={{ width: `${Math.round((syncState.synced / syncState.total) * 100)}%` }}
+                style={{ width: `${Math.round((syncState.synced / Math.max(syncState.synced, syncState.total)) * 100)}%` }}
               />
             </div>
           )}
@@ -253,8 +292,10 @@ function ContactsContent() {
       <div className="mb-5">
         <ContactFilters
           filters={filters}
-          options={data?.filters ?? { industries: [], companies: [], locations: [], labels: [] }}
-          total={data?.total ?? 0}
+          options={meta?.filters ?? { industries: [], companies: [], locations: [], labels: [] }}
+          total={meta?.total ?? 0}
+          view={view}
+          onViewChange={handleViewChange}
           onChange={handleFilterChange}
           onReset={handleReset}
         />
@@ -270,25 +311,46 @@ function ContactsContent() {
         </div>
       )}
 
-      {/* Grid */}
-      {loading && contacts.length === 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="h-36 rounded-xl bg-gray-100 animate-pulse" />
-          ))}
-        </div>
-      ) : contacts.length === 0 ? (
+      {/* Contact list/grid */}
+      {loading ? (
+        view === "grid" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="h-36 rounded-xl bg-gray-100 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="h-10 rounded-lg bg-gray-100 animate-pulse" />
+            ))}
+          </div>
+        )
+      ) : allContacts.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 text-sm">
-            {data?.total === 0
+            {meta?.total === 0
               ? "No contacts yet — sync your LinkedIn network to get started."
               : "No contacts match your filters."}
           </p>
         </div>
-      ) : (
+      ) : view === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {contacts.map((contact) => (
+          {allContacts.map((contact) => (
             <ContactCard
+              key={contact.id}
+              contact={contact}
+              selected={selectedIds.has(contact.id)}
+              onSelect={toggleSelect}
+              onClick={(c) => setActiveContactId(c.id)}
+              onAddToList={(c) => setAddToListContacts([c])}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+          {allContacts.map((contact) => (
+            <ContactRow
               key={contact.id}
               contact={contact}
               selected={selectedIds.has(contact.id)}
@@ -300,26 +362,11 @@ function ContactsContent() {
         </div>
       )}
 
-      {/* Pagination */}
-      {data && data.pages > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Previous
-          </button>
-          <span className="text-sm text-gray-500">
-            Page {data.page} of {data.pages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(data.pages, p + 1))}
-            disabled={page === data.pages}
-            className="px-4 py-2 text-sm border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Next
-          </button>
+      {/* Infinite scroll sentinel */}
+      <div ref={sentinelRef} className="h-4 mt-4" />
+      {loadingMore && (
+        <div className="flex justify-center py-4">
+          <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
@@ -334,7 +381,7 @@ function ContactsContent() {
         <AddToListModal
           contacts={addToListContacts}
           onClose={() => { setAddToListContacts(null); setSelectedIds(new Set()) }}
-          onDone={() => { setAddToListContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
+          onDone={() => { setAddToListContacts(null); setSelectedIds(new Set()); fetchPage(filters, 1, false) }}
         />
       )}
 
@@ -343,7 +390,7 @@ function ContactsContent() {
         <ManageLabelsModal
           contacts={labelContacts}
           onClose={() => { setLabelContacts(null); setSelectedIds(new Set()) }}
-          onDone={() => { setLabelContacts(null); setSelectedIds(new Set()); fetchContacts(filters, page) }}
+          onDone={() => { setLabelContacts(null); setSelectedIds(new Set()); fetchPage(filters, 1, false) }}
         />
       )}
     </div>
