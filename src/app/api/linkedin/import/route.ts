@@ -81,9 +81,9 @@ export async function POST(req: Request) {
   let synced = 0
   let failed = 0
 
-  // 5 batches of 50 run concurrently → 250 upserts per tick.
-  const BATCH_SIZE = 50
-  const PARALLEL   = 5
+  // 50 batches of 10 run concurrently → 500 upserts per tick (~10 ticks for 5k contacts).
+  const BATCH_SIZE = 10
+  const PARALLEL   = 50
 
   const stream = new ReadableStream({
     async start(controller) {

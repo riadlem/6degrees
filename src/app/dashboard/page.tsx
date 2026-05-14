@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X } from "lucide-react"
@@ -61,6 +61,125 @@ const SIZE_OPTIONS: { value: CompanySize; label: string }[] = [
   { value: "corporate",  label: "Corporate" },
   { value: "fortune500", label: "Fortune 500" },
 ]
+
+// ─── Treemap ────────────────────────────────────────────────────────────────
+
+type TreemapItem = { name: string; count: number }
+type TreeCell = TreemapItem & { x: number; y: number; w: number; h: number }
+
+const PALETTE = [
+  "#3B82F6","#6366F1","#8B5CF6","#0EA5E9","#10B981",
+  "#14B8A6","#F59E0B","#F97316","#EC4899","#EF4444",
+  "#06B6D4","#84CC16",
+]
+
+function colorForCompany(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+  return PALETTE[Math.abs(h) % PALETTE.length]
+}
+
+function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: number): TreeCell[] {
+  if (items.length === 0) return []
+  if (items.length === 1) return [{ ...items[0], x, y, w, h }]
+  const total = items.reduce((s, i) => s + i.count, 0)
+  let acc = 0, split = 1
+  for (let i = 0; i < items.length - 1; i++) {
+    acc += items[i].count
+    split = i + 1
+    if (acc * 2 >= total) break
+  }
+  const ratio = items.slice(0, split).reduce((s, i) => s + i.count, 0) / total
+  if (w >= h) {
+    const w1 = w * ratio
+    return [...binaryLayout(items.slice(0, split), x, y, w1, h), ...binaryLayout(items.slice(split), x + w1, y, w - w1, h)]
+  } else {
+    const h1 = h * ratio
+    return [...binaryLayout(items.slice(0, split), x, y, w, h1), ...binaryLayout(items.slice(split), x, y + h1, w, h - h1)]
+  }
+}
+
+function CompanyTreemap({ data }: { data: TreemapItem[] }) {
+  const router = useRouter()
+  const ref = useRef<HTMLDivElement>(null)
+  const [dims, setDims] = useState({ w: 0, h: 0 })
+  const [logos, setLogos] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setDims({ w: e.contentRect.width, h: e.contentRect.height }))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!data.length) return
+    data.forEach(({ name }) => {
+      fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(name)}&limit=1`)
+        .then((r) => r.json())
+        .then((results: Array<{ logo?: string }>) => {
+          if (results[0]?.logo) setLogos((prev) => ({ ...prev, [name]: results[0].logo! }))
+        })
+        .catch(() => {})
+    })
+  }, [data])
+
+  const cells = useMemo(
+    () => (dims.w > 0 && dims.h > 0 ? binaryLayout(data, 0, 0, dims.w, dims.h) : []),
+    [data, dims]
+  )
+
+  return (
+    <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-100" style={{ height: 380 }}>
+      {cells.map((cell) => {
+        const color = colorForCompany(cell.name)
+        const logo = logos[cell.name]
+        const cellW = cell.w - 2
+        const cellH = cell.h - 2
+        const showContent = cellW > 44 && cellH > 36
+        const showName = cellW > 72 && cellH > 60
+
+        return (
+          <button
+            key={cell.name}
+            title={`${cell.name}: ${cell.count} contacts`}
+            onClick={() => router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)}
+            style={{ position: "absolute", left: cell.x + 1, top: cell.y + 1, width: cellW, height: cellH, backgroundColor: color }}
+            className="rounded overflow-hidden flex flex-col items-center justify-center gap-0.5 hover:brightness-110 active:brightness-90 transition-[filter]"
+          >
+            {showContent && (
+              <>
+                {logo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={logo}
+                    alt=""
+                    style={{ width: 24, height: 24 }}
+                    className="rounded-md object-contain bg-white/25 p-0.5 shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+                  />
+                ) : (
+                  <span className="text-[10px] font-bold text-white/80">
+                    {initials(cell.name.split(" ")[0] ?? "", cell.name.split(" ")[1] ?? "")}
+                  </span>
+                )}
+                {showName && (
+                  <span className="text-[9px] font-semibold text-white/90 leading-tight px-1 w-full text-center truncate">
+                    {cell.name}
+                  </span>
+                )}
+                <span className="text-[9px] font-bold text-white/75">{cell.count}</span>
+              </>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── End treemap ─────────────────────────────────────────────────────────────
 
 function ContactAvatar({ contact }: { contact: ContactSnippet }) {
   const inits = initials(contact.firstName, contact.lastName)
@@ -203,6 +322,7 @@ export default function DashboardPage() {
 
   const [stats, setStats] = useState<Stats | null>(null)
   const [companies, setCompanies] = useState<DashboardCompany[]>([])
+  const [treemapData, setTreemapData] = useState<TreemapItem[]>([])
   const [loading, setLoading] = useState(true)
   const [sizeFilter, setSizeFilter] = useState<CompanySize | null>(null)
   const [partnerOnly, setPartnerOnly] = useState(false)
@@ -215,11 +335,18 @@ export default function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch("/api/dashboard")
-      if (res.ok) {
-        const data = await res.json()
+      const [dashRes, tmRes] = await Promise.all([
+        fetch("/api/dashboard"),
+        fetch("/api/contacts/treemap"),
+      ])
+      if (dashRes.ok) {
+        const data = await dashRes.json()
         setStats(data.stats)
         setCompanies(data.companies)
+      }
+      if (tmRes.ok) {
+        const data = await tmRes.json()
+        setTreemapData(data.companies)
       }
     } finally {
       setLoading(false)
@@ -257,6 +384,16 @@ export default function DashboardPage() {
           <StatCard label="Companies" value={stats.totalCompanies} />
           <StatCard label="Preferred" value={stats.preferredCount} sub="companies starred" />
           <StatCard label="Partners" value={stats.partnerCount} sub="companies tagged" />
+        </div>
+      )}
+
+      {/* Treemap */}
+      {treemapData.length > 0 && (
+        <div className="mb-6">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Contacts by company <span className="normal-case font-normal text-gray-300">(tap to filter)</span>
+          </p>
+          <CompanyTreemap data={treemapData} />
         </div>
       )}
 
