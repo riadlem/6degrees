@@ -20,7 +20,6 @@ export async function GET() {
         OR: [
           { extensionSyncedAt: null },
           { photoUrl: null },
-          { experience: null },
         ],
       },
       select: {
