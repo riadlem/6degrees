@@ -109,7 +109,15 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       setSyncState({ phase: "error", message: err instanceof Error ? err.message : "Unknown error" })
-      setTimeout(() => setSyncState({ phase: "idle" }), 6000)
+      // Always check whether the server kept a cursor so the Resume banner appears
+      // without requiring a page reload (covers both stall-timeout and hard errors).
+      fetch("/api/linkedin/sync")
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.hasResumable && d.cursor != null) setResumable({ cursor: d.cursor, total: d.total ?? null })
+        })
+        .catch(() => {})
+      setTimeout(() => setSyncState({ phase: "idle" }), 8000)
     }
   }, [])
 
