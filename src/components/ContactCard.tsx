@@ -16,7 +16,7 @@ export type ContactSummary = {
   commonConnections: number | null
   connectedOn: string | null
   notes: { id: string }[]
-  listMembers: { listId: string }[]
+  listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]
 }
 
@@ -140,6 +140,13 @@ export default function ContactCard({
               <span className="inline-flex items-center gap-0.5 text-xs text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">
                 <StickyNote size={10} />
                 {contact.notes.length}
+              </span>
+            )}
+            {contact.listMembers.length > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-xs text-violet-600 bg-violet-50 rounded-full px-2 py-0.5 truncate max-w-[90px]">
+                {contact.listMembers.length === 1
+                  ? contact.listMembers[0].list.name
+                  : `${contact.listMembers.length} lists`}
               </span>
             )}
           </div>

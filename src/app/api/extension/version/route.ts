@@ -16,14 +16,14 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.1.1",
+  latest:                "1.2.0",
   reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.1.1",
+  reloadRequiredBelow:   "1.2.0",
   notes: [
-    "v1.1.1: Version shown in popup header; photo scraping also checks data-ghost-url",
-    "        (LinkedIn lazy-loaded images).",
-    "v1.1.0: Fixed photo detection (avatar vs background), company name parsing,",
-    "        location scraping, CORS, pagination bug, mutual-connection deduplication.",
+    "v1.2.0: Fix photo picking logged-in user's nav avatar instead of profile photo.",
+    "        Fix name showing 'Unknown' when h1 selectors miss — now falls back to",
+    "        page title ('First Last - Headline | LinkedIn') before slug heuristic.",
+    "v1.1.1: Version shown in popup header; photo scraping checks data-ghost-url.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────

@@ -127,7 +127,7 @@ export async function POST(req: Request) {
             return
           }
 
-          total = page.total || total
+          total = Math.max(total, page.total || 0, synced + page.connections.length)
           hasNext = page.hasNext
 
           if (pageIndex === 0 && !resuming) {

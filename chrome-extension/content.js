@@ -73,7 +73,9 @@
       "h1[class*='text-heading']",
       ".pv-text-details__left-panel h1",
       ".ph5 h1",
+      "section.artdeco-card h1",
       "main h1",
+      "h1",
     ]
     for (const sel of selectors) {
       try {
@@ -88,27 +90,58 @@
         }
       } catch { /* continue */ }
     }
-    console.debug("[6Degrees] name not found via selectors, falling back to URL slug")
+    // Reliable fallback: page title is always "First Last - Headline | LinkedIn"
+    const titleName = (document.title || "").split("|")[0].split(" - ")[0].trim()
+    if (titleName && titleName.length > 1 && titleName !== "LinkedIn") {
+      const parts = titleName.split(/\s+/).filter(Boolean)
+      if (parts.length >= 2) return { firstName: parts[0], lastName: parts.slice(1).join(" ") }
+      if (parts.length === 1) return { firstName: parts[0], lastName: null }
+    }
+    console.debug("[6Degrees] name not found, falling back to URL slug")
     return humanizeSlug(slugFromUrl())
   }
 
   function scrapePhoto() {
-    // LinkedIn CDN URLs for profile photos always contain "profile-displayphoto"
-    // Background/banner images contain "profile-displaybackgroundimage" — skip those
-    for (const img of document.querySelectorAll("img")) {
-      const src = img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
-      if (src.includes("profile-displayphoto") && isValidPhoto(src)) return src
+    function imgSrc(img) {
+      return img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
     }
-    // Fallback: class-based selectors (older LinkedIn layouts)
+    // 1. Prefer imgs scoped to the profile top-card — avoids the nav avatar of the
+    //    logged-in user, which also has "profile-displayphoto" in its CDN URL.
+    const profileRoots = [
+      document.querySelector(".pv-top-card-profile-picture"),
+      document.querySelector(".profile-photo-edit__container"),
+      document.querySelector(".pv-top-card__photo-wrapper"),
+      document.querySelector("main section"),
+      document.querySelector("main"),
+    ].filter(Boolean)
+
+    for (const root of profileRoots) {
+      for (const img of root.querySelectorAll("img")) {
+        const src = imgSrc(img)
+        if (src.includes("profile-displayphoto") && isValidPhoto(src)) return src
+      }
+    }
+
+    // 2. Among ALL imgs with profile-displayphoto, pick the largest rendered size
+    //    (nav avatar ~32 px vs profile photo ~200 px).
+    let bestSrc = null, bestSize = 0
+    for (const img of document.querySelectorAll("img")) {
+      const src = imgSrc(img)
+      if (!src.includes("profile-displayphoto") || !isValidPhoto(src)) continue
+      const size = (img.naturalWidth || img.width || 0) + (img.naturalHeight || img.height || 0)
+      if (size > bestSize) { bestSize = size; bestSrc = src }
+    }
+    if (bestSrc) return bestSrc
+
+    // 3. Class-based selectors (older LinkedIn layouts)
     for (const sel of [
       ".pv-top-card-profile-picture__image--show",
-      ".pv-top-card-profile-picture img",
       "img[data-anonymize='headshot-photo']",
       ".profile-photo-edit__preview",
     ]) {
       try {
         for (const img of document.querySelectorAll(sel)) {
-          const src = img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
+          const src = imgSrc(img)
           if (isValidPhoto(src)) return src
         }
       } catch { /* bad selector */ }
