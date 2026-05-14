@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X } from "lucide-react"
+import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { labelColors } from "@/lib/label-colors"
+import { isSuspicious } from "@/lib/company-utils"
 import ContactDetail from "@/components/ContactDetail"
 
 type CompanySize = "small" | "medium" | "corporate" | "fortune500"
@@ -64,18 +65,27 @@ const SIZE_OPTIONS: { value: CompanySize; label: string }[] = [
 
 // ─── Treemap ────────────────────────────────────────────────────────────────
 
-type TreemapItem = { name: string; count: number }
+type TreemapItem = {
+  name: string
+  count: number
+  isPartner: boolean
+  type: string | null
+}
 type TreeCell = TreemapItem & { x: number; y: number; w: number; h: number }
 
 const PALETTE = [
-  "#3B82F6","#6366F1","#8B5CF6","#0EA5E9","#10B981",
-  "#14B8A6","#F59E0B","#F97316","#EC4899","#EF4444",
-  "#06B6D4","#84CC16",
+  "#6366F1","#0EA5E9","#14B8A6","#F97316","#EC4899",
+  "#EF4444","#06B6D4","#84CC16","#A855F7","#64748B",
 ]
 
-function colorForCompany(name: string): string {
+// Semantic colors: partner > brand > non-brand > independent > hash fallback
+function colorForCompany(item: TreemapItem): string {
+  if (item.isPartner)              return "#2563EB"  // blue-600
+  if (item.type === "brand")       return "#7C3AED"  // violet-600
+  if (item.type === "non-brand")   return "#059669"  // emerald-600
+  if (item.type === "independent") return "#D97706"  // amber-600
   let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+  for (let i = 0; i < item.name.length; i++) h = (h * 31 + item.name.charCodeAt(i)) | 0
   return PALETTE[Math.abs(h) % PALETTE.length]
 }
 
@@ -118,8 +128,9 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
     data.forEach(({ name }) => {
       fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(name)}&limit=1`)
         .then((r) => r.json())
-        .then((results: Array<{ logo?: string }>) => {
-          if (results[0]?.logo) setLogos((prev) => ({ ...prev, [name]: results[0].logo! }))
+        .then((results: Array<{ logo?: string; domain?: string }>) => {
+          const logo = results[0]?.logo
+          if (logo) setLogos((prev) => ({ ...prev, [name]: logo }))
         })
         .catch(() => {})
     })
@@ -131,14 +142,14 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
   )
 
   return (
-    <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-100" style={{ height: 380 }}>
+    <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-100" style={{ height: 400 }}>
       {cells.map((cell) => {
-        const color = colorForCompany(cell.name)
+        const color = colorForCompany(cell)
         const logo = logos[cell.name]
         const cellW = cell.w - 2
         const cellH = cell.h - 2
-        const showContent = cellW > 44 && cellH > 36
-        const showName = cellW > 72 && cellH > 60
+        const showLogo = cellW > 28 && cellH > 28
+        const showName = cellW > 60 && cellH > 52
 
         return (
           <button
@@ -148,15 +159,15 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
             style={{ position: "absolute", left: cell.x + 1, top: cell.y + 1, width: cellW, height: cellH, backgroundColor: color }}
             className="rounded overflow-hidden flex flex-col items-center justify-center gap-0.5 hover:brightness-110 active:brightness-90 transition-[filter]"
           >
-            {showContent && (
+            {showLogo && (
               <>
                 {logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={logo}
                     alt=""
-                    style={{ width: 24, height: 24 }}
-                    className="rounded-md object-contain bg-white/25 p-0.5 shrink-0"
+                    style={{ width: cellW > 80 ? 28 : 18, height: cellW > 80 ? 28 : 18 }}
+                    className="rounded object-contain bg-white/20 p-0.5 shrink-0"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
                   />
                 ) : (
@@ -169,7 +180,9 @@ function CompanyTreemap({ data }: { data: TreemapItem[] }) {
                     {cell.name}
                   </span>
                 )}
-                <span className="text-[9px] font-bold text-white/75">{cell.count}</span>
+                {cellH > 40 && (
+                  <span className="text-[9px] font-bold text-white/70">{cell.count}</span>
+                )}
               </>
             )}
           </button>
@@ -322,10 +335,12 @@ export default function DashboardPage() {
 
   const [stats, setStats] = useState<Stats | null>(null)
   const [companies, setCompanies] = useState<DashboardCompany[]>([])
-  const [treemapData, setTreemapData] = useState<TreemapItem[]>([])
+  const [allTreemapData, setAllTreemapData] = useState<TreemapItem[]>([])
   const [loading, setLoading] = useState(true)
   const [sizeFilter, setSizeFilter] = useState<CompanySize | null>(null)
   const [partnerOnly, setPartnerOnly] = useState(false)
+  const [minThreshold, setMinThreshold] = useState(2)
+  const [hideSuspicious, setHideSuspicious] = useState(false)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -337,7 +352,7 @@ export default function DashboardPage() {
     try {
       const [dashRes, tmRes] = await Promise.all([
         fetch("/api/dashboard"),
-        fetch("/api/contacts/treemap"),
+        fetch("/api/contacts/treemap?min=1"),
       ])
       if (dashRes.ok) {
         const data = await dashRes.json()
@@ -346,7 +361,7 @@ export default function DashboardPage() {
       }
       if (tmRes.ok) {
         const data = await tmRes.json()
-        setTreemapData(data.companies)
+        setAllTreemapData(data.companies)
       }
     } finally {
       setLoading(false)
@@ -356,6 +371,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (status === "authenticated") load()
   }, [status, load])
+
+  const treemapData = allTreemapData
+    .filter((c) => c.count >= minThreshold)
+    .filter((c) => !hideSuspicious || !isSuspicious(c.name))
 
   const filtered = companies.filter((c) => {
     if (partnerOnly && !c.isPartner) return false
@@ -388,12 +407,65 @@ export default function DashboardPage() {
       )}
 
       {/* Treemap */}
-      {treemapData.length > 0 && (
+      {allTreemapData.length > 0 && (
         <div className="mb-6">
-          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
-            Contacts by company <span className="normal-case font-normal text-gray-300">(tap to filter)</span>
-          </p>
-          <CompanyTreemap data={treemapData} />
+          {/* Header row */}
+          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Contacts by company <span className="normal-case font-normal text-gray-300">(tap to filter)</span>
+            </p>
+            <div className="flex items-center gap-4">
+              {/* Min threshold slider */}
+              <label className="flex items-center gap-2 text-xs text-gray-500 shrink-0">
+                <span>Min.</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={20}
+                  value={minThreshold}
+                  onChange={(e) => setMinThreshold(Number(e.target.value))}
+                  className="w-20 h-1.5 accent-blue-500"
+                />
+                <span className="w-4 text-center font-semibold text-gray-700">{minThreshold}</span>
+                <span className="text-gray-400">contacts</span>
+              </label>
+              {/* Hide suspicious checkbox */}
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none shrink-0">
+                <input
+                  type="checkbox"
+                  checked={hideSuspicious}
+                  onChange={(e) => setHideSuspicious(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-amber-500 rounded"
+                />
+                <Eye size={11} />
+                Hide freelance / NDA
+              </label>
+            </div>
+          </div>
+
+          {treemapData.length > 0 ? (
+            <CompanyTreemap data={treemapData} />
+          ) : (
+            <div className="flex items-center justify-center h-24 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400">
+              No companies above threshold
+            </div>
+          )}
+
+          {/* Color legend */}
+          <div className="flex items-center gap-4 mt-2 flex-wrap">
+            {[
+              { color: "#2563EB", label: "Partner" },
+              { color: "#7C3AED", label: "Brand" },
+              { color: "#059669", label: "Non-brand" },
+              { color: "#D97706", label: "Independent" },
+              { color: "#6366F1", label: "Untagged" },
+            ].map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                <span className="text-[10px] text-gray-400">{label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
