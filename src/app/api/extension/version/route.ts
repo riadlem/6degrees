@@ -16,10 +16,11 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.2.0",
+  latest:                "1.2.1",
   reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.2.0",
+  reloadRequiredBelow:   "1.2.1",
   notes: [
+    "v1.2.1: Fix token verification in popup — use Bearer-token-authenticated endpoint.",
     "v1.2.0: Fix photo picking logged-in user's nav avatar instead of profile photo.",
     "        Fix name showing 'Unknown' when h1 selectors miss — now falls back to",
     "        page title ('First Last - Headline | LinkedIn') before slug heuristic.",

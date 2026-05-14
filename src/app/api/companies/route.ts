@@ -15,16 +15,14 @@ export async function GET() {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
-    // Graceful fallback: table may not exist yet if prisma db push hasn't run
     prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true },
-    }).catch(() => [] as { company: string }[]),
+      select: { company: true, ignored: true, isPartner: true, size: true },
+    }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null }[]),
   ])
 
-  const preferredSet = new Set(prefs.map((p) => p.company))
+  const prefMap = new Map(prefs.map((p) => [p.company, p]))
 
-  // For each company grab top-4 photo URLs and the most common industry
   const companyNames = rows.map((r) => r.company as string)
 
   const [samples, industries] = await Promise.all([
@@ -49,7 +47,6 @@ export async function GET() {
     photosByCompany.set(s.company, arr)
   }
 
-  // Most common industry per company (first in groupBy result since ordered by count desc)
   const industryByCompany = new Map<string, string>()
   for (const r of industries) {
     if (r.company && r.industry && !industryByCompany.has(r.company)) {
@@ -59,59 +56,105 @@ export async function GET() {
 
   const companies = rows
     .filter((r) => r.company)
-    .map((r) => ({
-      name: r.company as string,
-      count: r._count.id,
-      preferred: preferredSet.has(r.company as string),
-      industry: industryByCompany.get(r.company as string) ?? null,
-      photos: photosByCompany.get(r.company as string) ?? [],
-    }))
+    .map((r) => {
+      const pref = prefMap.get(r.company as string)
+      return {
+        name:      r.company as string,
+        count:     r._count.id,
+        preferred: pref ? !pref.ignored : false,
+        ignored:   pref?.ignored ?? false,
+        isPartner: pref?.isPartner ?? false,
+        size:      pref?.size ?? null,
+        industry:  industryByCompany.get(r.company as string) ?? null,
+        photos:    photosByCompany.get(r.company as string) ?? [],
+      }
+    })
 
-  // Preferred first, then by count desc
+  // partner+preferred → preferred → partner-only → neutral → ignored
   companies.sort((a, b) => {
-    if (a.preferred !== b.preferred) return a.preferred ? -1 : 1
+    if (a.ignored !== b.ignored) return a.ignored ? 1 : -1
+    const aScore = (a.isPartner ? 2 : 0) + (a.preferred ? 1 : 0)
+    const bScore = (b.isPartner ? 2 : 0) + (b.preferred ? 1 : 0)
+    if (aScore !== bScore) return bScore - aScore
     return b.count - a.count
   })
 
   return Response.json({ companies })
 }
 
+// POST body: one of:
+//   { company, status: "preferred" | "ignored" | "none" }
+//   { company, size: "small" | "medium" | "corporate" | "fortune500" | null }
+//   { company, isPartner: boolean }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const { company, preferred } = await req.json()
-  if (!company) return new Response("Bad request", { status: 400 })
+  const body = await req.json() as {
+    company?: string
+    status?: string
+    size?: string | null
+    isPartner?: boolean
+  }
+  if (!body.company) return new Response("Bad request", { status: 400 })
 
   const userId = session.user.id
+  const { company } = body
 
   const save = async () => {
-    if (preferred) {
+    if ("status" in body) {
+      if (body.status === "none") {
+        await prisma.companyPreference.deleteMany({ where: { userId, company } })
+      } else {
+        await prisma.companyPreference.upsert({
+          where: { userId_company: { userId, company } },
+          create: { userId, company, ignored: body.status === "ignored" },
+          update: { ignored: body.status === "ignored" },
+        })
+      }
+    } else if ("size" in body) {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company } },
-        create: { userId, company },
-        update: {},
+        create: { userId, company, size: body.size ?? null },
+        update: { size: body.size ?? null },
       })
-    } else {
-      await prisma.companyPreference.deleteMany({ where: { userId, company } })
+    } else if ("isPartner" in body) {
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company } },
+        create: { userId, company, isPartner: !!body.isPartner },
+        update: { isPartner: !!body.isPartner },
+      })
     }
   }
 
   try {
     await save()
   } catch {
-    // Table likely doesn't exist yet — create it once then retry.
+    // Table or columns missing — self-heal then retry.
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "CompanyPreference" (
           "id"      TEXT NOT NULL,
           "userId"  TEXT NOT NULL,
           "company" TEXT NOT NULL,
-          CONSTRAINT "CompanyPreference_pkey"              PRIMARY KEY ("id"),
-          CONSTRAINT "CompanyPreference_userId_company_key" UNIQUE ("userId", "company"),
-          CONSTRAINT "CompanyPreference_userId_fkey"        FOREIGN KEY ("userId")
+          "ignored" BOOLEAN NOT NULL DEFAULT FALSE,
+          CONSTRAINT "CompanyPreference_pkey"               PRIMARY KEY ("id"),
+          CONSTRAINT "CompanyPreference_userId_company_key"  UNIQUE ("userId", "company"),
+          CONSTRAINT "CompanyPreference_userId_fkey"         FOREIGN KEY ("userId")
             REFERENCES "User"("id") ON DELETE CASCADE
         )
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "isPartner" BOOLEAN NOT NULL DEFAULT FALSE
+      `
+      await prisma.$executeRaw`
+        ALTER TABLE "CompanyPreference"
+        ADD COLUMN IF NOT EXISTS "size" TEXT
       `
       await prisma.$executeRaw`
         CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"

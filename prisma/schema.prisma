@@ -163,6 +163,9 @@ model CompanyPreference {
   id        String   @id @default(cuid())
   userId    String
   company   String
+  ignored   Boolean  @default(false)
+  isPartner Boolean  @default(false)
+  size      String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, company])

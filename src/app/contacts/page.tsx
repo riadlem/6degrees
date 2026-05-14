@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus, Tag, Sparkles } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles, Upload } from "lucide-react"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
@@ -13,7 +13,7 @@ import ManageLabelsModal from "@/components/ManageLabelsModal"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name",
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false,
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -46,6 +46,14 @@ function ContactsContent() {
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
+
+  type ImportState =
+    | { phase: "idle" }
+    | { phase: "importing"; synced: number; failed: number; total: number; current?: string }
+    | { phase: "done"; synced: number; failed: number }
+    | { phase: "error"; message: string }
+  const [importState, setImportState] = useState<ImportState>({ phase: "idle" })
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { syncState, resumable, setResumable, sync } = useSyncContext()
   const searchParams = useSearchParams()
@@ -91,6 +99,7 @@ function ContactsContent() {
         q: f.q, company: f.company, industry: f.industry,
         location: f.location, position: f.position, label: f.label, sort: f.sort,
         page: String(p), limit: "48",
+        preferredCompanies: f.preferredCompanies ? "true" : "false",
       })
       const res = await fetch(`/api/contacts?${params}`)
       if (!res.ok) return
@@ -168,6 +177,59 @@ function ContactsContent() {
     setFilters(DEFAULT_FILTERS)
   }
 
+  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    // Reset input so the same file can be re-selected
+    e.target.value = ""
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    setImportState({ phase: "importing", synced: 0, failed: 0, total: 0 })
+
+    try {
+      const res = await fetch("/api/linkedin/import", { method: "POST", body: formData })
+      if (!res.ok || !res.body) {
+        const json = await res.json().catch(() => ({}))
+        setImportState({ phase: "error", message: json.error ?? "Import failed" })
+        setTimeout(() => setImportState({ phase: "idle" }), 6000)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === "progress") {
+              setImportState({ phase: "importing", synced: event.synced, failed: event.failed, total: event.total, current: event.current })
+            } else if (event.type === "done") {
+              setImportState({ phase: "done", synced: event.synced, failed: event.failed })
+              fetchPage(filters, 1, false)
+              setTimeout(() => setImportState({ phase: "idle" }), 5000)
+            } else if (event.type === "error") {
+              setImportState({ phase: "error", message: event.message })
+              setTimeout(() => setImportState({ phase: "idle" }), 6000)
+            }
+          } catch { /* malformed SSE */ }
+        }
+      }
+    } catch (err) {
+      setImportState({ phase: "error", message: err instanceof Error ? err.message : "Import failed" })
+      setTimeout(() => setImportState({ phase: "idle" }), 6000)
+    }
+  }
+
   if (status === "loading") {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
   }
@@ -213,9 +275,27 @@ function ContactsContent() {
             Enrich
           </a>
 
+          {/* Hidden file input for CSV import */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            className="hidden"
+            onChange={handleImportCsv}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importState.phase === "importing" || syncState.phase !== "idle"}
+            title="Import Connections.csv from your LinkedIn data export"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
+          >
+            <Upload size={14} />
+            Import CSV
+          </button>
+
           <button
             onClick={() => sync(true)}
-            disabled={syncState.phase !== "idle"}
+            disabled={syncState.phase !== "idle" || importState.phase === "importing"}
             className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
@@ -284,6 +364,37 @@ function ContactsContent() {
               <div
                 className="h-1 bg-blue-500 transition-all duration-300"
                 style={{ width: `${Math.round((syncState.synced / Math.max(syncState.synced, syncState.total)) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* CSV import progress */}
+      {importState.phase !== "idle" && (
+        <div className={`mb-4 rounded-xl border overflow-hidden ${importState.phase === "error" ? "bg-red-50 border-red-200" : importState.phase === "done" ? "bg-green-50 border-green-200" : "bg-violet-50 border-violet-200"}`}>
+          <div className="flex items-center justify-between px-4 py-2.5 text-sm font-medium">
+            <span className={importState.phase === "error" ? "text-red-700" : importState.phase === "done" ? "text-green-700" : "text-violet-700"}>
+              {importState.phase === "importing" && (
+                <>
+                  Importing {importState.synced} / {importState.total} contacts from CSV…
+                  {importState.current && <span className="ml-1 text-violet-500 font-normal truncate max-w-[200px] inline-block align-bottom">{importState.current}</span>}
+                </>
+              )}
+              {importState.phase === "done" && `✓ Imported ${importState.synced} contacts${importState.failed ? ` (${importState.failed} skipped)` : ""}`}
+              {importState.phase === "error" && `Import error: ${importState.message}`}
+            </span>
+            {importState.phase === "importing" && importState.total > 0 && (
+              <span className="text-violet-500 text-xs tabular-nums">
+                {Math.round((importState.synced / importState.total) * 100)}%
+              </span>
+            )}
+          </div>
+          {importState.phase === "importing" && importState.total > 0 && (
+            <div className="h-1 bg-violet-100">
+              <div
+                className="h-1 bg-violet-500 transition-all duration-300"
+                style={{ width: `${Math.round((importState.synced / importState.total) * 100)}%` }}
               />
             </div>
           )}

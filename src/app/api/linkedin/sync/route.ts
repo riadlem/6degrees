@@ -133,42 +133,38 @@ export async function POST(req: Request) {
             send({ type: "status", message: `Found ${total} connections, syncing…`, total })
           }
 
-          // Batch all upserts for this page in a single transaction — reduces
-          // 100 individual round-trips to one, cutting per-page time ~3-5×.
-          const now = new Date()
-          const ops = page.connections.map((conn) => {
+          for (let i = 0; i < page.connections.length; i++) {
+            const conn = page.connections[i]
             const key = connectionKey(conn)
-            return prisma.contact.upsert({
-              where: { userId_linkedinKey: { userId, linkedinKey: key } },
-              update: {
-                position: conn["Position"] || null,
-                company: conn["Company"] || null,
-                profileUrl: conn["URL"] || null,
-                syncedAt: now,
-              },
-              create: {
-                userId,
-                linkedinKey: key,
-                firstName: conn["First Name"],
-                lastName: conn["Last Name"],
-                position: conn["Position"] || null,
-                company: conn["Company"] || null,
-                connectedOn: parseLinkedInDate(conn["Connected On"]),
-                profileUrl: conn["URL"] || null,
-              },
-            })
-          })
-
-          try {
-            await prisma.$transaction(ops)
-            synced += page.connections.length
-          } catch {
-            failed += page.connections.length
+            try {
+              await prisma.contact.upsert({
+                where: { userId_linkedinKey: { userId, linkedinKey: key } },
+                update: {
+                  position: conn["Position"] || null,
+                  company: conn["Company"] || null,
+                  profileUrl: conn["URL"] || null,
+                  syncedAt: new Date(),
+                },
+                create: {
+                  userId,
+                  linkedinKey: key,
+                  firstName: conn["First Name"],
+                  lastName: conn["Last Name"],
+                  position: conn["Position"] || null,
+                  company: conn["Company"] || null,
+                  connectedOn: parseLinkedInDate(conn["Connected On"]),
+                  profileUrl: conn["URL"] || null,
+                },
+              })
+              synced++
+            } catch {
+              failed++
+            }
+            if ((i + 1) % 10 === 0 || i === page.connections.length - 1) {
+              const current = `${conn["First Name"]} ${conn["Last Name"]}`.trim()
+              send({ type: "progress", synced, failed, total, current })
+            }
           }
-
-          const last = page.connections[page.connections.length - 1]
-          const current = last ? `${last["First Name"]} ${last["Last Name"]}`.trim() : ""
-          send({ type: "progress", synced, failed, total, current })
 
           pageIndex++
           // Save cursor AFTER the page is fully written — cursor = next page to fetch.

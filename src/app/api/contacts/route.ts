@@ -16,12 +16,28 @@ export async function GET(request: Request) {
   const location = searchParams.get("location") ?? ""
   const position = searchParams.get("position") ?? ""
   const labelId = searchParams.get("label") ?? ""
+  const preferredOnly = searchParams.get("preferredCompanies") === "true"
   const sort = searchParams.get("sort") ?? "name"
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const limit = parseInt(searchParams.get("limit") ?? "48", 10)
 
+  const userId = session.user.id
+
+  // Fetch company preferences for filtering
+  const companyPrefs = await prisma.companyPreference.findMany({
+    where: { userId },
+    select: { company: true, ignored: true },
+  }).catch(() => [] as { company: string; ignored: boolean }[])
+
+  const preferredCompanies = companyPrefs.filter((p) => !p.ignored).map((p) => p.company)
+  const ignoredCompanies   = companyPrefs.filter((p) =>  p.ignored).map((p) => p.company)
+
   const where: Prisma.ContactWhereInput = {
-    userId: session.user.id,
+    userId,
+    // When filtering to preferred companies, only show those contacts
+    ...(preferredOnly && preferredCompanies.length > 0 && { company: { in: preferredCompanies } }),
+    // When not filtering to preferred, hide contacts from ignored companies (unless a specific company is requested)
+    ...(!preferredOnly && !company && ignoredCompanies.length > 0 && { company: { notIn: ignoredCompanies } }),
     ...(q && {
       OR: [
         { firstName: { contains: q, mode: "insensitive" } },
