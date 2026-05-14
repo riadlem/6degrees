@@ -86,6 +86,7 @@ export async function GET() {
 //   { company, status: "preferred" | "ignored" | "none" }
 //   { company, size: "small" | "medium" | "corporate" | "fortune500" | null }
 //   { company, isPartner: boolean }
+//   { company, newName: string }  ← rename/merge: moves all contacts + migrates preference
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -95,11 +96,31 @@ export async function POST(req: Request) {
     status?: string
     size?: string | null
     isPartner?: boolean
+    newName?: string
   }
   if (!body.company) return new Response("Bad request", { status: 400 })
 
   const userId = session.user.id
   const { company } = body
+
+  // Rename/merge: bulk-move contacts + migrate preference row, then return early
+  if ("newName" in body) {
+    const newName = (body.newName ?? "").trim()
+    if (!newName || newName === company) return Response.json({ ok: true })
+    await prisma.contact.updateMany({ where: { userId, company }, data: { company: newName } })
+    const oldPref = await prisma.companyPreference.findUnique({
+      where: { userId_company: { userId, company } },
+    })
+    if (oldPref) {
+      await prisma.companyPreference.delete({ where: { userId_company: { userId, company } } })
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company: newName } },
+        update: {},
+        create: { userId, company: newName, ignored: oldPref.ignored, isPartner: oldPref.isPartner, size: oldPref.size },
+      })
+    }
+    return Response.json({ ok: true })
+  }
 
   const save = async () => {
     if ("status" in body) {
