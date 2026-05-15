@@ -16,7 +16,7 @@ type SyncContextValue = {
   syncState: SyncState
   resumable: Resumable | null
   setResumable: (r: Resumable | null) => void
-  sync: (restart?: boolean) => void
+  sync: (restart?: boolean, resume?: boolean) => void
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null)
@@ -31,12 +31,13 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   const [syncState, setSyncState] = useState<SyncState>({ phase: "idle" })
   const [resumable, setResumable] = useState<Resumable | null>(null)
 
-  const sync = useCallback(async (restart = false) => {
+  const sync = useCallback(async (restart = false, resume = false) => {
     setResumable(null)
     setSyncState({ phase: "connecting" })
 
     try {
-      const res = await fetch(`/api/linkedin/sync${restart ? "?restart=true" : ""}`, { method: "POST" })
+      const params = restart ? "?restart=true" : resume ? "?resume=true" : ""
+      const res = await fetch(`/api/linkedin/sync${params}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))
         setSyncState({ phase: "error", message: json.error ?? "Sync failed" })

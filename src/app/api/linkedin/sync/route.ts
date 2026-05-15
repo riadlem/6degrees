@@ -9,7 +9,6 @@ function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
-// SSE comment — keeps Vercel/proxies from closing an idle stream
 function sseKeepAlive(): Uint8Array {
   return new TextEncoder().encode(`: keepalive\n\n`)
 }
@@ -19,6 +18,8 @@ const SSE_HEADERS = {
   "Cache-Control": "no-cache, no-transform",
   "X-Accel-Buffering": "no",
 }
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -51,6 +52,10 @@ export async function POST(req: Request) {
 
   const url = new URL(req.url)
   const restart = url.searchParams.get("restart") === "true"
+  const resume  = url.searchParams.get("resume")  === "true"
+  // Default (no params) = quick sync: fetch newest connections, stop at 30-day cutoff.
+  // The LinkedIn DMA API returns connections newest-first, so this is safe and fast.
+  const quickSync = !restart && !resume
 
   const userId = session.user.id
   const accessToken = account.access_token
@@ -60,11 +65,14 @@ export async function POST(req: Request) {
     select: { syncCursor: true, syncTotal: true },
   })
 
-  const resuming = !restart && (userState?.syncCursor ?? 0) > 0
+  const resuming = resume && (userState?.syncCursor ?? 0) > 0
   let pageIndex = resuming ? userState!.syncCursor! : 0
-  let total = resuming && userState?.syncTotal ? userState.syncTotal : 0
-  let synced = pageIndex * 100
-  let failed = 0
+  let total     = resuming && userState?.syncTotal ? userState.syncTotal : 0
+  let synced    = resuming ? pageIndex * 100 : 0
+  let failed    = 0
+
+  // 30-day cutoff for quick sync
+  const cutoffDate = quickSync ? new Date(Date.now() - THIRTY_DAYS_MS) : null
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -75,20 +83,18 @@ export async function POST(req: Request) {
         try { controller.enqueue(sseKeepAlive()) } catch { /* ignore */ }
       }
 
-      // Heartbeat every 20 s so Vercel / CDN don't treat the stream as idle
       const heartbeat = setInterval(ping, 20_000)
 
       const saveCursor = async (page: number, t: number) => {
-        await prisma.user.update({
-          where: { id: userId },
-          data: { syncCursor: page, syncTotal: t },
-        })
+        await prisma.user.update({ where: { id: userId }, data: { syncCursor: page, syncTotal: t } })
       }
 
       try {
-        ping() // immediate first keepalive so the connection is confirmed open
+        ping()
 
-        if (resuming) {
+        if (quickSync) {
+          send({ type: "status", message: "Syncing recent connections (last 30 days)…" })
+        } else if (resuming) {
           send({ type: "status", message: `Resuming from ~contact ${synced + 1}…`, total, resumed: true })
         } else {
           send({ type: "status", message: "Authorising with LinkedIn…" })
@@ -96,11 +102,12 @@ export async function POST(req: Request) {
 
         await ensureMemberAuthorization(accessToken)
 
-        send({ type: "status", message: resuming ? `Resuming sync…` : "Fetching connections…", total })
-
-        // Save cursor=0 immediately so that if interrupted during the very first
-        // page, the sync is still resumable (rather than silently restarting).
-        if (!resuming) await saveCursor(0, 0)
+        if (quickSync) {
+          send({ type: "status", message: "Fetching recent connections…" })
+        } else {
+          send({ type: "status", message: resuming ? "Resuming sync…" : "Fetching connections…", total })
+          if (!resuming) await saveCursor(0, 0)
+        }
 
         let hasNext = true
 
@@ -117,11 +124,15 @@ export async function POST(req: Request) {
                   "request a new one at linkedin.com/mypreferences/d/download-my-data and try again in 24 h.",
               })
             } else {
-              await prisma.user.update({
-                where: { id: userId },
-                data: { syncCursor: null, syncTotal: null, lastSyncAt: new Date() },
-              })
-              send({ type: "done", synced, failed, total: synced + failed })
+              if (!quickSync) {
+                await prisma.user.update({
+                  where: { id: userId },
+                  data: { syncCursor: null, syncTotal: null, lastSyncAt: new Date() },
+                })
+              } else {
+                await prisma.user.update({ where: { id: userId }, data: { lastSyncAt: new Date() } })
+              }
+              send({ type: "done", synced, failed, total: synced + failed, mode: quickSync ? "quick" : "full" })
             }
             return
           }
@@ -129,59 +140,79 @@ export async function POST(req: Request) {
           total = Math.max(total, page.total || 0, synced + page.connections.length)
           hasNext = page.hasNext
 
-          if (pageIndex === 0 && !resuming) {
+          if (!quickSync && pageIndex === 0 && !resuming) {
             send({ type: "status", message: `Found ${total} connections, syncing…`, total })
           }
+
+          let hitCutoff = false
 
           for (let i = 0; i < page.connections.length; i++) {
             const conn = page.connections[i]
             if (!conn["First Name"] && !conn["Last Name"]) { synced++; continue }
+
+            // Quick sync: stop when we reach connections older than 30 days.
+            // The DMA API returns connections newest-first, so once we hit the cutoff
+            // all subsequent connections will also be older — safe to stop entirely.
+            if (cutoffDate) {
+              const connectedOn = parseLinkedInDate(conn["Connected On"])
+              if (connectedOn && connectedOn < cutoffDate) {
+                hitCutoff = true
+                break
+              }
+            }
+
             const key = connectionKey(conn)
             try {
               await prisma.contact.upsert({
                 where: { userId_linkedinKey: { userId, linkedinKey: key } },
                 update: {
-                  position: conn["Position"] || null,
-                  company: conn["Company"] || null,
-                  profileUrl: conn["URL"] || null,
-                  syncedAt: new Date(),
+                  position:   conn["Position"]   || null,
+                  company:    conn["Company"]     || null,
+                  profileUrl: conn["URL"]         || null,
+                  syncedAt:   new Date(),
                 },
                 create: {
                   userId,
-                  linkedinKey: key,
-                  firstName: conn["First Name"],
-                  lastName: conn["Last Name"],
-                  position: conn["Position"] || null,
-                  company: conn["Company"] || null,
-                  connectedOn: parseLinkedInDate(conn["Connected On"]),
-                  profileUrl: conn["URL"] || null,
+                  linkedinKey:  key,
+                  firstName:    conn["First Name"],
+                  lastName:     conn["Last Name"],
+                  position:     conn["Position"]   || null,
+                  company:      conn["Company"]     || null,
+                  connectedOn:  parseLinkedInDate(conn["Connected On"]),
+                  profileUrl:   conn["URL"]         || null,
                 },
               })
               synced++
             } catch {
               failed++
             }
+
             if ((i + 1) % 10 === 0 || i === page.connections.length - 1) {
               const current = `${conn["First Name"]} ${conn["Last Name"]}`.trim()
-              send({ type: "progress", synced, failed, total, current })
+              send({ type: "progress", synced, failed, total: quickSync ? synced + failed : total, current })
             }
           }
 
-          pageIndex++
-          // Save cursor AFTER the page is fully written — cursor = next page to fetch.
-          // This ensures resume always starts from an unprocessed page rather than
-          // re-syncing contacts that were already saved in the previous run.
-          await saveCursor(pageIndex, total)
+          if (hitCutoff) {
+            // Quick sync complete: found the 30-day boundary, no more pages needed
+            hasNext = false
+          } else {
+            pageIndex++
+            if (!quickSync) await saveCursor(pageIndex, total)
+          }
         }
 
-        await prisma.user.update({
-          where: { id: userId },
-          data: { syncCursor: null, syncTotal: null, lastSyncAt: new Date() },
-        })
+        if (!quickSync) {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { syncCursor: null, syncTotal: null, lastSyncAt: new Date() },
+          })
+        } else {
+          await prisma.user.update({ where: { id: userId }, data: { lastSyncAt: new Date() } })
+        }
 
-        send({ type: "done", synced, failed, total })
+        send({ type: "done", synced, failed, total: quickSync ? synced + failed : total, mode: quickSync ? "quick" : "full" })
       } catch (error) {
-        // Cursor intentionally kept so user can resume after fixing the issue
         send({ type: "error", message: error instanceof Error ? error.message : String(error) })
       } finally {
         clearInterval(heartbeat)

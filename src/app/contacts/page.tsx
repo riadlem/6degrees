@@ -301,12 +301,13 @@ function ContactsContent() {
           </button>
 
           <button
-            onClick={() => sync(true)}
+            onClick={() => sync()}
             disabled={syncState.phase !== "idle" || importState.phase === "importing"}
+            title="Quick sync: fetches connections from the last 30 days. Use 'Restart' for a full sync."
             className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
-            {syncState.phase === "idle" ? "Sync LinkedIn" : "Syncing…"}
+            {syncState.phase === "idle" ? "Sync (30 days)" : "Syncing…"}
           </button>
 
           <a
@@ -336,7 +337,7 @@ function ContactsContent() {
             {resumable.total ? ` — ~${resumable.cursor * 100} of ${resumable.total} contacts synced` : ""}.
           </span>
           <div className="flex items-center gap-3 shrink-0 ml-4">
-            <button onClick={() => sync(false)} className="text-amber-700 font-semibold hover:text-amber-900">
+            <button onClick={() => sync(false, true)} className="text-amber-700 font-semibold hover:text-amber-900">
               Resume from where it stopped
             </button>
             <button onClick={() => sync(true)} className="text-amber-500 hover:text-amber-700 text-xs">
@@ -353,7 +354,9 @@ function ContactsContent() {
               {syncState.phase === "fetching" && (syncState.message ?? (syncState.total ? `Found ${syncState.total} connections, syncing…` : "Fetching connections…"))}
               {syncState.phase === "syncing" && (
                 <>
-                  Syncing {syncState.synced} / {syncState.total} contacts…
+                  {syncState.synced === syncState.total
+                    ? `Syncing recent connections…`
+                    : `Syncing ${syncState.synced} / ${syncState.total} contacts…`}
                   {syncState.current && <span className="ml-1 text-blue-500 font-normal truncate max-w-[200px] inline-block align-bottom">{syncState.current}</span>}
                 </>
               )}
