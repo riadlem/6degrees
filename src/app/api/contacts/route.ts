@@ -23,36 +23,64 @@ export async function GET(request: Request) {
 
   const userId = session.user.id
 
-  // Fetch company preferences for filtering
+  // Fetch company preferences for filtering + subsidiary lookup
   const companyPrefs = await prisma.companyPreference.findMany({
     where: { userId },
-    select: { company: true, ignored: true },
-  }).catch(() => [] as { company: string; ignored: boolean }[])
+    select: { company: true, ignored: true, parentCompany: true },
+  }).catch(async () => {
+    await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
+    return prisma.companyPreference.findMany({
+      where: { userId },
+      select: { company: true, ignored: true, parentCompany: true },
+    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null }[])
+  })
 
   const preferredCompanies = companyPrefs.filter((p) => !p.ignored).map((p) => p.company)
   const ignoredCompanies   = companyPrefs.filter((p) =>  p.ignored).map((p) => p.company)
+
+  // When a specific company is requested, include its subsidiaries automatically
+  const subsidiaryNames = company
+    ? companyPrefs
+        .filter((p) => p.parentCompany?.toLowerCase() === company.toLowerCase())
+        .map((p) => p.company)
+    : []
+
+  // Build company filter: parent (case-insensitive) + exact subsidiary names
+  const companyFilter = (): Prisma.ContactWhereInput => {
+    if (!company) return {}
+    if (subsidiaryNames.length === 0) return { company: { equals: company, mode: "insensitive" } }
+    return {
+      OR: [
+        { company: { equals: company, mode: "insensitive" } },
+        { company: { in: subsidiaryNames } },
+      ],
+    }
+  }
 
   const where: Prisma.ContactWhereInput = {
     userId,
     // Exclude contacts with no name (deactivated LinkedIn accounts)
     NOT: { firstName: "", lastName: "" },
-    // When filtering to preferred companies, only show those contacts
-    ...(preferredOnly && preferredCompanies.length > 0 && { company: { in: preferredCompanies } }),
-    // When not filtering to preferred, hide contacts from ignored companies (unless a specific company is requested)
-    ...(!preferredOnly && !company && ignoredCompanies.length > 0 && { company: { notIn: ignoredCompanies } }),
-    ...(q && {
-      OR: [
-        { firstName: { contains: q, mode: "insensitive" } },
-        { lastName: { contains: q, mode: "insensitive" } },
-        { company: { contains: q, mode: "insensitive" } },
-        { position: { contains: q, mode: "insensitive" } },
-      ],
-    }),
-    ...(company && { company: { equals: company, mode: "insensitive" } }),
-    ...(industry && { industry: { contains: industry, mode: "insensitive" } }),
-    ...(location && { location: { contains: location, mode: "insensitive" } }),
-    ...(position && { position: { contains: position, mode: "insensitive" } }),
-    ...(labelId && { labels: { some: { labelId } } }),
+    AND: [
+      // Preferred / ignored company filters
+      ...(preferredOnly && preferredCompanies.length > 0 ? [{ company: { in: preferredCompanies } }] : []),
+      ...(!preferredOnly && !company && ignoredCompanies.length > 0 ? [{ company: { notIn: ignoredCompanies } }] : []),
+      // Search query (any field)
+      ...(q ? [{
+        OR: [
+          { firstName: { contains: q, mode: "insensitive" as const } },
+          { lastName:  { contains: q, mode: "insensitive" as const } },
+          { company:   { contains: q, mode: "insensitive" as const } },
+          { position:  { contains: q, mode: "insensitive" as const } },
+        ],
+      }] : []),
+      // Company filter (with subsidiary expansion)
+      ...(company ? [companyFilter()] : []),
+      ...(industry  ? [{ industry:  { contains: industry,  mode: "insensitive" as const } }] : []),
+      ...(location  ? [{ location:  { contains: location,  mode: "insensitive" as const } }] : []),
+      ...(position  ? [{ position:  { contains: position,  mode: "insensitive" as const } }] : []),
+      ...(labelId   ? [{ labels:    { some: { labelId } } }] : []),
+    ],
   }
 
   const orderBy: Prisma.ContactOrderByWithRelationInput =

@@ -2,6 +2,18 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 
+const PREF_SELECT = { company: true, ignored: true, isPartner: true, size: true, type: true, parentCompany: true } as const
+
+async function getPrefs(userId: string) {
+  return prisma.companyPreference.findMany({ where: { userId }, select: PREF_SELECT })
+    .catch(async () => {
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
+      return prisma.companyPreference.findMany({ where: { userId }, select: PREF_SELECT })
+        .catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null; parentCompany: string | null }[])
+    })
+}
+
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -15,25 +27,13 @@ export async function GET() {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
-    prisma.companyPreference.findMany({
-      where: { userId },
-      select: { company: true, ignored: true, isPartner: true, size: true, type: true },
-    }).catch(async () => {
-      // type column doesn't exist yet — add it, then retry
-      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
-      return prisma.companyPreference.findMany({
-        where: { userId },
-        select: { company: true, ignored: true, isPartner: true, size: true, type: true },
-      }).catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null }[])
-    }),
+    getPrefs(userId),
   ])
 
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
-
   const companyNames = rows.map((r) => r.company as string)
 
   const [samples, industries] = await Promise.all([
-
     prisma.contact.findMany({
       where: { userId, company: { in: companyNames }, photoUrl: { not: null } },
       select: { company: true, photoUrl: true, id: true },
@@ -67,19 +67,19 @@ export async function GET() {
     .map((r) => {
       const pref = prefMap.get(r.company as string)
       return {
-        name:      r.company as string,
-        count:     r._count.id,
-        preferred: pref ? !pref.ignored : false,
-        ignored:   pref?.ignored ?? false,
-        isPartner: pref?.isPartner ?? false,
-        size:      pref?.size ?? null,
-        type:      pref?.type ?? null,
-        industry:  industryByCompany.get(r.company as string) ?? null,
-        photos:    photosByCompany.get(r.company as string) ?? [],
+        name:          r.company as string,
+        count:         r._count.id,
+        preferred:     pref ? !pref.ignored : false,
+        ignored:       pref?.ignored ?? false,
+        isPartner:     pref?.isPartner ?? false,
+        size:          pref?.size ?? null,
+        type:          pref?.type ?? null,
+        parentCompany: pref?.parentCompany ?? null,
+        industry:      industryByCompany.get(r.company as string) ?? null,
+        photos:        photosByCompany.get(r.company as string) ?? [],
       }
     })
 
-  // partner+preferred → preferred → partner-only → neutral → ignored
   companies.sort((a, b) => {
     if (a.ignored !== b.ignored) return a.ignored ? 1 : -1
     const aScore = (a.isPartner ? 2 : 0) + (a.preferred ? 1 : 0)
@@ -91,12 +91,13 @@ export async function GET() {
   return Response.json({ companies })
 }
 
-// POST body: one of:
+// POST body — one of:
 //   { company, status: "preferred" | "ignored" | "none" }
 //   { company, size: "small" | "medium" | "corporate" | "fortune500" | null }
 //   { company, isPartner: boolean }
 //   { company, type: "brand" | "non-brand" | "independent" | null }
-//   { company, newName: string }  ← rename/merge: moves all contacts + migrates preference
+//   { company, parentCompany: string | null }
+//   { company, newName: string }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -107,6 +108,7 @@ export async function POST(req: Request) {
     size?: string | null
     isPartner?: boolean
     type?: string | null
+    parentCompany?: string | null
     newName?: string
   }
   if (!body.company) return new Response("Bad request", { status: 400 })
@@ -114,7 +116,6 @@ export async function POST(req: Request) {
   const userId = session.user.id
   const { company } = body
 
-  // Rename/merge: bulk-move contacts + migrate preference row, then return early
   if ("newName" in body) {
     const newName = (body.newName ?? "").trim()
     if (!newName || newName === company) return Response.json({ ok: true })
@@ -127,7 +128,7 @@ export async function POST(req: Request) {
       await prisma.companyPreference.upsert({
         where: { userId_company: { userId, company: newName } },
         update: {},
-        create: { userId, company: newName, ignored: oldPref.ignored, isPartner: oldPref.isPartner, size: oldPref.size, type: oldPref.type },
+        create: { userId, company: newName, ignored: oldPref.ignored, isPartner: oldPref.isPartner, size: oldPref.size, type: oldPref.type, parentCompany: oldPref.parentCompany },
       })
     }
     return Response.json({ ok: true })
@@ -162,13 +163,19 @@ export async function POST(req: Request) {
         create: { userId, company, type: body.type ?? null },
         update: { type: body.type ?? null },
       })
+    } else if ("parentCompany" in body) {
+      const parent = body.parentCompany ? (body.parentCompany as string).trim() || null : null
+      await prisma.companyPreference.upsert({
+        where: { userId_company: { userId, company } },
+        create: { userId, company, parentCompany: parent },
+        update: { parentCompany: parent },
+      })
     }
   }
 
   try {
     await save()
   } catch {
-    // Table or columns missing — self-heal then retry.
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "CompanyPreference" (
@@ -182,26 +189,12 @@ export async function POST(req: Request) {
             REFERENCES "User"("id") ON DELETE CASCADE
         )
       `
-      await prisma.$executeRaw`
-        ALTER TABLE "CompanyPreference"
-        ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE
-      `
-      await prisma.$executeRaw`
-        ALTER TABLE "CompanyPreference"
-        ADD COLUMN IF NOT EXISTS "isPartner" BOOLEAN NOT NULL DEFAULT FALSE
-      `
-      await prisma.$executeRaw`
-        ALTER TABLE "CompanyPreference"
-        ADD COLUMN IF NOT EXISTS "size" TEXT
-      `
-      await prisma.$executeRaw`
-        ALTER TABLE "CompanyPreference"
-        ADD COLUMN IF NOT EXISTS "type" TEXT
-      `
-      await prisma.$executeRaw`
-        CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx"
-        ON "CompanyPreference"("userId")
-      `
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE`
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "isPartner" BOOLEAN NOT NULL DEFAULT FALSE`
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "size" TEXT`
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`
+      await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx" ON "CompanyPreference"("userId")`
       await save()
     } catch {
       return Response.json({ ok: false, error: "Could not save preference" }, { status: 503 })
