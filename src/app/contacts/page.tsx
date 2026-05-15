@@ -13,7 +13,7 @@ import ManageLabelsModal from "@/components/ManageLabelsModal"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false,
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "",
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -107,6 +107,7 @@ function ContactsContent() {
         location: f.location, position: f.position, label: f.label, sort: f.sort,
         page: String(p), limit: "48",
         preferredCompanies: f.preferredCompanies ? "true" : "false",
+        sector: f.sector, companyType: f.companyType,
       })
       const res = await fetch(`/api/contacts?${params}`)
       if (!res.ok) return
