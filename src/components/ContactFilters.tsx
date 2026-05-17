@@ -44,6 +44,7 @@ const SORT_OPTIONS = [
   { value: "mutual",        label: "Most mutual" },
   { value: "recent",        label: "Recently synced" },
   { value: "location",      label: "Location A–Z" },
+  { value: "score",         label: "Interaction score" },
 ]
 
 function FilterSelect({

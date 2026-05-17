@@ -1,0 +1,100 @@
+import prisma from "@/lib/prisma"
+import { createHmac } from "crypto"
+import { fetchGmailProfile, GMAIL_SCOPES } from "@/lib/gmail"
+
+function verifyState(state: string): string | null {
+  try {
+    const decoded = Buffer.from(state, "base64url").toString()
+    const parts = decoded.split(":")
+    if (parts.length !== 3) return null
+    const [userId, ts, sig] = parts
+    const payload = `${userId}:${ts}`
+    const expected = createHmac("sha256", process.env.NEXTAUTH_SECRET ?? "secret").update(payload).digest("hex")
+    if (sig !== expected) return null
+    if (Date.now() - Number(ts) > 10 * 60 * 1000) return null
+    return userId
+  } catch {
+    return null
+  }
+}
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const code = searchParams.get("code")
+  const state = searchParams.get("state")
+  const error = searchParams.get("error")
+
+  if (error) {
+    return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail_error=${encodeURIComponent(error)}`)
+  }
+
+  if (!code || !state) {
+    return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail_error=missing_params`)
+  }
+
+  const userId = verifyState(state)
+  if (!userId) {
+    return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail_error=invalid_state`)
+  }
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: `${process.env.NEXTAUTH_URL}/api/auth/gmail-callback`,
+      client_id: process.env.GOOGLE_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+    }),
+  })
+
+  if (!tokenRes.ok) {
+    return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail_error=token_exchange_failed`)
+  }
+
+  const token = await tokenRes.json()
+  const nowSec = Math.floor(Date.now() / 1000)
+
+  // Fetch Gmail address to use as providerAccountId
+  const profile = await fetchGmailProfile(token.access_token)
+  const gmailEmail = profile?.emailAddress ?? userId
+
+  await prisma.account.upsert({
+    where: { provider_providerAccountId: { provider: "gmail", providerAccountId: gmailEmail } },
+    update: {
+      userId,
+      access_token: token.access_token,
+      refresh_token: token.refresh_token ?? undefined,
+      expires_at: token.expires_in ? nowSec + token.expires_in : null,
+      scope: token.scope ?? GMAIL_SCOPES,
+    },
+    create: {
+      userId,
+      type: "oauth",
+      provider: "gmail",
+      providerAccountId: gmailEmail,
+      access_token: token.access_token,
+      refresh_token: token.refresh_token ?? null,
+      expires_at: token.expires_in ? nowSec + token.expires_in : null,
+      scope: token.scope ?? GMAIL_SCOPES,
+    },
+  })
+
+  await prisma.gmailSync.upsert({
+    where: { userId },
+    update: { gmailEmail },
+    create: { userId, gmailEmail },
+  })
+
+  // Auto-register the connected address so outbound detection picks it up
+  if (gmailEmail && gmailEmail !== userId) {
+    await prisma.userEmailAddress.upsert({
+      where: { userId_email: { userId, email: gmailEmail } },
+      update: {},
+      create: { userId, email: gmailEmail },
+    })
+  }
+
+  return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail=connected`)
+}

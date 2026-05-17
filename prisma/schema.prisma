@@ -47,13 +47,13 @@ model VerificationToken {
 // ─── Core models ─────────────────────────────────────────────────────────────
 
 model User {
-  id             String        @id @default(cuid())
+  id             String              @id @default(cuid())
   name           String?
-  email          String?       @unique
+  email          String?             @unique
   emailVerified  DateTime?
   image          String?
   password       String?
-  extensionToken String?       @unique
+  extensionToken String?             @unique
   syncCursor     Int?
   syncTotal      Int?
   accounts       Account[]
@@ -63,28 +63,34 @@ model User {
   labels         Label[]
   companyPrefs   CompanyPreference[]
   lastSyncAt     DateTime?
+  gmailSync      GmailSync?
+  emailMessages  EmailMessage[]
+  outreachDrafts OutreachDraft[]
+  whatsAppMessages WhatsAppMessage[]
+  whatsAppSync   WhatsAppSync?
+  userEmailAddresses UserEmailAddress[]
 }
 
 model Contact {
-  id               String    @id @default(cuid())
-  userId           String
+  id                String    @id @default(cuid())
+  userId            String
   // Key from LinkedIn DMA
-  linkedinKey      String
+  linkedinKey       String
   // LinkedIn DMA CONNECTIONS fields
-  firstName        String
-  lastName         String
-  position         String?
-  company          String?
-  connectedOn      DateTime?
+  firstName         String
+  lastName          String
+  position          String?
+  company           String?
+  connectedOn       DateTime?
   // Enriched via PROFILE domain or manual edit
-  location         String?
-  industry         String?
-  headline         String?
-  profileUrl       String?
+  location          String?
+  industry          String?
+  headline          String?
+  profileUrl        String?
   // Enriched via Cowork
-  photoUrl         String?
+  photoUrl          String?
   commonConnections Int?
-  coworkEnrichedAt DateTime?
+  coworkEnrichedAt  DateTime?
   // Enriched via Chrome extension
   city              String?
   country           String?
@@ -92,19 +98,31 @@ model Contact {
   education         Json?
   sharedConnections Json?
   extensionSyncedAt DateTime?
+  // Email interaction tracking
+  emailAddress      String?
+  phoneNumber       String?
+  lastInteractionAt DateTime?
+  interactionScore  Float?
+  outreachStatus    String?
+  outreachUpdatedAt DateTime?
   // Metadata
-  syncedAt         DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  syncedAt          DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  notes       ContactNote[]
-  listMembers ContactListMember[]
-  labels      ContactLabel[]
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notes            ContactNote[]
+  listMembers      ContactListMember[]
+  labels           ContactLabel[]
+  emailMessages    EmailMessage[]
+  emailAddresses   ContactEmailAddress[]
+  outreachDrafts   OutreachDraft[]
+  whatsAppMessages WhatsAppMessage[]
 
   @@unique([userId, linkedinKey])
   @@index([userId])
   @@index([userId, company])
   @@index([userId, industry])
+  @@index([userId, interactionScore])
 }
 
 model ContactNote {
@@ -118,14 +136,14 @@ model ContactNote {
 }
 
 model ContactList {
-  id          String   @id @default(cuid())
-  userId      String
-  name        String
-  description String?
-  shareToken  String?  @unique @default(cuid())
-  shareEnabled Boolean @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  shareToken   String?  @unique @default(cuid())
+  shareEnabled Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   members ContactListMember[]
@@ -134,10 +152,10 @@ model ContactList {
 }
 
 model ContactListMember {
-  id        String      @id @default(cuid())
+  id        String   @id @default(cuid())
   listId    String
   contactId String
-  addedAt   DateTime    @default(now())
+  addedAt   DateTime @default(now())
 
   list    ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
   contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
@@ -146,11 +164,11 @@ model ContactListMember {
 }
 
 model Label {
-  id        String         @id @default(cuid())
+  id        String   @id @default(cuid())
   userId    String
   name      String
-  color     String         @default("blue")
-  createdAt DateTime       @default(now())
+  color     String   @default("blue")
+  createdAt DateTime @default(now())
 
   user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   contacts ContactLabel[]
@@ -160,15 +178,15 @@ model Label {
 }
 
 model CompanyPreference {
-  id            String   @id @default(cuid())
+  id            String  @id @default(cuid())
   userId        String
   company       String
-  ignored       Boolean  @default(false)
-  isPartner     Boolean  @default(false)
+  ignored       Boolean @default(false)
+  isPartner     Boolean @default(false)
   size          String?
   type          String?
   parentCompany String?
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, company])
   @@index([userId])
@@ -183,4 +201,110 @@ model ContactLabel {
   label   Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([contactId, labelId])
+}
+
+// ─── User email addresses ─────────────────────────────────────────────────────
+
+model UserEmailAddress {
+  id        String  @id @default(cuid())
+  userId    String
+  email     String
+  isPrimary Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([userId])
+}
+
+// ─── Gmail integration ────────────────────────────────────────────────────────
+
+model GmailSync {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  historyId     String?
+  syncedAt      DateTime?
+  totalMessages Int       @default(0)
+  gmailEmail    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ContactEmailAddress {
+  id        String  @id @default(cuid())
+  contactId String
+  email     String
+  source    String
+  isPrimary Boolean @default(false)
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, email])
+  @@index([email])
+}
+
+model EmailMessage {
+  id         String   @id @default(cuid())
+  userId     String
+  gmailId    String
+  threadId   String
+  subject    String?  @db.Text
+  fromEmail  String
+  fromName   String?
+  toEmails   String[]
+  sentAt     DateTime
+  isOutbound Boolean
+  contactId  String?
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, gmailId])
+  @@index([userId, contactId])
+  @@index([contactId, sentAt])
+}
+
+model OutreachDraft {
+  id        String    @id @default(cuid())
+  contactId String
+  userId    String
+  subject   String?
+  body      String    @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  sentAt    DateTime?
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([contactId])
+}
+
+// ─── WhatsApp integration ─────────────────────────────────────────────────────
+
+model WhatsAppSync {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  importedAt    DateTime?
+  totalMessages Int       @default(0)
+  totalChats    Int       @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WhatsAppMessage {
+  id         String   @id @default(cuid())
+  userId     String
+  contactId  String?
+  chatName   String
+  sentAt     DateTime
+  isOutbound Boolean
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, chatName, sentAt])
+  @@index([userId, contactId])
+  @@index([contactId, sentAt])
 }
