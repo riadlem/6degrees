@@ -6,7 +6,7 @@ export type GmailSyncState =
   | { phase: "idle" }
   | { phase: "connecting" }
   | { phase: "fetching"; total?: number; message?: string }
-  | { phase: "syncing"; synced: number; failed: number; total: number; current?: string }
+  | { phase: "syncing"; synced: number; failed: number; processed: number; total: number; current?: string }
   | { phase: "done"; synced: number; failed: number }
   | { phase: "error"; message: string }
 
@@ -70,7 +70,7 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
             if (event.type === "status") {
               setGmailSyncState({ phase: "fetching", total: event.total, message: event.message })
             } else if (event.type === "progress") {
-              setGmailSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, total: event.total, current: event.current })
+              setGmailSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, processed: event.processed ?? event.synced, total: event.total, current: event.current })
             } else if (event.type === "done") {
               gotTerminal = true
               setGmailSyncState({ phase: "done", synced: event.synced, failed: event.failed })

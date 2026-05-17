@@ -113,14 +113,19 @@ function SettingsPageInner() {
     gmailSyncState.phase === "fetching" ||
     gmailSyncState.phase === "syncing"
 
-  const gmailSyncLabel =
-    gmailSyncState.phase === "connecting" ? "Connecting…" :
-    gmailSyncState.phase === "fetching" ? (gmailSyncState.message ?? "Fetching…") :
-    gmailSyncState.phase === "syncing"
-      ? `${gmailSyncState.synced} / ${gmailSyncState.total} emails`
-      : gmailSyncState.phase === "done"
-      ? `Done — ${gmailSyncState.synced} emails synced`
-      : null
+  const gmailSyncLabel = (() => {
+    if (gmailSyncState.phase === "connecting") return "Connecting…"
+    if (gmailSyncState.phase === "fetching") return gmailSyncState.message ?? "Fetching…"
+    if (gmailSyncState.phase === "syncing") {
+      const { processed, total, synced, failed } = gmailSyncState
+      const pct = total > 0 ? Math.round((processed / total) * 100) : 0
+      const parts = [`${processed} / ${total} processed (${pct}%)`, `${synced} indexed`]
+      if (failed > 0) parts.push(`${failed} skipped`)
+      return parts.join(" · ")
+    }
+    if (gmailSyncState.phase === "done") return `Done — ${gmailSyncState.synced} emails indexed`
+    return null
+  })()
 
   async function importWhatsApp(files: FileList) {
     if (files.length === 0) return
