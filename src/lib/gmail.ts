@@ -130,7 +130,7 @@ type ParsedMessage = {
 
 export function parseMessageHeaders(
   msg: { id: string; threadId?: string; payload: { headers: { name: string; value: string }[] } },
-  userEmail: string,
+  userEmails: string | string[],
 ): ParsedMessage | null {
   const h = (name: string) =>
     msg.payload.headers.find((x) => x.name.toLowerCase() === name.toLowerCase())?.value ?? ""
@@ -151,7 +151,8 @@ export function parseMessageHeaders(
     .map((t) => parseNameEmail(t.trim()).email)
     .filter(Boolean)
 
-  const isOutbound = normalizeEmail(fromEmail) === normalizeEmail(userEmail)
+  const emailList = Array.isArray(userEmails) ? userEmails : [userEmails]
+  const isOutbound = emailList.some((e) => normalizeEmail(fromEmail) === normalizeEmail(e))
 
   return {
     gmailId: msg.id,

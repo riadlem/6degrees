@@ -87,5 +87,14 @@ export async function GET(req: Request) {
     create: { userId, gmailEmail },
   })
 
+  // Auto-register the connected address so outbound detection picks it up
+  if (gmailEmail && gmailEmail !== userId) {
+    await prisma.userEmailAddress.upsert({
+      where: { userId_email: { userId, email: gmailEmail } },
+      update: {},
+      create: { userId, email: gmailEmail },
+    })
+  }
+
   return Response.redirect(`${process.env.NEXTAUTH_URL}/settings?gmail=connected`)
 }

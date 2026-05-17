@@ -72,7 +72,11 @@ export async function POST(req: Request) {
       try {
         // Fetch user's own Gmail address for outbound detection
         const profile = await fetchGmailProfile(token)
-        const userEmail = profile?.emailAddress ?? gmailSync?.gmailEmail ?? ""
+        const primaryEmail = profile?.emailAddress ?? gmailSync?.gmailEmail ?? ""
+
+        const knownRows = await prisma.userEmailAddress.findMany({ where: { userId }, select: { email: true } })
+        const userEmails = knownRows.map((r) => r.email)
+        if (primaryEmail && !userEmails.includes(primaryEmail)) userEmails.push(primaryEmail)
 
         let messageIds: string[] = []
 
@@ -131,7 +135,7 @@ export async function POST(req: Request) {
                 const msg = await fetchMessageMetadata(token, id)
                 if (!msg) { failed++; return }
 
-                const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmail)
+                const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmails)
                 if (!parsed) { failed++; return }
 
                 // Match to contact
@@ -201,14 +205,14 @@ export async function POST(req: Request) {
             historyId: latestHistoryId ?? gmailSync?.historyId ?? undefined,
             syncedAt: new Date(),
             totalMessages: synced,
-            gmailEmail: userEmail || undefined,
+            gmailEmail: primaryEmail || undefined,
           },
           create: {
             userId,
             historyId: latestHistoryId ?? undefined,
             syncedAt: new Date(),
             totalMessages: synced,
-            gmailEmail: userEmail || undefined,
+            gmailEmail: primaryEmail || undefined,
           },
         })
 

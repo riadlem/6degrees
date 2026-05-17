@@ -68,6 +68,7 @@ model User {
   outreachDrafts OutreachDraft[]
   whatsAppMessages WhatsAppMessage[]
   whatsAppSync   WhatsAppSync?
+  userEmailAddresses UserEmailAddress[]
 }
 
 model Contact {
@@ -200,6 +201,20 @@ model ContactLabel {
   label   Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([contactId, labelId])
+}
+
+// ─── User email addresses ─────────────────────────────────────────────────────
+
+model UserEmailAddress {
+  id        String  @id @default(cuid())
+  userId    String
+  email     String
+  isPrimary Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([userId])
 }
 
 // ─── Gmail integration ────────────────────────────────────────────────────────

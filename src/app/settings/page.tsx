@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
@@ -33,6 +33,10 @@ function SettingsPageInner() {
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
   const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null)
+  const [userEmails, setUserEmails] = useState<string[]>([])
+  const [newEmail, setNewEmail] = useState("")
+  const [addingEmail, setAddingEmail] = useState(false)
+
   const [waImporting, setWaImporting] = useState(false)
   const [waProgress, setWaProgress] = useState<string | null>(null)
   const [waResult, setWaResult] = useState<{ synced: number; chats: number; matched: number } | null>(null)
@@ -57,6 +61,10 @@ function SettingsPageInner() {
       fetch("/api/whatsapp/status")
         .then((r) => r.ok ? r.json() : null)
         .then((d) => d && setWaStatus(d))
+
+      fetch("/api/user/emails")
+        .then((r) => r.ok ? r.json() : [])
+        .then((rows: { email: string }[]) => setUserEmails(rows.map((r) => r.email)))
     }
   }, [status])
 
@@ -68,6 +76,30 @@ function SettingsPageInner() {
         .then((d) => d && setGmailStatus(d))
     }
   }, [searchParams])
+
+  async function addEmail() {
+    const email = newEmail.toLowerCase().trim()
+    if (!email || !email.includes("@")) return
+    setAddingEmail(true)
+    try {
+      const res = await fetch("/api/user/emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
+      if (res.ok) {
+        setUserEmails((prev) => prev.includes(email) ? prev : [...prev, email])
+        setNewEmail("")
+      }
+    } finally {
+      setAddingEmail(false)
+    }
+  }
+
+  async function removeEmail(email: string) {
+    await fetch(`/api/user/emails/${encodeURIComponent(email)}`, { method: "DELETE" })
+    setUserEmails((prev) => prev.filter((e) => e !== email))
+  }
 
   async function disconnectGmail() {
     setDisconnecting(true)
@@ -296,6 +328,61 @@ function SettingsPageInner() {
 
           <p className="text-xs text-gray-400">
             Only sender, subject, and date are stored. Email bodies are never imported.
+          </p>
+        </div>
+      </div>
+
+      {/* My email addresses */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+            <AtSign size={18} className="text-purple-600" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">My email addresses</h2>
+            <p className="text-xs text-gray-500">All addresses you send from — used to identify outbound emails</p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-3">
+          {userEmails.length > 0 && (
+            <ul className="space-y-1.5">
+              {userEmails.map((email) => (
+                <li key={email} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                  <span className="text-sm font-mono text-gray-700">{email}</span>
+                  <button
+                    onClick={() => removeEmail(email)}
+                    className="text-gray-400 hover:text-red-500 transition-colors"
+                    aria-label="Remove"
+                  >
+                    <X size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addEmail()}
+              placeholder="riad@example.com"
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-300"
+            />
+            <button
+              onClick={addEmail}
+              disabled={addingEmail || !newEmail.includes("@")}
+              className="flex items-center gap-1.5 text-sm bg-purple-600 text-white rounded-lg px-4 py-2 hover:bg-purple-700 disabled:opacity-40 transition-colors"
+            >
+              <Plus size={13} />
+              Add
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Add all addresses you use to send email — including work and personal. Gmail-connected accounts are added automatically.
           </p>
         </div>
       </div>
