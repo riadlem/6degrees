@@ -116,6 +116,7 @@ export async function POST(req: Request) {
 
         let synced = 0
         let failed = 0
+        let processed = 0
         let latestHistoryId: string | undefined
 
         // Process in batches of 10 to respect rate limits
@@ -130,13 +131,13 @@ export async function POST(req: Request) {
                   where: { userId_gmailId: { userId, gmailId: id } },
                   select: { id: true },
                 })
-                if (existing) { synced++; return }
+                if (existing) { synced++; processed++; return }
 
                 const msg = await fetchMessageMetadata(token, id)
-                if (!msg) { failed++; return }
+                if (!msg) { failed++; processed++; return }
 
                 const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmails)
-                if (!parsed) { failed++; return }
+                if (!parsed) { failed++; processed++; return }
 
                 // Match to contact
                 const contactId = await matchEmailToContact(
@@ -177,9 +178,9 @@ export async function POST(req: Request) {
                   }
                 }
 
-                synced++
+                synced++; processed++
               } catch {
-                failed++
+                failed++; processed++
               }
             }),
           )
@@ -188,8 +189,9 @@ export async function POST(req: Request) {
             type: "progress",
             synced,
             failed,
+            processed,
             total,
-            current: `${synced} of ${total}`,
+            current: `${processed} of ${total}`,
           })
 
           // Small delay between batches to stay within Gmail quota
