@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -16,6 +16,15 @@ type LabelOption = { id: string; name: string; color: string }
 type ExperienceEntry = { title?: string; company?: string; location?: string; start?: string; end?: string }
 type EducationEntry = { school?: string; degree?: string; field?: string; start?: string; end?: string }
 type SharedConnection = { name: string; profileUrl?: string }
+
+type EmailEntry = {
+  id: string
+  subject: string | null
+  fromEmail: string
+  sentAt: string
+  isOutbound: boolean
+  threadId: string
+}
 
 type Contact = {
   id: string
@@ -37,6 +46,7 @@ type Contact = {
   experience: ExperienceEntry[] | null
   education: EducationEntry[] | null
   sharedConnections: SharedConnection[] | null
+  lastInteractionAt: string | null
   notes: Note[]
   listMembers: ListMembership[]
   labels: ContactLabelEntry[]
@@ -57,6 +67,9 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [editValue, setEditValue] = useState("")
   const [allLabels, setAllLabels] = useState<LabelOption[]>([])
   const [addingLabel, setAddingLabel] = useState(false)
+  const [emails, setEmails] = useState<EmailEntry[]>([])
+  const [emailsExpanded, setEmailsExpanded] = useState(false)
+  const [emailNextCursor, setEmailNextCursor] = useState<string | null>(null)
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return
@@ -76,8 +89,29 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   useEffect(() => {
     if (contactId) {
       fetch("/api/labels").then((r) => r.json()).then(setAllLabels)
+      setEmails([])
+      setEmailsExpanded(false)
+      setEmailNextCursor(null)
+      fetch(`/api/contacts/${contactId}/emails?limit=5`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (d) {
+            setEmails(d.messages ?? [])
+            setEmailNextCursor(d.nextCursor)
+          }
+        })
     }
   }, [contactId])
+
+  async function loadMoreEmails() {
+    if (!contactId || !emailNextCursor) return
+    const res = await fetch(`/api/contacts/${contactId}/emails?limit=20&cursor=${emailNextCursor}`)
+    if (!res.ok) return
+    const d = await res.json()
+    setEmails((prev) => [...prev, ...(d.messages ?? [])])
+    setEmailNextCursor(d.nextCursor)
+    setEmailsExpanded(true)
+  }
 
   async function addLabel(labelId: string) {
     if (!contact) return
@@ -373,6 +407,50 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                     </span>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Email history */}
+            {emails.length > 0 && (
+              <div className="px-5 py-4 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Mail size={13} className="text-gray-400" />
+                    <p className="text-xs font-medium text-gray-500">
+                      Email history
+                      {contact.lastInteractionAt && (
+                        <span className="text-gray-400 font-normal ml-1">
+                          · last {formatDate(contact.lastInteractionAt)}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {emails.map((email) => (
+                    <div key={email.id} className="flex items-start gap-2">
+                      {email.isOutbound ? (
+                        <ArrowUpRight size={12} className="text-blue-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <ArrowDownLeft size={12} className="text-green-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-700 truncate">
+                          {email.subject ?? "(no subject)"}
+                        </p>
+                        <p className="text-xs text-gray-400">{formatDate(email.sentAt)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {emailNextCursor && !emailsExpanded && (
+                  <button
+                    onClick={loadMoreEmails}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Show more emails
+                  </button>
+                )}
               </div>
             )}
 

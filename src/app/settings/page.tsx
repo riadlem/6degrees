@@ -2,17 +2,29 @@
 
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2 } from "lucide-react"
+import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
+
+type GmailStatus = {
+  connected: boolean
+  gmailEmail: string | null
+  syncedAt: string | null
+  totalMessages: number
+}
 
 export default function SettingsPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const { gmailSyncState, sync: gmailSync } = useGmailSyncContext()
 
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [regenerating, setRegenerating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -24,8 +36,42 @@ export default function SettingsPage() {
         .then((r) => r.json())
         .then((d) => setToken(d.token))
         .finally(() => setLoading(false))
+
+      fetch("/api/gmail/sync")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setGmailStatus(d))
     }
   }, [status])
+
+  // Refresh Gmail status after connecting
+  useEffect(() => {
+    if (searchParams.get("gmail") === "connected") {
+      fetch("/api/gmail/sync")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setGmailStatus(d))
+    }
+  }, [searchParams])
+
+  async function disconnectGmail() {
+    setDisconnecting(true)
+    await fetch("/api/gmail/disconnect", { method: "DELETE" })
+    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0 })
+    setDisconnecting(false)
+  }
+
+  const gmailSyncing =
+    gmailSyncState.phase === "connecting" ||
+    gmailSyncState.phase === "fetching" ||
+    gmailSyncState.phase === "syncing"
+
+  const gmailSyncLabel =
+    gmailSyncState.phase === "connecting" ? "Connecting…" :
+    gmailSyncState.phase === "fetching" ? (gmailSyncState.message ?? "Fetching…") :
+    gmailSyncState.phase === "syncing"
+      ? `${gmailSyncState.synced} / ${gmailSyncState.total} emails`
+      : gmailSyncState.phase === "done"
+      ? `Done — ${gmailSyncState.synced} emails synced`
+      : null
 
   async function regenerate() {
     setRegenerating(true)
@@ -59,6 +105,86 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto px-4 py-10">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">Settings</h1>
       <p className="text-sm text-gray-500 mb-8">{session?.user?.name}</p>
+
+      {/* Gmail Integration */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center">
+            <Mail size={18} className="text-red-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Gmail Integration</h2>
+            <p className="text-xs text-gray-500">Match 15+ years of email history to your contacts</p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {gmailStatus?.connected ? (
+            <>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                <span className="text-sm text-gray-700 font-medium">{gmailStatus.gmailEmail}</span>
+              </div>
+
+              {gmailStatus.syncedAt && (
+                <p className="text-xs text-gray-500">
+                  Last synced: {new Date(gmailStatus.syncedAt).toLocaleString()} · {gmailStatus.totalMessages.toLocaleString()} emails indexed
+                </p>
+              )}
+
+              {gmailSyncLabel && (
+                <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+                  <Loader2 size={12} className="animate-spin" />
+                  {gmailSyncLabel}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => gmailSync(false)}
+                  disabled={gmailSyncing}
+                  className="flex items-center gap-1.5 text-sm bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  <RefreshCw size={13} className={gmailSyncing ? "animate-spin" : ""} />
+                  {gmailSyncing ? "Syncing…" : "Sync emails"}
+                </button>
+                <button
+                  onClick={() => gmailSync(true)}
+                  disabled={gmailSyncing}
+                  className="flex items-center gap-1.5 text-sm border border-gray-200 text-gray-600 rounded-lg px-4 py-2 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                >
+                  Quick sync
+                </button>
+                <button
+                  onClick={disconnectGmail}
+                  disabled={disconnecting}
+                  className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-600 ml-auto disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                  Disconnect
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-600">
+                Connect Gmail to automatically match your email history with your contacts and surface relationships worth rekindling.
+              </p>
+              <a
+                href="/api/auth/gmail-connect"
+                className="inline-flex items-center gap-2 bg-blue-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors"
+              >
+                <Mail size={14} />
+                Connect Gmail
+              </a>
+            </>
+          )}
+
+          <p className="text-xs text-gray-400">
+            Only sender, subject, and date are stored. Email bodies are never imported.
+          </p>
+        </div>
+      </div>
 
       {/* Chrome Extension */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">

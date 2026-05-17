@@ -91,6 +91,7 @@ export async function GET(request: Request) {
     sort === "location"       ? { location: "asc" } :
     sort === "mutual"         ? { commonConnections: "desc" } :
     sort === "name_desc"      ? { lastName: "desc" } :
+    sort === "score"          ? { interactionScore: "desc" } :
     { firstName: "asc" }
 
   const [contacts, total] = await Promise.all([
