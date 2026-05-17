@@ -14,16 +14,23 @@ function computeScore(messages: { sentAt: Date; isOutbound: boolean }[]): number
 }
 
 export async function recomputeScores(userId: string): Promise<void> {
-  // Load all matched messages for this user grouped by contact
-  const rows = await prisma.emailMessage.findMany({
-    where: { userId, contactId: { not: null } },
-    select: { contactId: true, sentAt: true, isOutbound: true },
-    orderBy: { sentAt: "desc" },
-  })
+  // Load all matched messages for this user grouped by contact (email + WhatsApp)
+  const [emailRows, waRows] = await Promise.all([
+    prisma.emailMessage.findMany({
+      where: { userId, contactId: { not: null } },
+      select: { contactId: true, sentAt: true, isOutbound: true },
+    }),
+    prisma.whatsAppMessage.findMany({
+      where: { userId, contactId: { not: null } },
+      select: { contactId: true, sentAt: true, isOutbound: true },
+    }),
+  ])
+
+  const allRows = [...emailRows, ...waRows]
 
   // Group by contactId
   const byContact = new Map<string, { sentAt: Date; isOutbound: boolean }[]>()
-  for (const row of rows) {
+  for (const row of allRows) {
     if (!row.contactId) continue
     const arr = byContact.get(row.contactId) ?? []
     arr.push({ sentAt: row.sentAt, isOutbound: row.isOutbound })

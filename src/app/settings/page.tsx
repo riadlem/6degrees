@@ -3,14 +3,21 @@
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2 } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
+import { useRef } from "react"
 
 type GmailStatus = {
   connected: boolean
   gmailEmail: string | null
   syncedAt: string | null
   totalMessages: number
+}
+
+type WhatsAppStatus = {
+  importedAt: string | null
+  totalMessages: number
+  totalChats: number
 }
 
 export default function SettingsPage() {
@@ -25,6 +32,11 @@ export default function SettingsPage() {
   const [copied, setCopied] = useState(false)
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null)
   const [disconnecting, setDisconnecting] = useState(false)
+  const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null)
+  const [waImporting, setWaImporting] = useState(false)
+  const [waProgress, setWaProgress] = useState<string | null>(null)
+  const [waResult, setWaResult] = useState<{ synced: number; chats: number; matched: number } | null>(null)
+  const waFileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -40,6 +52,10 @@ export default function SettingsPage() {
       fetch("/api/gmail/sync")
         .then((r) => r.ok ? r.json() : null)
         .then((d) => d && setGmailStatus(d))
+
+      fetch("/api/whatsapp/status")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setWaStatus(d))
     }
   }, [status])
 
@@ -72,6 +88,55 @@ export default function SettingsPage() {
       : gmailSyncState.phase === "done"
       ? `Done — ${gmailSyncState.synced} emails synced`
       : null
+
+  async function importWhatsApp(files: FileList) {
+    if (files.length === 0) return
+    setWaImporting(true)
+    setWaProgress("Preparing…")
+    setWaResult(null)
+
+    const formData = new FormData()
+    for (const file of Array.from(files)) formData.append("files", file)
+
+    try {
+      const res = await fetch("/api/whatsapp/import", { method: "POST", body: formData })
+      if (!res.ok || !res.body) { setWaProgress("Import failed"); return }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === "status") setWaProgress(event.message)
+            else if (event.type === "progress") setWaProgress(`${event.file}: ${event.synced} messages${event.matched ? " ✓" : " (no match)"}`)
+            else if (event.type === "done") {
+              setWaResult({ synced: event.synced, chats: event.chats, matched: event.matched })
+              setWaProgress(null)
+              setWaStatus((prev) => ({
+                importedAt: new Date().toISOString(),
+                totalMessages: (prev?.totalMessages ?? 0) + event.synced,
+                totalChats: (prev?.totalChats ?? 0) + event.chats,
+              }))
+            } else if (event.type === "error") {
+              setWaProgress(`Error: ${event.message}`)
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } finally {
+      setWaImporting(false)
+      if (waFileRef.current) waFileRef.current.value = ""
+    }
+  }
 
   async function regenerate() {
     setRegenerating(true)
@@ -182,6 +247,74 @@ export default function SettingsPage() {
 
           <p className="text-xs text-gray-400">
             Only sender, subject, and date are stored. Email bodies are never imported.
+          </p>
+        </div>
+      </div>
+
+      {/* WhatsApp History */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center">
+            <MessageCircle size={18} className="text-green-600" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">WhatsApp History</h2>
+            <p className="text-xs text-gray-500">Import chat exports to boost relationship scores</p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {waStatus?.importedAt && (
+            <p className="text-xs text-gray-500">
+              Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
+            </p>
+          )}
+
+          {waResult && (
+            <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
+              Imported {waResult.synced.toLocaleString()} messages from {waResult.chats} chat{waResult.chats !== 1 ? "s" : ""} — {waResult.matched} matched to contacts
+            </div>
+          )}
+
+          {waProgress && (
+            <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+              <Loader2 size={12} className="animate-spin" />
+              {waProgress}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <input
+              ref={waFileRef}
+              type="file"
+              accept=".txt"
+              multiple
+              className="hidden"
+              onChange={(e) => e.target.files && importWhatsApp(e.target.files)}
+            />
+            <button
+              onClick={() => waFileRef.current?.click()}
+              disabled={waImporting}
+              className="flex items-center gap-2 text-sm bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              <Upload size={13} />
+              {waImporting ? "Importing…" : "Import chat files"}
+            </button>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 space-y-2">
+            <p className="text-xs font-semibold text-gray-700">How to export a WhatsApp chat</p>
+            <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
+              <li>Open WhatsApp → tap any chat</li>
+              <li>Tap ⋮ (Android) or contact name (iPhone) → <strong>More</strong> → <strong>Export chat</strong></li>
+              <li>Choose <strong>Without media</strong></li>
+              <li>Save the .txt file and upload it here</li>
+              <li>Repeat for each contact you want to import</li>
+            </ol>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Only contact names and timestamps are stored. Message content is never imported.
           </p>
         </div>
       </div>
