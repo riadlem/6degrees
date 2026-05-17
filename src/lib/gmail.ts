@@ -63,12 +63,9 @@ export async function fetchMessageMetadata(
 ): Promise<{ id: string; payload: { headers: { name: string; value: string }[] } } | null> {
   const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}`)
   url.searchParams.set("format", "metadata")
-  url.searchParams.set("metadataHeaders", "From")
-  url.searchParams.set("metadataHeaders", "To")
-  url.searchParams.set("metadataHeaders", "Cc")
-  url.searchParams.set("metadataHeaders", "Subject")
-  url.searchParams.set("metadataHeaders", "Date")
-  url.searchParams.set("metadataHeaders", "Message-ID")
+  for (const h of ["From", "To", "Cc", "Subject", "Date", "Message-ID"]) {
+    url.searchParams.append("metadataHeaders", h)
+  }
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${token}` },
