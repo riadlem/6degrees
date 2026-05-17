@@ -37,6 +37,7 @@ function SettingsPageInner() {
   const [waProgress, setWaProgress] = useState<string | null>(null)
   const [waResult, setWaResult] = useState<{ synced: number; chats: number; matched: number } | null>(null)
   const waFileRef = useRef<HTMLInputElement>(null)
+  const waDbRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -135,6 +136,54 @@ function SettingsPageInner() {
     } finally {
       setWaImporting(false)
       if (waFileRef.current) waFileRef.current.value = ""
+    }
+  }
+
+  async function importWhatsAppDB(file: File) {
+    setWaImporting(true)
+    setWaProgress("Uploading database…")
+    setWaResult(null)
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const res = await fetch("/api/whatsapp/import-db", { method: "POST", body: formData })
+      if (!res.ok || !res.body) { setWaProgress("Import failed"); return }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === "status") setWaProgress(event.message)
+            else if (event.type === "progress") setWaProgress(`${event.file}: ${event.synced} messages${event.matched ? " ✓" : " (no match)"}`)
+            else if (event.type === "done") {
+              setWaResult({ synced: event.synced, chats: event.chats, matched: event.matched })
+              setWaProgress(null)
+              setWaStatus((prev) => ({
+                importedAt: new Date().toISOString(),
+                totalMessages: (prev?.totalMessages ?? 0) + event.synced,
+                totalChats: (prev?.totalChats ?? 0) + event.chats,
+              }))
+            } else if (event.type === "error") {
+              setWaProgress(`Error: ${event.message}`)
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } finally {
+      setWaImporting(false)
+      if (waDbRef.current) waDbRef.current.value = ""
     }
   }
 
@@ -283,7 +332,44 @@ function SettingsPageInner() {
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          {/* Option A — macOS database (recommended) */}
+          <div className="rounded-xl border border-green-100 bg-green-50 p-4 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-gray-800">Option A — Import all chats at once (macOS)</p>
+              <p className="text-xs text-gray-500 mt-0.5">Upload your WhatsApp Business desktop database — imports every contact in one step.</p>
+            </div>
+            <div className="rounded-lg bg-white border border-gray-100 px-3 py-2">
+              <p className="text-xs font-mono text-gray-600 break-all">~/Library/Group Containers/group.net.whatsapp.WhatsAppSMB.shared/ChatStorage.sqlite</p>
+            </div>
+            <p className="text-xs text-gray-500">In Finder: Go → Go to Folder → paste the path above → upload <strong>ChatStorage.sqlite</strong></p>
+            <input
+              ref={waDbRef}
+              type="file"
+              accept=".sqlite,.db"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && importWhatsAppDB(e.target.files[0])}
+            />
+            <button
+              onClick={() => waDbRef.current?.click()}
+              disabled={waImporting}
+              className="flex items-center gap-2 text-sm bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              <Upload size={13} />
+              {waImporting ? "Importing…" : "Upload ChatStorage.sqlite"}
+            </button>
+          </div>
+
+          {/* Option B — per-chat .txt exports */}
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-gray-800">Option B — Export chats individually</p>
+              <p className="text-xs text-gray-500 mt-0.5">Export one .txt per chat from WhatsApp, then upload them all at once.</p>
+            </div>
+            <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
+              <li>Open WhatsApp → tap a chat → contact name → <strong>Export Chat</strong></li>
+              <li>Choose <strong>Without media</strong> → save the .txt file</li>
+              <li>Repeat for each contact, then upload all files below</li>
+            </ol>
             <input
               ref={waFileRef}
               type="file"
@@ -295,22 +381,11 @@ function SettingsPageInner() {
             <button
               onClick={() => waFileRef.current?.click()}
               disabled={waImporting}
-              className="flex items-center gap-2 text-sm bg-green-600 text-white rounded-lg px-4 py-2 hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 text-sm border border-gray-200 bg-white text-gray-700 rounded-lg px-4 py-2 hover:bg-gray-50 disabled:opacity-50 transition-colors"
             >
               <Upload size={13} />
-              {waImporting ? "Importing…" : "Import chat files"}
+              {waImporting ? "Importing…" : "Upload .txt files"}
             </button>
-          </div>
-
-          <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 space-y-2">
-            <p className="text-xs font-semibold text-gray-700">How to export a WhatsApp chat</p>
-            <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
-              <li>Open WhatsApp → tap any chat</li>
-              <li>Tap ⋮ (Android) or contact name (iPhone) → <strong>More</strong> → <strong>Export chat</strong></li>
-              <li>Choose <strong>Without media</strong></li>
-              <li>Save the .txt file and upload it here</li>
-              <li>Repeat for each contact you want to import</li>
-            </ol>
           </div>
 
           <p className="text-xs text-gray-400">
