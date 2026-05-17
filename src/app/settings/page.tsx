@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
@@ -19,6 +19,16 @@ type WhatsAppStatus = {
   totalMessages: number
   totalChats: number
 }
+
+type UnmatchedSender = {
+  fromEmail: string
+  fromName: string | null
+  messageCount: number
+  lastSeen: string | null
+  recommendations: { contactId: string; name: string; company: string | null; matchReason: string }[]
+}
+
+type ContactResult = { id: string; firstName: string; lastName: string; company: string | null }
 
 function SettingsPageInner() {
   const { data: session, status } = useSession()
@@ -36,6 +46,16 @@ function SettingsPageInner() {
   const [userEmails, setUserEmails] = useState<string[]>([])
   const [newEmail, setNewEmail] = useState("")
   const [addingEmail, setAddingEmail] = useState(false)
+
+  const [unmatchedOpen, setUnmatchedOpen] = useState(false)
+  const [unmatchedSenders, setUnmatchedSenders] = useState<UnmatchedSender[]>([])
+  const [unmatchedTotal, setUnmatchedTotal] = useState(0)
+  const [unmatchedPage, setUnmatchedPage] = useState(0)
+  const [unmatchedLoading, setUnmatchedLoading] = useState(false)
+  const [assigningFor, setAssigningFor] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<ContactResult[]>([])
+  const [assigning, setAssigning] = useState<string | null>(null)
 
   const [waImporting, setWaImporting] = useState(false)
   const [waProgress, setWaProgress] = useState<string | null>(null)
@@ -99,6 +119,49 @@ function SettingsPageInner() {
   async function removeEmail(email: string) {
     await fetch(`/api/user/emails/${encodeURIComponent(email)}`, { method: "DELETE" })
     setUserEmails((prev) => prev.filter((e) => e !== email))
+  }
+
+  async function loadUnmatched(page = 0) {
+    setUnmatchedLoading(true)
+    try {
+      const res = await fetch(`/api/gmail/unmatched?page=${page}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setUnmatchedSenders(page === 0 ? data.senders : (prev) => [...prev, ...data.senders])
+      setUnmatchedTotal(data.total)
+      setUnmatchedPage(page)
+    } finally {
+      setUnmatchedLoading(false)
+    }
+  }
+
+  async function searchContacts(q: string) {
+    setSearchQuery(q)
+    if (q.length < 2) { setSearchResults([]); return }
+    const res = await fetch(`/api/contacts?q=${encodeURIComponent(q)}&limit=5`)
+    if (!res.ok) return
+    const data = await res.json()
+    setSearchResults((data.contacts ?? []).slice(0, 5))
+  }
+
+  async function assignMatch(fromEmail: string, contactId: string) {
+    setAssigning(fromEmail)
+    try {
+      const res = await fetch("/api/gmail/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fromEmail, contactId }),
+      })
+      if (res.ok) {
+        setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+        setUnmatchedTotal((n) => n - 1)
+        setAssigningFor(null)
+        setSearchQuery("")
+        setSearchResults([])
+      }
+    } finally {
+      setAssigning(null)
+    }
   }
 
   async function disconnectGmail() {
@@ -329,6 +392,127 @@ function SettingsPageInner() {
                 Connect Gmail
               </a>
             </>
+          )}
+
+          {/* Unmatched senders */}
+          {gmailStatus?.connected && gmailStatus.syncedAt && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                onClick={() => {
+                  const next = !unmatchedOpen
+                  setUnmatchedOpen(next)
+                  if (next && unmatchedSenders.length === 0) loadUnmatched(0)
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <UserCheck size={14} className="text-gray-500" />
+                  <span className="text-xs font-medium text-gray-700">
+                    Review unmatched senders
+                    {unmatchedTotal > 0 && (
+                      <span className="ml-2 bg-amber-100 text-amber-700 text-xs rounded-full px-2 py-0.5">{unmatchedTotal}</span>
+                    )}
+                  </span>
+                </div>
+                {unmatchedOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              </button>
+
+              {unmatchedOpen && (
+                <div className="border-t border-gray-100">
+                  {unmatchedLoading && unmatchedSenders.length === 0 ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 size={16} className="animate-spin text-gray-400" />
+                    </div>
+                  ) : unmatchedSenders.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-6">All senders matched</p>
+                  ) : (
+                    <ul className="divide-y divide-gray-50">
+                      {unmatchedSenders.map((sender) => (
+                        <li key={sender.fromEmail} className="px-4 py-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-gray-800 truncate">{sender.fromName ?? sender.fromEmail}</p>
+                              {sender.fromName && <p className="text-xs text-gray-400 truncate">{sender.fromEmail}</p>}
+                              <p className="text-xs text-gray-400">{sender.messageCount} email{sender.messageCount !== 1 ? "s" : ""}{sender.lastSeen ? ` · last ${new Date(sender.lastSeen).toLocaleDateString()}` : ""}</p>
+                            </div>
+                          </div>
+
+                          {/* Recommendations */}
+                          {sender.recommendations.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {sender.recommendations.map((rec) => (
+                                <button
+                                  key={rec.contactId}
+                                  disabled={assigning === sender.fromEmail}
+                                  onClick={() => assignMatch(sender.fromEmail, rec.contactId)}
+                                  className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 rounded-lg px-2.5 py-1 hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                                >
+                                  <Check size={11} />
+                                  {rec.name}
+                                  {rec.matchReason === "domain" && <span className="text-blue-400 ml-0.5">(domain)</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Manual search */}
+                          {assigningFor === sender.fromEmail ? (
+                            <div className="relative">
+                              <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                                <Search size={12} className="text-gray-400 shrink-0" />
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={searchQuery}
+                                  onChange={(e) => searchContacts(e.target.value)}
+                                  placeholder="Search contacts…"
+                                  className="flex-1 text-xs outline-none bg-transparent"
+                                />
+                                <button onClick={() => { setAssigningFor(null); setSearchQuery(""); setSearchResults([]) }}><X size={12} className="text-gray-400" /></button>
+                              </div>
+                              {searchResults.length > 0 && (
+                                <ul className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                                  {searchResults.map((c) => (
+                                    <li key={c.id}>
+                                      <button
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+                                        onClick={() => assignMatch(sender.fromEmail, c.id)}
+                                      >
+                                        <span className="font-medium">{c.firstName} {c.lastName}</span>
+                                        {c.company && <span className="text-gray-400 ml-1.5">{c.company}</span>}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setAssigningFor(sender.fromEmail); setSearchQuery(""); setSearchResults([]) }}
+                              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                              + Assign manually
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {unmatchedSenders.length < unmatchedTotal && (
+                    <div className="px-4 py-3 border-t border-gray-50">
+                      <button
+                        onClick={() => loadUnmatched(unmatchedPage + 1)}
+                        disabled={unmatchedLoading}
+                        className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                      >
+                        {unmatchedLoading ? "Loading…" : `Load more (${unmatchedTotal - unmatchedSenders.length} remaining)`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           <p className="text-xs text-gray-400">
