@@ -4,6 +4,7 @@ import { Search, X, SlidersHorizontal, Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { labelColors } from "@/lib/label-colors"
+import { INDUSTRY_SECTORS } from "@/lib/industry-sectors"
 
 export interface FilterState {
   q: string
@@ -14,6 +15,8 @@ export interface FilterState {
   label: string
   sort: string
   preferredCompanies: boolean
+  sector: string      // one of SectorKey or ""
+  companyType: string // "brand" | "non-brand" | "independent" | ""
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -47,6 +50,12 @@ const SORT_OPTIONS = [
   { value: "score",         label: "Interaction score" },
 ]
 
+const COMPANY_TYPE_OPTIONS = [
+  { value: "brand",       label: "Brand",     color: "border-violet-300 bg-violet-100 text-violet-700", inactive: "border-gray-200 text-gray-500 hover:bg-gray-50" },
+  { value: "non-brand",   label: "Non-brand", color: "border-emerald-300 bg-emerald-100 text-emerald-700", inactive: "border-gray-200 text-gray-500 hover:bg-gray-50" },
+  { value: "independent", label: "Indep.",    color: "border-amber-300 bg-amber-100 text-amber-700", inactive: "border-gray-200 text-gray-500 hover:bg-gray-50" },
+]
+
 function FilterSelect({
   label,
   value,
@@ -70,9 +79,7 @@ function FilterSelect({
       >
         <option value="">All</option>
         {valid.map((v) => (
-          <option key={v} value={v}>
-            {v}
-          </option>
+          <option key={v} value={v}>{v}</option>
         ))}
       </select>
     </div>
@@ -81,10 +88,13 @@ function FilterSelect({
 
 export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
-  const activeCount = [filters.company, filters.industry, filters.location, filters.position, filters.label].filter(Boolean).length + (filters.preferredCompanies ? 1 : 0)
+  const activeCount =
+    [filters.company, filters.industry, filters.location, filters.position, filters.label, filters.sector, filters.companyType]
+      .filter(Boolean).length +
+    (filters.preferredCompanies ? 1 : 0)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Search bar */}
       <div className="relative">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -105,12 +115,13 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
         )}
       </div>
 
-      {/* Filter toggle (mobile) + count */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="text-sm text-gray-500">
+      {/* Quick filter row */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-sm text-gray-500 mr-1">
             <span className="font-semibold text-gray-900">{total}</span> contact{total !== 1 ? "s" : ""}
           </p>
+          {/* Preferred */}
           <button
             onClick={() => onChange({ preferredCompanies: !filters.preferredCompanies })}
             className={cn(
@@ -123,9 +134,21 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
             <Star size={11} fill={filters.preferredCompanies ? "currentColor" : "none"} />
             Preferred
           </button>
+          {/* Company type: Brand / Non-brand / Independent */}
+          {COMPANY_TYPE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onChange({ companyType: filters.companyType === opt.value ? "" : opt.value })}
+              className={cn(
+                "text-xs px-2.5 py-1 rounded-full border transition-colors font-medium",
+                filters.companyType === opt.value ? opt.color : opt.inactive
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-2">
-          {/* Sort dropdown — always visible */}
           <select
             value={filters.sort}
             onChange={(e) => onChange({ sort: e.target.value })}
@@ -135,8 +158,6 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
-
-          {/* Filters toggle */}
           <button
             onClick={() => setOpen(!open)}
             className={cn(
@@ -154,8 +175,6 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
               </span>
             )}
           </button>
-
-          {/* View toggle */}
           <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
             <button
               onClick={() => onViewChange("grid")}
@@ -184,9 +203,37 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
         </div>
       </div>
 
+      {/* Sector chips — always visible, horizontal scroll on mobile */}
+      <div className="flex gap-1.5 flex-wrap">
+        {INDUSTRY_SECTORS.map((sector) => {
+          const active = filters.sector === sector.key
+          return (
+            <button
+              key={sector.key}
+              onClick={() => onChange({ sector: active ? "" : sector.key })}
+              className={cn(
+                "text-xs font-medium px-2.5 py-1 rounded-full border transition-colors whitespace-nowrap",
+                active ? sector.color.active : sector.color.chip
+              )}
+            >
+              {sector.shortLabel}
+            </button>
+          )
+        })}
+        {filters.sector && (
+          <button
+            onClick={() => onChange({ sector: "" })}
+            className="text-gray-400 hover:text-gray-600 ml-0.5"
+            title="Clear sector"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {/* Expanded filters */}
       {open && (
-        <div className="space-y-3 pt-1">
+        <div className="space-y-3 pt-1 border-t border-gray-100">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Title / Role</label>
             <input
@@ -199,7 +246,7 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
           </div>
 
           <FilterSelect
-            label="Industry"
+            label="Specific industry"
             value={filters.industry}
             options={options.industries}
             onChange={(v) => onChange({ industry: v })}

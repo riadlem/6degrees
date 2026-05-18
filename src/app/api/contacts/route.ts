@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
+import { getSectorIndustries } from "@/lib/industry-sectors"
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
@@ -17,6 +18,8 @@ export async function GET(request: Request) {
   const position = searchParams.get("position") ?? ""
   const labelId = searchParams.get("label") ?? ""
   const preferredOnly = searchParams.get("preferredCompanies") === "true"
+  const sector = searchParams.get("sector") ?? ""
+  const companyType = searchParams.get("companyType") ?? ""
   const sort = searchParams.get("sort") ?? "name"
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const limit = parseInt(searchParams.get("limit") ?? "48", 10)
@@ -26,17 +29,23 @@ export async function GET(request: Request) {
   // Fetch company preferences for filtering + subsidiary lookup
   const companyPrefs = await prisma.companyPreference.findMany({
     where: { userId },
-    select: { company: true, ignored: true, parentCompany: true },
+    select: { company: true, ignored: true, parentCompany: true, type: true },
   }).catch(async () => {
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
+    await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
     return prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, ignored: true, parentCompany: true },
-    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null }[])
+      select: { company: true, ignored: true, parentCompany: true, type: true },
+    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null; type: string | null }[])
   })
 
   const preferredCompanies = companyPrefs.filter((p) => !p.ignored).map((p) => p.company)
   const ignoredCompanies   = companyPrefs.filter((p) =>  p.ignored).map((p) => p.company)
+
+  // Companies matching the requested companyType (brand / non-brand / independent)
+  const companyTypeNames = companyType
+    ? companyPrefs.filter((p) => p.type === companyType).map((p) => p.company)
+    : []
 
   // When a specific company is requested, include its subsidiaries automatically
   const subsidiaryNames = company
@@ -80,6 +89,19 @@ export async function GET(request: Request) {
       ...(location  ? [{ location:  { contains: location,  mode: "insensitive" as const } }] : []),
       ...(position  ? [{ position:  { contains: position,  mode: "insensitive" as const } }] : []),
       ...(labelId   ? [{ labels:    { some: { labelId } } }] : []),
+      // Sector filter: match any of the LinkedIn industry strings for that sector
+      ...(sector ? [{
+        OR: getSectorIndustries(sector).map((ind) => ({
+          industry: { equals: ind, mode: "insensitive" as const },
+        })),
+      }] : []),
+      // Company type filter: contacts at companies tagged with that type
+      // If companyType is set but no companies are tagged, return nothing
+      ...(companyType
+        ? companyTypeNames.length > 0
+          ? [{ company: { in: companyTypeNames, mode: "insensitive" as const } }]
+          : [{ id: "__no_match__" }]
+        : []),
     ],
   }
 
