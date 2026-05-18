@@ -17,8 +17,8 @@ const navLinks = [
   { href: "/enrich",     label: "Enrich",     icon: Sparkles },
 ]
 
-// Simplified set for the mobile bottom tab bar (5 items fits without cramping)
-const mobileNavLinks = navLinks.filter((l) => l.href !== "/companies")
+// 5 items for the mobile bottom tab bar — Enrich moved inside Reconnect on mobile
+const mobileNavLinks = navLinks.filter((l) => l.href !== "/enrich")
 
 export default function Navbar() {
   const { data: session } = useSession()

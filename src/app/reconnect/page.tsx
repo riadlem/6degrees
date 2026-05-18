@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
+import EnrichContent from "@/components/EnrichContent"
 
 type ReconnectContact = {
   id: string
@@ -43,6 +44,7 @@ export default function ReconnectPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
+  const [activeTab, setActiveTab] = useState<"reconnect" | "enrich">("reconnect")
   const [contacts, setContacts] = useState<ReconnectContact[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -104,7 +106,38 @@ export default function ReconnectPage() {
         </p>
       </div>
 
-      {/* Status tabs */}
+      {/* Top-level tab switcher */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab("reconnect")}
+          className={cn(
+            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "reconnect" ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700",
+          )}
+        >
+          <RefreshCcw size={13} />
+          Reach out
+        </button>
+        <button
+          onClick={() => setActiveTab("enrich")}
+          className={cn(
+            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "enrich" ? "border-blue-600 text-blue-700" : "border-transparent text-gray-500 hover:text-gray-700",
+          )}
+        >
+          <Sparkles size={13} />
+          Enrich
+        </button>
+        <div className="flex-1" />
+      </div>
+
+      {/* Enrich tab */}
+      {activeTab === "enrich" && <EnrichContent />}
+
+      {/* Reconnect tab */}
+      {activeTab === "reconnect" && (<>
+
+      {/* Status sub-tabs */}
       <div className="flex gap-1 mb-6 border-b border-gray-200">
         {STATUS_TABS.map((tab) => (
           <button
@@ -251,6 +284,7 @@ export default function ReconnectPage() {
           }}
         />
       )}
+      </>)}
     </div>
   )
 }
