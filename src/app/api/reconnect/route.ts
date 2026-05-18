@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
@@ -13,12 +14,18 @@ export async function GET(req: Request) {
   const page = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
   const skip = (page - 1) * limit
 
-  const where = {
+  // Prisma's `notIn` silently drops NULL rows in SQL, so we must use OR to explicitly include nulls.
+  const EXCLUDE = ["responded", "meeting_booked", "lkd_pending"]
+  const statusFilter: Prisma.ContactWhereInput = status === "not_contacted"
+    ? { OR: [{ outreachStatus: null }, { outreachStatus: "not_contacted" }] }
+    : status
+    ? { outreachStatus: status }
+    : { OR: [{ outreachStatus: null }, { outreachStatus: { notIn: EXCLUDE } }] }
+
+  const where: Prisma.ContactWhereInput = {
     userId,
     interactionScore: { gt: 0.1 },
-    outreachStatus: status
-      ? { equals: status }
-      : { notIn: ["responded", "meeting_booked"] as string[] },
+    ...statusFilter,
   }
 
   const [contacts, total] = await Promise.all([
