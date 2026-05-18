@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import Link from "next/link"
 import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { isSuspicious } from "@/lib/company-utils"
@@ -387,7 +388,11 @@ function CompanyRow({
           ) : (
             <>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="font-semibold text-gray-900 text-sm truncate">{company.name}</p>
+              <Link
+                href={`/companies/${encodeURIComponent(company.name)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="font-semibold text-gray-900 text-sm truncate hover:text-blue-600 hover:underline"
+              >{company.name}</Link>
               <button
                 onClick={startRename}
                 title="Rename company"

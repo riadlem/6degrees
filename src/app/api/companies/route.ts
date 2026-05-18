@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 
-const PREF_SELECT = { company: true, ignored: true, isPartner: true, size: true, type: true, parentCompany: true, industry: true } as const
+const PREF_SELECT = { company: true, ignored: true, isPartner: true, size: true, type: true, parentCompany: true, industry: true, website: true } as const
 
 async function getPrefs(userId: string) {
   return prisma.companyPreference.findMany({ where: { userId }, select: PREF_SELECT })
@@ -10,8 +10,9 @@ async function getPrefs(userId: string) {
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "industry" TEXT`.catch(() => {})
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "website" TEXT`.catch(() => {})
       return prisma.companyPreference.findMany({ where: { userId }, select: PREF_SELECT })
-        .catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null; parentCompany: string | null; industry: string | null }[])
+        .catch(() => [] as { company: string; ignored: boolean; isPartner: boolean; size: string | null; type: string | null; parentCompany: string | null; industry: string | null; website: string | null }[])
     })
 }
 
@@ -205,6 +206,7 @@ export async function POST(req: Request) {
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`
       await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "industry" TEXT`
+      await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "website" TEXT`
       await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "CompanyPreference_userId_idx" ON "CompanyPreference"("userId")`
       await save()
     } catch {
