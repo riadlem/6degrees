@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
-  ArrowLeft, Star, Handshake, Globe, Building2, Users, Check, X, Pencil,
-  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp
+  ArrowLeft, Handshake, Globe, Building2, Users, Check, X, Pencil,
+  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
@@ -166,6 +166,10 @@ export default function CompanyDetailPage() {
   const [company, setCompany] = useState<CompanyData | null>(null)
   const [contacts, setContacts] = useState<ContactRow[]>([])
   const [domains, setDomains] = useState<string[]>([])
+  const [manualDomains, setManualDomains] = useState<string[]>([])
+  const [inferredDomains, setInferredDomains] = useState<string[]>([])
+  const [addingDomain, setAddingDomain] = useState(false)
+  const [newDomain, setNewDomain] = useState("")
   const [loading, setLoading] = useState(true)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
 
@@ -190,6 +194,8 @@ export default function CompanyDetailPage() {
         setCompany(data.company)
         setContacts(data.contacts)
         setDomains(data.domains)
+        setManualDomains(data.manualDomains ?? [])
+        setInferredDomains(data.inferredDomains ?? [])
       }
     } finally {
       setLoading(false)
@@ -211,6 +217,41 @@ export default function CompanyDetailPage() {
   useEffect(() => {
     if (unmatchedOpen && !unmatchedLoaded && domains.length > 0) loadUnmatched()
   }, [unmatchedOpen, unmatchedLoaded, domains]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addDomain() {
+    const raw = newDomain.trim().toLowerCase()
+      .replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split("?")[0]
+    if (!raw || !raw.includes(".")) return
+    setNewDomain("")
+    setAddingDomain(false)
+    const res = await fetch(`/api/companies/${encodeURIComponent(companyName)}/domains`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: raw }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      const d = data.domain as string
+      setManualDomains((prev) => prev.includes(d) ? prev : [...prev, d].sort())
+      setDomains((prev) => prev.includes(d) ? prev : [...prev, d])
+      setUnmatchedLoaded(false) // trigger reload
+    }
+  }
+
+  async function removeDomain(domain: string) {
+    setManualDomains((prev) => prev.filter((d) => d !== domain))
+    setDomains((prev) => {
+      // keep if still inferred
+      if (inferredDomains.includes(domain)) return prev
+      return prev.filter((d) => d !== domain)
+    })
+    setUnmatchedLoaded(false)
+    await fetch(`/api/companies/${encodeURIComponent(companyName)}/domains`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain }),
+    })
+  }
 
   async function patch(updates: Record<string, unknown>) {
     if (!company) return
@@ -335,6 +376,53 @@ export default function CompanyDetailPage() {
               <span>{company.parentCompany}</span>
             </div>
           )}
+
+          {/* Domains */}
+          <div className="flex items-start gap-2">
+            <Link2 size={14} className="text-gray-400 shrink-0 mt-1.5" />
+            <div className="flex flex-wrap gap-1.5 flex-1">
+              {/* Manual domains — removable */}
+              {manualDomains.map((d) => (
+                <span key={d} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5">
+                  {d}
+                  <button onClick={() => removeDomain(d)} className="text-blue-400 hover:text-blue-700 ml-0.5">
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+              {/* Inferred domains — display only (not manually added) */}
+              {inferredDomains.filter((d) => !manualDomains.includes(d)).map((d) => (
+                <span key={d} className="text-xs bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-2 py-0.5" title="Inferred from contacts">
+                  {d}
+                </span>
+              ))}
+              {/* Add domain */}
+              {addingDomain ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={newDomain}
+                    onChange={(e) => setNewDomain(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addDomain()
+                      if (e.key === "Escape") { setAddingDomain(false); setNewDomain("") }
+                    }}
+                    placeholder="e.g. heroku.com"
+                    className="text-xs border border-blue-300 rounded-full px-2.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white w-36"
+                  />
+                  <button onClick={addDomain} className="text-green-500 hover:text-green-600"><Check size={12} /></button>
+                  <button onClick={() => { setAddingDomain(false); setNewDomain("") }} className="text-gray-400 hover:text-gray-600"><X size={12} /></button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingDomain(true)}
+                  className="flex items-center gap-0.5 text-xs text-gray-400 border border-dashed border-gray-300 rounded-full px-2 py-0.5 hover:border-blue-300 hover:text-blue-500 transition-colors"
+                >
+                  <Plus size={10} /> domain
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Tags row */}
@@ -457,9 +545,6 @@ export default function CompanyDetailPage() {
           <div className="flex items-center gap-2">
             <Mail size={14} className="text-gray-400" />
             <span className="font-semibold text-gray-800 text-sm">Unmatched emails</span>
-            {domains.length > 0 && (
-              <span className="text-[10px] text-gray-400 font-mono">{domains.join(", ")}</span>
-            )}
             {unmatchedLoaded && unmatched.length > 0 && (
               <span className="text-[10px] bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 font-semibold">{unmatched.length}</span>
             )}
@@ -475,7 +560,7 @@ export default function CompanyDetailPage() {
               </div>
             ) : domains.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">
-                No email domains found — match contacts to email addresses first.
+                No domains linked — add one above (e.g. salesforce.com).
               </p>
             ) : unmatched.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">No unmatched senders from this company.</p>

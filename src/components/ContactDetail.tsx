@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft, Link2Off
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -181,6 +181,16 @@ export default function ContactDetail({ contactId, onClose }: Props) {
     fetchContact()
   }
 
+  async function unlinkEmail(email: string) {
+    if (!contact) return
+    await fetch(`/api/contacts/${contact.id}/emails`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+    fetchContact()
+  }
+
   async function saveName() {
     if (!contact) return
     const firstName = editFirstName.trim()
@@ -262,7 +272,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                       <h3 className="text-lg font-bold text-gray-900">{fullName}</h3>
                       <button
                         onClick={() => { setEditFirstName(contact.firstName); setEditLastName(contact.lastName); setEditingName(true) }}
-                        className="opacity-0 group-hover/name:opacity-100 transition-opacity text-gray-300 hover:text-gray-500 shrink-0"
+                        className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0"
                         title="Edit name"
                       >
                         <Edit2 size={13} />
@@ -339,7 +349,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                       </span>
                       <button
                         onClick={() => { setEditingField(field); setEditValue(value ?? "") }}
-                        className="opacity-0 group-hover/field:opacity-100 transition-opacity text-gray-400 hover:text-gray-600"
+                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
                       >
                         <Edit2 size={12} />
                       </button>
@@ -348,12 +358,23 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                 </div>
               ))}
 
-              {(contact.emailAddress ?? contact.emailAddresses?.[0]?.email) && (
-                <div className="flex items-center gap-3">
-                  <Mail size={14} className="text-gray-400 shrink-0" />
-                  <span className="text-sm text-gray-700">
-                    {contact.emailAddress ?? contact.emailAddresses[0].email}
-                  </span>
+              {contact.emailAddresses.length > 0 && (
+                <div className="flex items-start gap-3">
+                  <Mail size={14} className="text-gray-400 shrink-0 mt-1" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {contact.emailAddresses.map((ea) => (
+                      <span key={ea.email} className="group/email flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2.5 py-0.5 text-gray-700">
+                        {ea.email}
+                        <button
+                          title="Unlink this email address"
+                          onClick={() => unlinkEmail(ea.email)}
+                          className="text-gray-300 hover:text-red-500 md:opacity-0 md:group-hover/email:opacity-100 transition-opacity ml-0.5"
+                        >
+                          <Link2Off size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 

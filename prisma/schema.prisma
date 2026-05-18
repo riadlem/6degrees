@@ -62,6 +62,7 @@ model User {
   lists          ContactList[]
   labels         Label[]
   companyPrefs   CompanyPreference[]
+  companyDomains CompanyDomain[]
   lastSyncAt     DateTime?
   gmailSync      GmailSync?
   emailMessages  EmailMessage[]
@@ -194,6 +195,18 @@ model CompanyPreference {
 
   @@unique([userId, company])
   @@index([userId])
+}
+
+model CompanyDomain {
+  id      String @id @default(cuid())
+  userId  String
+  company String
+  domain  String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, company, domain])
+  @@index([userId, company])
 }
 
 model ContactLabel {
