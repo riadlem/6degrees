@@ -113,9 +113,19 @@ export function matchEmailCached(
     // Domain guard: only auto-match if the domain is consistent with what we already
     // know about this contact, to prevent cross-person collisions.
     if (fromName && !isOutbound) {
-      const parts = fromName.trim().split(/\s+/)
-      if (parts.length >= 2) {
-        const key = `${stripDiacritics(parts[0]).toLowerCase()}|${stripDiacritics(parts[parts.length - 1]).toLowerCase()}`
+      // Handle "LAST, Firstname" format common in corporate address books
+      let fnPart: string, lnPart: string
+      if (fromName.includes(",")) {
+        const ci = fromName.indexOf(",")
+        lnPart = fromName.slice(0, ci).trim()
+        fnPart = fromName.slice(ci + 1).trim().split(/\s+/)[0] ?? ""
+      } else {
+        const parts = fromName.trim().split(/\s+/)
+        fnPart = parts[0] ?? ""
+        lnPart = parts[parts.length - 1] ?? ""
+      }
+      if (fnPart && lnPart && fnPart !== lnPart) {
+        const key = `${stripDiacritics(fnPart).toLowerCase()}|${stripDiacritics(lnPart).toLowerCase()}`
         const matches = cache.nameToContacts.get(key)
         if (matches?.length === 1 && domainAllowed(cache, matches[0], email)) {
           cache.emailToContact.set(email, matches[0])

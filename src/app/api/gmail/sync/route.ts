@@ -100,6 +100,17 @@ export async function POST(req: Request) {
         let messageIds: string[] = []
         let latestHistoryId: string | undefined = profileHistoryId
 
+        // Persist the profile historyId immediately as an anchor. This guarantees
+        // that even if the sync times out or errors mid-way, the next run will use
+        // incremental mode and won't re-scan from scratch.
+        if (profileHistoryId) {
+          await prisma.gmailSync.upsert({
+            where: { userId },
+            update: { historyId: profileHistoryId, gmailEmail: primaryEmail || undefined },
+            create: { userId, historyId: profileHistoryId, gmailEmail: primaryEmail || undefined },
+          })
+        }
+
         // Use incremental if we have a historyId anchor, unless force=true was passed.
         const useIncremental = !!gmailSync?.historyId && !force
 
@@ -260,8 +271,8 @@ export async function POST(req: Request) {
               flushMatchCache(matchCache),
               prisma.gmailSync.upsert({
                 where: { userId },
-                update: { totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
-                create: { userId, totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
+                update: { totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined, ...(latestHistoryId ? { historyId: latestHistoryId } : {}) },
+                create: { userId, totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined, historyId: latestHistoryId ?? undefined },
               }),
             ])
           }
