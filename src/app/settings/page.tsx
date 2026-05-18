@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search, Ban } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search, Ban, UserPlus, ExternalLink } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
@@ -30,6 +30,7 @@ type UnmatchedSender = {
 }
 
 type ContactResult = { id: string; firstName: string; lastName: string; company: string | null }
+type LkdPendingContact = { id: string; firstName: string; lastName: string; emailAddress: string | null; company: string | null; outreachUpdatedAt: string | null }
 
 function SettingsPageInner() {
   const { data: session, status } = useSession()
@@ -59,6 +60,11 @@ function SettingsPageInner() {
   const [searchResults, setSearchResults] = useState<ContactResult[]>([])
   const [assigning, setAssigning] = useState<string | null>(null)
   const [dismissing, setDismissing] = useState<string | null>(null)
+  const [addingToLinkedIn, setAddingToLinkedIn] = useState<string | null>(null)
+  const [lkdQueueOpen, setLkdQueueOpen] = useState(false)
+  const [lkdQueue, setLkdQueue] = useState<LkdPendingContact[]>([])
+  const [lkdQueueLoading, setLkdQueueLoading] = useState(false)
+  const [markingDone, setMarkingDone] = useState<string | null>(null)
 
   const [waImporting, setWaImporting] = useState(false)
   const [waProgress, setWaProgress] = useState<string | null>(null)
@@ -200,6 +206,51 @@ function SettingsPageInner() {
       }
     } finally {
       setAssigning(null)
+    }
+  }
+
+  async function addToLinkedIn(fromEmail: string, fromName: string | null) {
+    setAddingToLinkedIn(fromEmail)
+    try {
+      const res = await fetch("/api/gmail/add-to-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromEmail, fromName }),
+      })
+      if (res.ok) {
+        sessionStorage.removeItem("unmatchedSenders_cache")
+        setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+        setUnmatchedTotal((n) => Math.max(0, n - 1))
+        if (lkdQueueOpen) loadLkdQueue()
+        const name = fromName ?? fromEmail.split("@")[0]
+        window.open(`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(name)}`, "_blank", "noopener,noreferrer")
+      }
+    } finally {
+      setAddingToLinkedIn(null)
+    }
+  }
+
+  async function loadLkdQueue() {
+    setLkdQueueLoading(true)
+    try {
+      const res = await fetch("/api/contacts/lkd-pending")
+      if (res.ok) setLkdQueue(await res.json())
+    } finally {
+      setLkdQueueLoading(false)
+    }
+  }
+
+  async function markLkdDone(contactId: string) {
+    setMarkingDone(contactId)
+    try {
+      await fetch("/api/contacts/lkd-pending", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contactId }),
+      })
+      setLkdQueue((prev) => prev.filter((c) => c.id !== contactId))
+    } finally {
+      setMarkingDone(null)
     }
   }
 
@@ -480,14 +531,25 @@ function SettingsPageInner() {
                               {sender.fromName && <p className="text-xs text-gray-400 truncate">{sender.fromEmail}</p>}
                               <p className="text-xs text-gray-400">{sender.messageCount} email{sender.messageCount !== 1 ? "s" : ""}{sender.lastSeen ? ` · last ${new Date(sender.lastSeen).toLocaleDateString()}` : ""}</p>
                             </div>
-                            <button
-                              title="Flag as automated — hide from this list"
-                              disabled={dismissing === sender.fromEmail}
-                              onClick={() => dismissSender(sender.fromEmail)}
-                              className="shrink-0 p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 disabled:opacity-40 transition-colors"
-                            >
-                              <Ban size={13} />
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                title="Add contact to directory and search on LinkedIn"
+                                disabled={addingToLinkedIn === sender.fromEmail}
+                                onClick={() => addToLinkedIn(sender.fromEmail, sender.fromName)}
+                                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg disabled:opacity-40 transition-colors font-medium"
+                              >
+                                <UserPlus size={11} />
+                                LinkedIn
+                              </button>
+                              <button
+                                title="Flag as automated — hide from this list"
+                                disabled={dismissing === sender.fromEmail}
+                                onClick={() => dismissSender(sender.fromEmail)}
+                                className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                              >
+                                <Ban size={13} />
+                              </button>
+                            </div>
                           </div>
 
                           {/* Recommendations */}
@@ -563,6 +625,83 @@ function SettingsPageInner() {
                         {unmatchedLoading ? "Loading…" : `Load more (${unmatchedTotal - unmatchedSenders.length} remaining)`}
                       </button>
                     </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LinkedIn Outreach Queue */}
+          {gmailStatus?.connected && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                onClick={() => {
+                  const next = !lkdQueueOpen
+                  setLkdQueueOpen(next)
+                  if (next) loadLkdQueue()
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-blue-600 fill-current shrink-0">
+                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                  </svg>
+                  <span className="text-xs font-medium text-gray-700">
+                    LinkedIn Outreach Queue
+                    {lkdQueue.length > 0 && (
+                      <span className="ml-2 bg-blue-100 text-blue-700 text-xs rounded-full px-2 py-0.5">{lkdQueue.length}</span>
+                    )}
+                  </span>
+                </div>
+                {lkdQueueOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              </button>
+
+              {lkdQueueOpen && (
+                <div className="border-t border-gray-100">
+                  {lkdQueueLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 size={16} className="animate-spin text-gray-400" />
+                    </div>
+                  ) : lkdQueue.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-6">Queue is empty</p>
+                  ) : (
+                    <ul className="divide-y divide-gray-50">
+                      {lkdQueue.map((contact) => (
+                        <li key={contact.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-800 truncate">
+                              {contact.firstName} {contact.lastName}
+                            </p>
+                            {contact.emailAddress && (
+                              <p className="text-xs text-gray-400 truncate">{contact.emailAddress}</p>
+                            )}
+                            {contact.company && (
+                              <p className="text-xs text-gray-500 truncate">{contact.company}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <a
+                              href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${contact.firstName} ${contact.lastName}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors font-medium"
+                            >
+                              <ExternalLink size={10} />
+                              Search
+                            </a>
+                            <button
+                              title="Mark as connected — remove from queue"
+                              disabled={markingDone === contact.id}
+                              onClick={() => markLkdDone(contact.id)}
+                              className="flex items-center gap-1 text-xs text-gray-400 hover:text-green-600 hover:bg-green-50 px-2 py-1 rounded-lg disabled:opacity-40 transition-colors"
+                            >
+                              <Check size={11} />
+                              Done
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   )}
                 </div>
               )}

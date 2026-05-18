@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -26,6 +26,7 @@ type ReconnectContact = {
 
 const STATUS_TABS = [
   { value: "",               label: "All" },
+  { value: "lkd_pending",    label: "Invite to LinkedIn" },
   { value: "not_contacted",  label: "Not contacted" },
   { value: "drafted",        label: "Drafted" },
   { value: "sent",           label: "Sent" },
@@ -33,11 +34,12 @@ const STATUS_TABS = [
 ]
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
-  not_contacted: { label: "Not contacted", className: "bg-gray-100 text-gray-600" },
-  drafted:       { label: "Drafted",       className: "bg-blue-50 text-blue-700" },
-  sent:          { label: "Sent",          className: "bg-amber-50 text-amber-700" },
-  responded:     { label: "Responded",     className: "bg-green-50 text-green-700" },
-  meeting_booked:{ label: "Meeting booked",className: "bg-purple-50 text-purple-700" },
+  lkd_pending:   { label: "Invite to LinkedIn", className: "bg-sky-50 text-sky-700" },
+  not_contacted: { label: "Not contacted",       className: "bg-gray-100 text-gray-600" },
+  drafted:       { label: "Drafted",             className: "bg-blue-50 text-blue-700" },
+  sent:          { label: "Sent",                className: "bg-amber-50 text-amber-700" },
+  responded:     { label: "Responded",           className: "bg-green-50 text-green-700" },
+  meeting_booked:{ label: "Meeting booked",      className: "bg-purple-50 text-purple-700" },
 }
 
 export default function ReconnectPage() {
@@ -83,6 +85,16 @@ export default function ReconnectPage() {
     setContacts((prev) =>
       prev.map((c) => c.id === contactId ? { ...c, outreachStatus: newStatus } : c),
     )
+  }
+
+  async function markInvitationSent(contactId: string) {
+    await fetch(`/api/reconnect/${contactId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: null }),
+    })
+    setContacts((prev) => prev.filter((c) => c.id !== contactId))
+    setTotal((t) => Math.max(0, t - 1))
   }
 
   if (status === "loading") {
@@ -238,27 +250,51 @@ export default function ReconnectPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {contact.emailAddress && (
-                    <button
-                      onClick={() => setDraftContact(contact)}
-                      className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Mail size={11} />
-                      Draft email
-                    </button>
+                  {contact.outreachStatus === "lkd_pending" ? (
+                    <>
+                      <a
+                        href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${contact.firstName} ${contact.lastName}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1.5 text-xs text-sky-600 border border-sky-200 rounded-lg px-2.5 py-1.5 hover:bg-sky-50 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <ExternalLink size={11} />
+                        Search LinkedIn
+                      </a>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); markInvitationSent(contact.id) }}
+                        className="flex items-center gap-1.5 text-xs text-green-600 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Check size={11} />
+                        Invitation sent
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {contact.emailAddress && (
+                        <button
+                          onClick={() => setDraftContact(contact)}
+                          className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Mail size={11} />
+                          Draft email
+                        </button>
+                      )}
+                      <select
+                        value={contact.outreachStatus ?? "not_contacted"}
+                        onChange={(e) => updateStatus(contact.id, e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-600 opacity-0 group-hover:opacity-100"
+                      >
+                        <option value="not_contacted">Not contacted</option>
+                        <option value="drafted">Drafted</option>
+                        <option value="sent">Sent</option>
+                        <option value="responded">Responded</option>
+                        <option value="meeting_booked">Meeting booked</option>
+                      </select>
+                    </>
                   )}
-                  <select
-                    value={contact.outreachStatus ?? "not_contacted"}
-                    onChange={(e) => updateStatus(contact.id, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-600 opacity-0 group-hover:opacity-100"
-                  >
-                    <option value="not_contacted">Not contacted</option>
-                    <option value="drafted">Drafted</option>
-                    <option value="sent">Sent</option>
-                    <option value="responded">Responded</option>
-                    <option value="meeting_booked">Meeting booked</option>
-                  </select>
                   <ChevronRight size={14} className="text-gray-300" />
                 </div>
               </div>
