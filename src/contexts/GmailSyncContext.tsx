@@ -36,11 +36,12 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {})
   }, [])
 
-  const sync = useCallback(async (incremental = false) => {
+  // force=true bypasses incremental and does a full re-scan (rare, for resets)
+  const sync = useCallback(async (force = false) => {
     setGmailSyncState({ phase: "connecting" })
 
     try {
-      const params = incremental ? "?incremental=true" : ""
+      const params = force ? "?force=true" : ""
       const res = await fetch(`/api/gmail/sync${params}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))

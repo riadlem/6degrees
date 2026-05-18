@@ -55,7 +55,9 @@ export async function POST(req: Request) {
   const userId = session.user.id
 
   const { searchParams } = new URL(req.url)
-  const incremental = searchParams.get("incremental") === "true"
+  // force=true is the only way to run a full scan when historyId already exists.
+  // All other calls default to incremental if we have a saved historyId.
+  const force = searchParams.get("force") === "true"
 
   const token = await getGmailAccessToken(userId)
   if (!token) {
@@ -98,12 +100,15 @@ export async function POST(req: Request) {
         let messageIds: string[] = []
         let latestHistoryId: string | undefined = profileHistoryId
 
-        if (incremental && gmailSync?.historyId) {
+        // Use incremental if we have a historyId anchor, unless force=true was passed.
+        const useIncremental = !!gmailSync?.historyId && !force
+
+        if (useIncremental) {
           send({ type: "status", message: "Fetching new emails…" })
           let pageToken: string | undefined
-          let incrementalHistoryId = gmailSync.historyId
+          let incrementalHistoryId = gmailSync!.historyId as string
           do {
-            const hist = await fetchHistoryList(token, gmailSync.historyId, pageToken)
+            const hist = await fetchHistoryList(token, gmailSync!.historyId as string, pageToken)
             if (hist.historyId) incrementalHistoryId = hist.historyId
             for (const entry of hist.history ?? []) {
               for (const added of entry.messagesAdded ?? []) {

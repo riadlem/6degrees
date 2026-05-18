@@ -455,7 +455,7 @@ function SettingsPageInner() {
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => gmailSync(false)}
                   disabled={gmailSyncing}
@@ -467,9 +467,10 @@ function SettingsPageInner() {
                 <button
                   onClick={() => gmailSync(true)}
                   disabled={gmailSyncing}
-                  className="flex items-center gap-1.5 text-sm border border-gray-200 text-gray-600 rounded-lg px-4 py-2 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  title="Re-scan all emails from scratch (slow)"
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
                 >
-                  Quick sync
+                  Full resync
                 </button>
                 <button
                   onClick={disconnectGmail}
