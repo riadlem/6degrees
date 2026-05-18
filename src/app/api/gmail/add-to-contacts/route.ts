@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { recomputeScoreForContact } from "@/lib/reconnect-score"
 
 function parseName(fromName: string | null, fromEmail: string): { firstName: string; lastName: string } {
   if (fromName?.trim()) {
@@ -61,6 +62,9 @@ export async function POST(req: Request) {
     where: { userId, fromEmail, contactId: null },
     data: { contactId },
   })
+
+  // Compute score immediately so the contact appears in Reconnect
+  await recomputeScoreForContact(contactId)
 
   return Response.json({ contactId })
 }

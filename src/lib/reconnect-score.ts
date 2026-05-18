@@ -13,6 +13,18 @@ function computeScore(messages: { sentAt: Date; isOutbound: boolean }[]): number
   }, 0)
 }
 
+export async function recomputeScoreForContact(contactId: string): Promise<void> {
+  const [emailMsgs, waMsgs] = await Promise.all([
+    prisma.emailMessage.findMany({ where: { contactId }, select: { sentAt: true, isOutbound: true } }),
+    prisma.whatsAppMessage.findMany({ where: { contactId }, select: { sentAt: true, isOutbound: true } }),
+  ])
+  const msgs = [...emailMsgs, ...waMsgs]
+  if (msgs.length === 0) return
+  const score = computeScore(msgs)
+  const lastInteractionAt = msgs.reduce<Date | null>((max, m) => !max || m.sentAt > max ? m.sentAt : max, null)
+  await prisma.contact.update({ where: { id: contactId }, data: { interactionScore: score, lastInteractionAt } })
+}
+
 export async function recomputeScores(userId: string): Promise<void> {
   // Load all matched messages for this user grouped by contact (email + WhatsApp)
   const [emailRows, waRows] = await Promise.all([
