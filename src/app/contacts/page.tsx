@@ -13,7 +13,7 @@ import ManageLabelsModal from "@/components/ManageLabelsModal"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "",
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "",
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -107,7 +107,7 @@ function ContactsContent() {
         location: f.location, position: f.position, label: f.label, sort: f.sort,
         page: String(p), limit: "48",
         preferredCompanies: f.preferredCompanies ? "true" : "false",
-        sector: f.sector, companyType: f.companyType,
+        sector: f.sector, companyType: f.companyType, gmailMatched: f.gmailMatched,
       })
       const res = await fetch(`/api/contacts?${params}`)
       if (!res.ok) return
@@ -457,7 +457,7 @@ function ContactsContent() {
       ) : allContacts.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 text-sm">
-            {filters.q || filters.company || filters.industry || filters.location || filters.position || filters.label || filters.preferredCompanies
+            {filters.q || filters.company || filters.industry || filters.location || filters.position || filters.label || filters.preferredCompanies || filters.sector || filters.companyType || filters.gmailMatched
               ? "No contacts match your filters."
               : "No contacts yet — sync your LinkedIn network to get started."}
           </p>

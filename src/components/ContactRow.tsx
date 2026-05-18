@@ -1,6 +1,6 @@
 "use client"
 
-import { StickyNote, Plus } from "lucide-react"
+import { StickyNote, Plus, Mail } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
@@ -56,9 +56,15 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         )}
       </div>
 
-      {/* Name */}
+      {/* Name + optional email */}
       <div className="w-40 shrink-0">
         <p className="text-sm font-semibold text-gray-900 truncate">{fullName}</p>
+        {contact.emailAddress && (
+          <p className="text-[10px] text-green-600 truncate flex items-center gap-0.5">
+            <Mail size={8} className="shrink-0" />
+            {contact.emailAddress}
+          </p>
+        )}
       </div>
 
       {/* Position */}

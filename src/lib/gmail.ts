@@ -46,7 +46,7 @@ export async function fetchMessageList(
   pageToken?: string,
 ): Promise<{ messages: { id: string }[]; nextPageToken?: string; resultSizeEstimate?: number }> {
   const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages")
-  url.searchParams.set("q", "in:sent OR in:inbox")
+  url.searchParams.set("q", "-in:spam -in:trash -in:drafts -category:promotions -category:updates")
   url.searchParams.set("maxResults", "100")
   if (pageToken) url.searchParams.set("pageToken", pageToken)
 
@@ -63,7 +63,7 @@ export async function fetchMessageMetadata(
 ): Promise<{ id: string; payload: { headers: { name: string; value: string }[] } } | null> {
   const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}`)
   url.searchParams.set("format", "metadata")
-  for (const h of ["From", "To", "Cc", "Subject", "Date", "Message-ID"]) {
+  for (const h of ["From", "To", "Cc", "Subject", "Date", "Message-ID", "List-Unsubscribe", "Precedence"]) {
     url.searchParams.append("metadataHeaders", h)
   }
 
@@ -123,6 +123,8 @@ type ParsedMessage = {
   toEmails: string[]
   sentAt: Date
   isOutbound: boolean
+  listUnsubscribe: boolean
+  precedence: string | null
 }
 
 export function parseMessageHeaders(
@@ -151,6 +153,10 @@ export function parseMessageHeaders(
   const emailList = Array.isArray(userEmails) ? userEmails : [userEmails]
   const isOutbound = emailList.some((e) => normalizeEmail(fromEmail) === normalizeEmail(e))
 
+  const listUnsubscribe = !!h("List-Unsubscribe")
+  const precedenceRaw = h("Precedence").toLowerCase()
+  const precedence = precedenceRaw || null
+
   return {
     gmailId: msg.id,
     threadId: msg.threadId ?? msg.id,
@@ -160,5 +166,7 @@ export function parseMessageHeaders(
     toEmails,
     sentAt,
     isOutbound,
+    listUnsubscribe,
+    precedence,
   }
 }

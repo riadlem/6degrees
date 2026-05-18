@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   const preferredOnly = searchParams.get("preferredCompanies") === "true"
   const sector = searchParams.get("sector") ?? ""
   const companyType = searchParams.get("companyType") ?? ""
+  const gmailMatched = searchParams.get("gmailMatched") ?? ""
   const sort = searchParams.get("sort") ?? "name"
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const limit = parseInt(searchParams.get("limit") ?? "48", 10)
@@ -102,6 +103,8 @@ export async function GET(request: Request) {
           ? [{ company: { in: companyTypeNames, mode: "insensitive" as const } }]
           : [{ id: "__no_match__" }]
         : []),
+      ...(gmailMatched === "matched"   ? [{ emailAddress: { not: null } }] : []),
+      ...(gmailMatched === "unmatched" ? [{ emailAddress: null }] : []),
     ],
   }
 

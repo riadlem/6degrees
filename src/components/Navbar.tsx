@@ -17,6 +17,9 @@ const navLinks = [
   { href: "/enrich",     label: "Enrich",     icon: Sparkles },
 ]
 
+// 5 items for the mobile bottom tab bar — Enrich moved inside Reconnect on mobile
+const mobileNavLinks = navLinks.filter((l) => l.href !== "/enrich")
+
 export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
@@ -163,8 +166,8 @@ export default function Navbar() {
     </nav>
 
     {/* Bottom tab bar — mobile only */}
-    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex">
-      {navLinks.map(({ href, label, icon: Icon }) => {
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex h-16 safe-area-inset-bottom">
+      {mobileNavLinks.map(({ href, label, icon: Icon }) => {
         const active = pathname.startsWith(href)
         return (
           <Link

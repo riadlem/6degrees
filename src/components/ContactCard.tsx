@@ -1,6 +1,6 @@
 "use client"
 
-import { Users, Building2, MapPin, Calendar, StickyNote, Plus } from "lucide-react"
+import { Users, Building2, MapPin, Calendar, StickyNote, Plus, Mail } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 
@@ -13,6 +13,7 @@ export type ContactSummary = {
   location: string | null
   industry: string | null
   photoUrl: string | null
+  emailAddress: string | null
   commonConnections: number | null
   connectedOn: string | null
   notes: { id: string }[]
@@ -77,7 +78,7 @@ export default function ContactCard({
       <div className="p-4">
         {/* Avatar + name */}
         <div className="flex items-start gap-3">
-          <div className="shrink-0">
+          <div className="shrink-0 relative">
             {contact.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -89,6 +90,11 @@ export default function ContactCard({
               <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-semibold">
                 {inits}
               </div>
+            )}
+            {contact.emailAddress && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white flex items-center justify-center border border-white" title={contact.emailAddress}>
+                <Mail size={8} className="text-green-500" />
+              </span>
             )}
           </div>
 

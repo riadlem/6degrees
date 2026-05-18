@@ -12,18 +12,28 @@ import {
   parseMessageHeaders,
   normalizeEmail,
 } from "@/lib/gmail"
-import { matchEmailToContact, recordMatchedEmail } from "@/lib/gmail-match"
+import {
+  buildMatchCache,
+  matchEmailCached,
+  recordMatchedEmailCached,
+  flushMatchCache,
+} from "@/lib/gmail-match"
+import { isAutomatedEmail } from "@/lib/email-filters"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const gmailSync = await prisma.gmailSync.findUnique({ where: { userId: session.user.id } })
-  const account = await prisma.account.findFirst({
-    where: { userId: session.user.id, provider: "gmail" },
-    select: { providerAccountId: true },
-  })
+  const userId = session.user.id
+  const [gmailSync, account, matchedContacts] = await Promise.all([
+    prisma.gmailSync.findUnique({ where: { userId } }),
+    prisma.account.findFirst({
+      where: { userId, provider: "gmail" },
+      select: { providerAccountId: true },
+    }),
+    prisma.contact.count({ where: { userId, emailAddress: { not: null } } }),
+  ])
 
   return Response.json({
     connected: !!account,
@@ -31,6 +41,7 @@ export async function GET(req: Request) {
     historyId: gmailSync?.historyId ?? null,
     syncedAt: gmailSync?.syncedAt ?? null,
     totalMessages: gmailSync?.totalMessages ?? 0,
+    matchedContacts,
   })
 }
 
@@ -116,6 +127,14 @@ export async function POST(req: Request) {
         const total = messageIds.length
         send({ type: "status", message: `Processing ${total} emails…`, total })
 
+        // Preload match cache and known gmailIds to avoid per-message DB round trips
+        send({ type: "status", message: "Loading contact index…" })
+        const [matchCache, existingGmailIds] = await Promise.all([
+          buildMatchCache(userId),
+          prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
+            .then((rows) => new Set(rows.map((r) => r.gmailId))),
+        ])
+
         let synced = 0
         let failed = 0
         let processed = 0
@@ -128,12 +147,8 @@ export async function POST(req: Request) {
           await Promise.all(
             batch.map(async (id) => {
               try {
-                // Check if already synced
-                const existing = await prisma.emailMessage.findUnique({
-                  where: { userId_gmailId: { userId, gmailId: id } },
-                  select: { id: true },
-                })
-                if (existing) { synced++; processed++; return }
+                // Skip already-synced messages using preloaded set
+                if (existingGmailIds.has(id)) { synced++; processed++; return }
 
                 const msg = await fetchMessageMetadata(token, id)
                 if (!msg) { failed++; processed++; return }
@@ -141,9 +156,20 @@ export async function POST(req: Request) {
                 const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmails)
                 if (!parsed) { failed++; processed++; return }
 
-                // Match to contact
-                const contactId = await matchEmailToContact(
-                  userId,
+                // Skip automated/transactional emails — never store them
+                const senderEmail = parsed.isOutbound ? (parsed.toEmails[0] ?? "") : parsed.fromEmail
+                if (
+                  parsed.listUnsubscribe ||
+                  (parsed.precedence && ["bulk", "list", "junk"].includes(parsed.precedence)) ||
+                  isAutomatedEmail(senderEmail)
+                ) {
+                  processed++
+                  return
+                }
+
+                // Match to contact using in-memory cache (no DB queries)
+                const contactId = matchEmailCached(
+                  matchCache,
                   parsed.fromEmail,
                   parsed.fromName,
                   parsed.toEmails,
@@ -168,18 +194,18 @@ export async function POST(req: Request) {
                 })
 
                 if (contactId) {
-                  const relevantEmail = parsed.isOutbound
-                    ? parsed.toEmails[0]
-                    : parsed.fromEmail
+                  const relevantEmail = parsed.isOutbound ? parsed.toEmails[0] : parsed.fromEmail
                   if (relevantEmail) {
-                    await recordMatchedEmail(
+                    recordMatchedEmailCached(
+                      matchCache,
                       contactId,
-                      normalizeEmail(relevantEmail),
+                      relevantEmail,
                       parsed.isOutbound ? "gmail_to" : "gmail_from",
                     )
                   }
                 }
 
+                existingGmailIds.add(id)
                 synced++; processed++
               } catch {
                 failed++; processed++
@@ -196,13 +222,16 @@ export async function POST(req: Request) {
             current: `${processed} of ${total}`,
           })
 
-          // Periodically persist progress so a timeout doesn't lose all work
+          // Periodically persist progress and flush new email mappings
           if (synced > 0 && Math.floor(i / BATCH) % 25 === 0) {
-            await prisma.gmailSync.upsert({
-              where: { userId },
-              update: { totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
-              create: { userId, totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
-            })
+            await Promise.all([
+              flushMatchCache(matchCache),
+              prisma.gmailSync.upsert({
+                where: { userId },
+                update: { totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
+                create: { userId, totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
+              }),
+            ])
           }
 
           // Small delay between batches to stay within Gmail quota
@@ -210,6 +239,9 @@ export async function POST(req: Request) {
             await new Promise((r) => setTimeout(r, 50))
           }
         }
+
+        // Flush any remaining new email→contact mappings
+        await flushMatchCache(matchCache)
 
         // Update sync state
         await prisma.gmailSync.upsert({
