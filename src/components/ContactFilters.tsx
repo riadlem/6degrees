@@ -1,6 +1,6 @@
 "use client"
 
-import { Search, X, SlidersHorizontal, Star } from "lucide-react"
+import { Search, X, SlidersHorizontal, Star, Mail } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { labelColors } from "@/lib/label-colors"
@@ -15,8 +15,9 @@ export interface FilterState {
   label: string
   sort: string
   preferredCompanies: boolean
-  sector: string      // one of SectorKey or ""
-  companyType: string // "brand" | "non-brand" | "independent" | ""
+  sector: string
+  companyType: string
+  gmailMatched: "" | "matched" | "unmatched"
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -91,7 +92,8 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
   const activeCount =
     [filters.company, filters.industry, filters.location, filters.position, filters.label, filters.sector, filters.companyType]
       .filter(Boolean).length +
-    (filters.preferredCompanies ? 1 : 0)
+    (filters.preferredCompanies ? 1 : 0) +
+    (filters.gmailMatched ? 1 : 0)
 
   return (
     <div className="space-y-3">
@@ -147,6 +149,24 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
               {opt.label}
             </button>
           ))}
+          <button
+            onClick={() => onChange({
+              gmailMatched:
+                filters.gmailMatched === "" ? "matched" :
+                filters.gmailMatched === "matched" ? "unmatched" : ""
+            })}
+            className={cn(
+              "flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors font-medium",
+              filters.gmailMatched === "matched"
+                ? "bg-green-50 border-green-300 text-green-700"
+                : filters.gmailMatched === "unmatched"
+                ? "bg-gray-50 border-gray-300 text-gray-500"
+                : "border-gray-200 text-gray-500 hover:bg-gray-50"
+            )}
+          >
+            <Mail size={11} />
+            {filters.gmailMatched === "matched" ? "Gmail ✓" : filters.gmailMatched === "unmatched" ? "No Gmail" : "Gmail"}
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <select

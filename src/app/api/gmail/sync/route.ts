@@ -25,11 +25,15 @@ export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const gmailSync = await prisma.gmailSync.findUnique({ where: { userId: session.user.id } })
-  const account = await prisma.account.findFirst({
-    where: { userId: session.user.id, provider: "gmail" },
-    select: { providerAccountId: true },
-  })
+  const userId = session.user.id
+  const [gmailSync, account, matchedContacts] = await Promise.all([
+    prisma.gmailSync.findUnique({ where: { userId } }),
+    prisma.account.findFirst({
+      where: { userId, provider: "gmail" },
+      select: { providerAccountId: true },
+    }),
+    prisma.contact.count({ where: { userId, emailAddress: { not: null } } }),
+  ])
 
   return Response.json({
     connected: !!account,
@@ -37,6 +41,7 @@ export async function GET(req: Request) {
     historyId: gmailSync?.historyId ?? null,
     syncedAt: gmailSync?.syncedAt ?? null,
     totalMessages: gmailSync?.totalMessages ?? 0,
+    matchedContacts,
   })
 }
 

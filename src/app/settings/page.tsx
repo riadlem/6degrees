@@ -12,6 +12,7 @@ type GmailStatus = {
   gmailEmail: string | null
   syncedAt: string | null
   totalMessages: number
+  matchedContacts: number
 }
 
 type WhatsAppStatus = {
@@ -205,7 +206,7 @@ function SettingsPageInner() {
   async function disconnectGmail() {
     setDisconnecting(true)
     await fetch("/api/gmail/disconnect", { method: "DELETE" })
-    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0 })
+    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0, matchedContacts: 0 })
     setDisconnecting(false)
   }
 
@@ -380,7 +381,7 @@ function SettingsPageInner() {
 
               {gmailStatus.syncedAt && (
                 <p className="text-xs text-gray-500">
-                  Last synced: {new Date(gmailStatus.syncedAt).toLocaleString()} · {gmailStatus.totalMessages.toLocaleString()} emails indexed
+                  Last synced: {new Date(gmailStatus.syncedAt).toLocaleString()} · {gmailStatus.totalMessages.toLocaleString()} emails indexed{gmailStatus.matchedContacts > 0 ? ` · ${gmailStatus.matchedContacts} contacts matched` : ""}
                 </p>
               )}
 
