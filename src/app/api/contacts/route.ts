@@ -30,14 +30,15 @@ export async function GET(request: Request) {
   // Fetch company preferences for filtering + subsidiary lookup
   const companyPrefs = await prisma.companyPreference.findMany({
     where: { userId },
-    select: { company: true, ignored: true, parentCompany: true, type: true },
+    select: { company: true, ignored: true, parentCompany: true, type: true, industry: true },
   }).catch(async () => {
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
+    await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "industry" TEXT`.catch(() => {})
     return prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, ignored: true, parentCompany: true, type: true },
-    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null; type: string | null }[])
+      select: { company: true, ignored: true, parentCompany: true, type: true, industry: true },
+    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null; type: string | null; industry: string | null }[])
   })
 
   const preferredCompanies = companyPrefs.filter((p) => !p.ignored).map((p) => p.company)
@@ -86,16 +87,40 @@ export async function GET(request: Request) {
       }] : []),
       // Company filter (with subsidiary expansion)
       ...(company ? [companyFilter()] : []),
-      ...(industry  ? [{ industry:  { contains: industry,  mode: "insensitive" as const } }] : []),
+      // Industry filter: company-confirmed industry takes precedence over LinkedIn contact industry.
+      // A contact matches if:
+      //   (a) their company has a confirmed industry matching the filter, OR
+      //   (b) their LinkedIn industry matches AND their company hasn't been confirmed as a different industry.
+      ...(industry ? (() => {
+        const confirmedMatch = companyPrefs
+          .filter((p) => p.industry?.toLowerCase().includes(industry.toLowerCase()))
+          .map((p) => p.company)
+        const confirmedOther = companyPrefs
+          .filter((p) => p.industry && !p.industry.toLowerCase().includes(industry.toLowerCase()))
+          .map((p) => p.company)
+        const contactIndustryClause: Prisma.ContactWhereInput = confirmedOther.length > 0
+          ? { industry: { contains: industry, mode: "insensitive" as const }, NOT: { company: { in: confirmedOther } } }
+          : { industry: { contains: industry, mode: "insensitive" as const } }
+        return [{ OR: [...(confirmedMatch.length > 0 ? [{ company: { in: confirmedMatch } }] : []), contactIndustryClause] }]
+      })() : []),
       ...(location  ? [{ location:  { contains: location,  mode: "insensitive" as const } }] : []),
       ...(position  ? [{ position:  { contains: position,  mode: "insensitive" as const } }] : []),
       ...(labelId   ? [{ labels:    { some: { labelId } } }] : []),
-      // Sector filter: match any of the LinkedIn industry strings for that sector
-      ...(sector ? [{
-        OR: getSectorIndustries(sector).map((ind) => ({
-          industry: { equals: ind, mode: "insensitive" as const },
-        })),
-      }] : []),
+      // Sector filter: match any of the LinkedIn industry strings for that sector.
+      // Also include contacts at companies whose confirmed industry falls within the sector.
+      ...(sector ? (() => {
+        const sectorIndustries = getSectorIndustries(sector)
+        const sectorMatchCompanies = companyPrefs
+          .filter((p) => p.industry && sectorIndustries.some((si) => si.toLowerCase() === p.industry!.toLowerCase()))
+          .map((p) => p.company)
+        const sectorOtherCompanies = companyPrefs
+          .filter((p) => p.industry && !sectorIndustries.some((si) => si.toLowerCase() === p.industry!.toLowerCase()))
+          .map((p) => p.company)
+        const contactSectorClause: Prisma.ContactWhereInput = sectorOtherCompanies.length > 0
+          ? { OR: sectorIndustries.map((ind) => ({ industry: { equals: ind, mode: "insensitive" as const } })), NOT: { company: { in: sectorOtherCompanies } } }
+          : { OR: sectorIndustries.map((ind) => ({ industry: { equals: ind, mode: "insensitive" as const } })) }
+        return [{ OR: [...(sectorMatchCompanies.length > 0 ? [{ company: { in: sectorMatchCompanies } }] : []), contactSectorClause] }]
+      })() : []),
       // Company type filter: contacts at companies tagged with that type
       // If companyType is set but no companies are tagged, return nothing
       ...(companyType
@@ -140,6 +165,14 @@ export async function GET(request: Request) {
       select: { industry: true },
       distinct: ["industry"],
       orderBy: { industry: "asc" },
+    }).then((rows) => {
+      // Merge confirmed company industries into the dropdown so company-level
+      // industry assignments are always visible as filter options.
+      const contactIndustries = new Set(rows.map((r) => r.industry).filter(Boolean) as string[])
+      for (const p of companyPrefs) {
+        if (p.industry) contactIndustries.add(p.industry)
+      }
+      return [...contactIndustries].sort((a, b) => a.localeCompare(b)).map((i) => ({ industry: i }))
     }),
     prisma.contact.findMany({
       where: { userId: session.user.id, company: { not: null } },
