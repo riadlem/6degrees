@@ -69,6 +69,7 @@ model User {
   whatsAppMessages WhatsAppMessage[]
   whatsAppSync   WhatsAppSync?
   userEmailAddresses UserEmailAddress[]
+  dismissedEmails    DismissedEmail[]
 }
 
 model Contact {
@@ -210,6 +211,19 @@ model UserEmailAddress {
   userId    String
   email     String
   isPrimary Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, email])
+  @@index([userId])
+}
+
+model DismissedEmail {
+  id        String   @id @default(cuid())
+  userId    String
+  email     String
+  reason    String   @default("manual")
+  createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

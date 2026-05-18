@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search, Ban } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
@@ -50,12 +50,14 @@ function SettingsPageInner() {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [unmatchedSenders, setUnmatchedSenders] = useState<UnmatchedSender[]>([])
   const [unmatchedTotal, setUnmatchedTotal] = useState(0)
+  const [autoFilteredCount, setAutoFilteredCount] = useState(0)
   const [unmatchedPage, setUnmatchedPage] = useState(0)
   const [unmatchedLoading, setUnmatchedLoading] = useState(false)
   const [assigningFor, setAssigningFor] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<ContactResult[]>([])
   const [assigning, setAssigning] = useState<string | null>(null)
+  const [dismissing, setDismissing] = useState<string | null>(null)
 
   const [waImporting, setWaImporting] = useState(false)
   const [waProgress, setWaProgress] = useState<string | null>(null)
@@ -129,6 +131,7 @@ function SettingsPageInner() {
       const data = await res.json()
       setUnmatchedSenders(page === 0 ? data.senders : (prev) => [...prev, ...data.senders])
       setUnmatchedTotal(data.total)
+      setAutoFilteredCount(data.autoFilteredCount ?? 0)
       setUnmatchedPage(page)
     } finally {
       setUnmatchedLoading(false)
@@ -142,6 +145,21 @@ function SettingsPageInner() {
     if (!res.ok) return
     const data = await res.json()
     setSearchResults((data.contacts ?? []).slice(0, 5))
+  }
+
+  async function dismissSender(fromEmail: string) {
+    setDismissing(fromEmail)
+    try {
+      await fetch("/api/gmail/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fromEmail, reason: "manual" }),
+      })
+      setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+      setUnmatchedTotal((n) => Math.max(0, n - 1))
+    } finally {
+      setDismissing(null)
+    }
   }
 
   async function assignMatch(fromEmail: string, contactId: string) {
@@ -426,6 +444,12 @@ function SettingsPageInner() {
                   ) : unmatchedSenders.length === 0 ? (
                     <p className="text-xs text-gray-400 text-center py-6">All senders matched</p>
                   ) : (
+                    <>
+                    {autoFilteredCount > 0 && (
+                      <p className="px-4 py-2 text-xs text-gray-400 bg-gray-50 border-b border-gray-100">
+                        <span className="font-medium">{autoFilteredCount}</span> automated senders auto-filtered (noreply, newsletters, billing…)
+                      </p>
+                    )}
                     <ul className="divide-y divide-gray-50">
                       {unmatchedSenders.map((sender) => (
                         <li key={sender.fromEmail} className="px-4 py-3 space-y-2">
@@ -435,6 +459,14 @@ function SettingsPageInner() {
                               {sender.fromName && <p className="text-xs text-gray-400 truncate">{sender.fromEmail}</p>}
                               <p className="text-xs text-gray-400">{sender.messageCount} email{sender.messageCount !== 1 ? "s" : ""}{sender.lastSeen ? ` · last ${new Date(sender.lastSeen).toLocaleDateString()}` : ""}</p>
                             </div>
+                            <button
+                              title="Flag as automated — hide from this list"
+                              disabled={dismissing === sender.fromEmail}
+                              onClick={() => dismissSender(sender.fromEmail)}
+                              className="shrink-0 p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                            >
+                              <Ban size={13} />
+                            </button>
                           </div>
 
                           {/* Recommendations */}
@@ -497,6 +529,7 @@ function SettingsPageInner() {
                         </li>
                       ))}
                     </ul>
+                    </>
                   )}
 
                   {unmatchedSenders.length < unmatchedTotal && (

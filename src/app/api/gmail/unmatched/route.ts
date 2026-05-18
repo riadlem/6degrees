@@ -1,7 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { normalizeEmail } from "@/lib/gmail"
+import { isAutomatedEmail } from "@/lib/email-filters"
 
 const PAGE_SIZE = 20
 
@@ -13,7 +13,6 @@ const COMMON_DOMAINS = new Set([
 async function getRecommendations(userId: string, fromName: string | null, fromEmail: string) {
   const recs: { contactId: string; name: string; company: string | null; matchReason: string }[] = []
 
-  // Pass 1: name match
   if (fromName) {
     const parts = fromName.trim().split(/\s+/)
     if (parts.length >= 2) {
@@ -36,7 +35,6 @@ async function getRecommendations(userId: string, fromName: string | null, fromE
     }
   }
 
-  // Pass 2: email domain match against company (skip common providers)
   if (recs.length < 3) {
     const domain = fromEmail.split("@")[1]?.toLowerCase()
     if (domain && !COMMON_DOMAINS.has(domain)) {
@@ -67,25 +65,41 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0"))
 
-  // Group unmatched inbound emails by fromEmail
-  const grouped = await prisma.emailMessage.groupBy({
+  // Load dismissed emails for this user
+  const dismissed = await prisma.dismissedEmail.findMany({
+    where: { userId },
+    select: { email: true },
+  })
+  const dismissedSet = new Set(dismissed.map((d) => d.email))
+
+  // Fetch all unique unmatched inbound senders
+  const allGrouped = await prisma.emailMessage.groupBy({
     by: ["fromEmail"],
     where: { userId, contactId: null, isOutbound: false },
     _count: { _all: true },
     _max: { sentAt: true },
     orderBy: [{ _count: { fromEmail: "desc" } }],
-    skip: page * PAGE_SIZE,
-    take: PAGE_SIZE,
   })
 
-  const totalGroups = await prisma.emailMessage.groupBy({
-    by: ["fromEmail"],
-    where: { userId, contactId: null, isOutbound: false },
-  })
+  // Partition into auto-detected, dismissed, and actionable
+  const automated: typeof allGrouped = []
+  const actionable: typeof allGrouped = []
 
-  // Fetch most recent fromName for each email
+  for (const g of allGrouped) {
+    if (dismissedSet.has(g.fromEmail)) continue // already dismissed, skip entirely
+    if (isAutomatedEmail(g.fromEmail)) {
+      automated.push(g)
+    } else {
+      actionable.push(g)
+    }
+  }
+
+  const total = actionable.length
+  const paginated = actionable.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Fetch fromName + recommendations for this page
   const senders = await Promise.all(
-    grouped.map(async (g) => {
+    paginated.map(async (g) => {
       const latest = await prisma.emailMessage.findFirst({
         where: { userId, fromEmail: g.fromEmail, isOutbound: false },
         orderBy: { sentAt: "desc" },
@@ -103,5 +117,11 @@ export async function GET(req: Request) {
     }),
   )
 
-  return Response.json({ senders, total: totalGroups.length, page, pageSize: PAGE_SIZE })
+  return Response.json({
+    senders,
+    total,
+    autoFilteredCount: automated.length,
+    page,
+    pageSize: PAGE_SIZE,
+  })
 }
