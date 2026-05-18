@@ -13,6 +13,7 @@ type GmailStatus = {
   syncedAt: string | null
   totalMessages: number
   matchedContacts: number
+  historyId: string | null
 }
 
 function formatParis(date: Date): string {
@@ -55,6 +56,8 @@ function SettingsPageInner() {
   const [regenerating, setRegenerating] = useState(false)
   const [copied, setCopied] = useState(false)
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null)
+  const [lastSyncDiag, setLastSyncDiag] = useState<{ mode: string; scanned: number; inserted: number; historyId: string | null } | null>(null)
+  const [copiedHistoryId, setCopiedHistoryId] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [waStatus, setWaStatus] = useState<WhatsAppStatus | null>(null)
   const [userEmails, setUserEmails] = useState<string[]>([])
@@ -269,7 +272,7 @@ function SettingsPageInner() {
   async function disconnectGmail() {
     setDisconnecting(true)
     await fetch("/api/gmail/disconnect", { method: "DELETE" })
-    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0, matchedContacts: 0 })
+    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0, matchedContacts: 0, historyId: null })
     setDisconnecting(false)
   }
 
@@ -284,13 +287,34 @@ function SettingsPageInner() {
     if (gmailSyncState.phase === "syncing") {
       const { processed, total, synced, failed } = gmailSyncState
       const pct = total > 0 ? Math.round((processed / total) * 100) : 0
-      const parts = [`${processed} / ${total} processed (${pct}%)`, `${synced} indexed`]
+      const parts = [`${processed} / ${total} (${pct}%)`, `${synced} indexed`]
       if (failed > 0) parts.push(`${failed} skipped`)
       return parts.join(" · ")
     }
-    if (gmailSyncState.phase === "done") return `Done — ${gmailSyncState.synced} emails indexed`
+    if (gmailSyncState.phase === "done") {
+      const { inserted, scanned, mode } = gmailSyncState
+      if (lastSyncDiag?.mode !== mode || lastSyncDiag?.inserted !== inserted) {
+        // capture for diagnostics panel (do outside render via effect below)
+      }
+      return `Done (${mode}) — ${inserted} new · ${scanned} scanned`
+    }
     return null
   })()
+
+  // Capture diagnostics when sync completes
+  useEffect(() => {
+    if (gmailSyncState.phase === "done") {
+      setLastSyncDiag({
+        mode: gmailSyncState.mode,
+        scanned: gmailSyncState.scanned,
+        inserted: gmailSyncState.inserted,
+        historyId: gmailSyncState.historyId,
+      })
+      // Refresh historyId in the status card
+      fetch("/api/gmail/sync").then((r) => r.ok ? r.json() : null).then((d) => d && setGmailStatus(d))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmailSyncState.phase])
 
   async function importWhatsApp(files: FileList) {
     if (files.length === 0) return
@@ -447,6 +471,49 @@ function SettingsPageInner() {
                   Last synced: {formatParis(lastSyncedAt ?? new Date(gmailStatus.syncedAt!))} · {gmailStatus.totalMessages.toLocaleString()} emails indexed{gmailStatus.matchedContacts > 0 ? ` · ${gmailStatus.matchedContacts} contacts matched` : ""}
                 </p>
               )}
+
+              {/* Sync diagnostics */}
+              <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1.5 font-mono text-[11px]">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-gray-400">historyId</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={gmailStatus.historyId ? "text-green-700" : "text-red-500"}>
+                      {gmailStatus.historyId ?? "null — next sync will be a full scan"}
+                    </span>
+                    {gmailStatus.historyId && (
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(gmailStatus.historyId!); setCopiedHistoryId(true); setTimeout(() => setCopiedHistoryId(false), 1500) }}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        {copiedHistoryId ? <Check size={10} className="text-green-500" /> : <Copy size={10} />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-gray-400">next sync mode</span>
+                  <span className={gmailStatus.historyId ? "text-blue-600" : "text-amber-600"}>
+                    {gmailStatus.historyId ? "incremental ✓" : "full scan"}
+                  </span>
+                </div>
+                {lastSyncDiag && (
+                  <>
+                    <div className="border-t border-gray-200 mt-1.5 pt-1.5" />
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-gray-400">last run mode</span>
+                      <span className={lastSyncDiag.mode === "incremental" ? "text-blue-600" : "text-amber-600"}>{lastSyncDiag.mode}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-gray-400">scanned</span>
+                      <span className="text-gray-700">{lastSyncDiag.scanned.toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-gray-400">new messages</span>
+                      <span className={lastSyncDiag.inserted > 0 ? "text-green-700" : "text-gray-500"}>{lastSyncDiag.inserted.toLocaleString()}</span>
+                    </div>
+                  </>
+                )}
+              </div>
 
               {gmailSyncLabel && (
                 <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">

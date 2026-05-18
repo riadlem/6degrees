@@ -147,6 +147,7 @@ export async function POST(req: Request) {
         ])
 
         let synced = 0
+        let inserted = 0  // genuinely new messages (not already in DB)
         let failed = 0
         let processed = 0
 
@@ -216,7 +217,7 @@ export async function POST(req: Request) {
                 }
 
                 existingGmailIds.add(id)
-                synced++; processed++
+                inserted++; synced++; processed++
               } catch {
                 failed++; processed++
               }
@@ -275,7 +276,15 @@ export async function POST(req: Request) {
         send({ type: "status", message: "Computing relationship scores…" })
         await recomputeScores(userId)
 
-        send({ type: "done", synced, failed })
+        send({
+          type: "done",
+          synced,
+          inserted,
+          failed,
+          mode: useIncremental ? "incremental" : "full",
+          historyId: latestHistoryId ?? null,
+          scanned: total,
+        })
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Sync failed" })
       } finally {
