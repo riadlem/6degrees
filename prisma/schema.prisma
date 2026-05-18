@@ -106,6 +106,7 @@ model Contact {
   interactionScore  Float?
   outreachStatus    String?
   outreachUpdatedAt DateTime?
+  snoozedUntil      DateTime?
   // Metadata
   syncedAt          DateTime  @default(now())
   updatedAt         DateTime  @updatedAt

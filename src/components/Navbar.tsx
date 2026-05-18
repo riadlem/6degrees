@@ -7,6 +7,7 @@ import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles, Building2
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
+import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 
 const navLinks = [
   { href: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard },
@@ -20,11 +21,25 @@ const navLinks = [
 // 5 items for the mobile bottom tab bar — Enrich moved inside Reconnect on mobile
 const mobileNavLinks = navLinks.filter((l) => l.href !== "/enrich")
 
+function formatParis(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const g = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "00"
+  return `${g("day")}${g("month")}:${g("hour")}${g("minute")}`
+}
+
 export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const { syncState } = useSyncContext()
+  const { lastSyncedAt } = useGmailSyncContext()
 
   if (!session) return null
 
@@ -47,6 +62,8 @@ export default function Navbar() {
     syncState.phase === "fetching" ? (syncState.total ? `Syncing ${syncState.total} contacts…` : "Fetching…") :
     syncState.phase === "syncing" ? `Syncing ${syncState.synced} / ${syncState.total}` :
     null
+
+  const syncTimestamp = lastSyncedAt ? formatParis(lastSyncedAt) : null
 
   return (
     <>
@@ -80,7 +97,7 @@ export default function Navbar() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Sync indicator (visible on all pages while sync is running) */}
+        {/* Sync indicator — desktop only while running */}
         {syncLabel && (
           <div className="hidden sm:flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block animate-pulse" />
@@ -89,11 +106,17 @@ export default function Navbar() {
           </div>
         )}
 
-        {/* Active network label (hidden while syncing) */}
+        {/* Network + last-sync pill — visible on all screen sizes */}
         {!syncLabel && (
-          <div className="hidden sm:flex items-center gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-3 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-            <span className="font-medium text-gray-700">{name.split(" ")[0]}&apos;s network</span>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
+            {/* Network name — desktop only */}
+            <span className="hidden sm:inline font-medium text-gray-700">{name.split(" ")[0]}&apos;s network</span>
+            {/* Timestamp — always shown when available; on mobile it's the only text */}
+            {syncTimestamp
+              ? <span className="font-mono text-[10px] text-gray-400 tracking-tight">{syncTimestamp}</span>
+              : <span className="sm:hidden font-medium text-gray-600">{name.split(" ")[0]}</span>
+            }
           </div>
         )}
 

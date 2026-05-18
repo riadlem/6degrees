@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 
-const VALID_STATUSES = ["not_contacted", "drafted", "sent", "responded", "meeting_booked", "lkd_pending"]
+const VALID_STATUSES = ["not_contacted", "drafted", "sent", "responded", "meeting_booked", "meeting_done", "lkd_pending", "deprioritized", "ignored"]
 
 export async function PATCH(req: Request, { params }: { params: { contactId: string } }) {
   const session = await getServerSession(authOptions)

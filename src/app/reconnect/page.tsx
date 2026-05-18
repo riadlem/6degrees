@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -30,7 +30,9 @@ const STATUS_TABS = [
   { value: "not_contacted",  label: "Not contacted" },
   { value: "drafted",        label: "Drafted" },
   { value: "sent",           label: "Sent" },
+  { value: "meeting_booked", label: "Meeting booked" },
   { value: "responded",      label: "Responded" },
+  { value: "meeting_done",   label: "Meeting done" },
 ]
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -40,6 +42,8 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   sent:          { label: "Sent",                className: "bg-amber-50 text-amber-700" },
   responded:     { label: "Responded",           className: "bg-green-50 text-green-700" },
   meeting_booked:{ label: "Meeting booked",      className: "bg-purple-50 text-purple-700" },
+  meeting_done:  { label: "Meeting done",        className: "bg-emerald-50 text-emerald-700" },
+  deprioritized: { label: "Deprioritized",       className: "bg-gray-100 text-gray-400" },
 }
 
 export default function ReconnectPage() {
@@ -49,10 +53,12 @@ export default function ReconnectPage() {
   const [activeTab, setActiveTab] = useState<"reconnect" | "enrich">("reconnect")
   const [contacts, setContacts] = useState<ReconnectContact[]>([])
   const [total, setTotal] = useState(0)
+  const [blockedCount, setBlockedCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [activeStatus, setActiveStatus] = useState("")
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const [draftContact, setDraftContact] = useState<ReconnectContact | null>(null)
+  const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -68,6 +74,7 @@ export default function ReconnectPage() {
         const data = await res.json()
         setContacts(data.contacts)
         setTotal(data.total)
+        setBlockedCount(data.blockedCount ?? 0)
       }
     } finally {
       setLoading(false)
@@ -95,6 +102,32 @@ export default function ReconnectPage() {
     })
     setContacts((prev) => prev.filter((c) => c.id !== contactId))
     setTotal((t) => Math.max(0, t - 1))
+  }
+
+  async function snoozeContact(contactId: string, days: number) {
+    await fetch(`/api/reconnect/${contactId}/snooze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    })
+    setContacts((prev) => prev.filter((c) => c.id !== contactId))
+    setTotal((t) => Math.max(0, t - 1))
+    setMoreOpenId(null)
+  }
+
+  async function deprioritizeContact(contactId: string) {
+    await updateStatus(contactId, "deprioritized")
+    // Move to bottom — refetch so deprioritized sorting is applied
+    fetchContacts()
+    setMoreOpenId(null)
+  }
+
+  async function blockContact(contactId: string) {
+    await updateStatus(contactId, "ignored")
+    setContacts((prev) => prev.filter((c) => c.id !== contactId))
+    setTotal((t) => Math.max(0, t - 1))
+    setBlockedCount((n) => n + 1)
+    setMoreOpenId(null)
   }
 
   if (status === "loading") {
@@ -149,14 +182,14 @@ export default function ReconnectPage() {
       {/* Reconnect tab */}
       {activeTab === "reconnect" && (<>
 
-      {/* Status sub-tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
+      {/* Status sub-tabs (scrollable on mobile) */}
+      <div className="flex gap-1 mb-6 border-b border-gray-200 overflow-x-auto scrollbar-none">
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
             onClick={() => setActiveStatus(tab.value)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
               activeStatus === tab.value
                 ? "border-blue-600 text-blue-700"
                 : "border-transparent text-gray-500 hover:text-gray-700",
@@ -165,8 +198,8 @@ export default function ReconnectPage() {
             {tab.label}
           </button>
         ))}
-        <div className="flex-1" />
-        <span className="self-center text-xs text-gray-400 pr-1">{total} contacts</span>
+        <div className="flex-1 shrink-0" />
+        <span className="self-center text-xs text-gray-400 pr-1 shrink-0">{total} contacts</span>
       </div>
 
       {/* List */}
@@ -193,11 +226,15 @@ export default function ReconnectPage() {
             const statusInfo = STATUS_LABELS[contact.outreachStatus ?? "not_contacted"] ?? STATUS_LABELS.not_contacted
             const score = contact.interactionScore ?? 0
             const scoreWidth = Math.min(100, score * 20)
+            const isDeprioritized = contact.outreachStatus === "deprioritized"
 
             return (
               <div
                 key={contact.id}
-                className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-4 hover:border-gray-300 transition-colors group"
+                className={cn(
+                  "bg-white border rounded-xl px-4 py-3 flex items-center gap-4 hover:border-gray-300 transition-colors group",
+                  isDeprioritized ? "border-gray-100 opacity-60" : "border-gray-200",
+                )}
               >
                 {/* Avatar */}
                 <button
@@ -244,9 +281,11 @@ export default function ReconnectPage() {
                 </button>
 
                 {/* Status badge */}
-                <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium shrink-0", statusInfo.className)}>
-                  {statusInfo.label}
-                </span>
+                {!isDeprioritized && (
+                  <span className={cn("text-xs px-2.5 py-1 rounded-full font-medium shrink-0", statusInfo.className)}>
+                    {statusInfo.label}
+                  </span>
+                )}
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0">
@@ -292,14 +331,71 @@ export default function ReconnectPage() {
                         <option value="sent">Sent</option>
                         <option value="responded">Responded</option>
                         <option value="meeting_booked">Meeting booked</option>
+                        <option value="meeting_done">Meeting done</option>
                       </select>
                     </>
                   )}
+
+                  {/* ··· more actions */}
+                  <div className="relative">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setMoreOpenId(moreOpenId === contact.id ? null : contact.id) }}
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+
+                    {moreOpenId === contact.id && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setMoreOpenId(null)} />
+                        <div className="absolute right-0 mt-1 w-52 bg-white border border-gray-200 rounded-xl shadow-lg z-50 py-1 overflow-hidden">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); snoozeContact(contact.id, 7) }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            <AlarmClock size={13} className="text-gray-400" />
+                            Remind in 7 days
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); snoozeContact(contact.id, 15) }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            <Timer size={13} className="text-gray-400" />
+                            Remind in 15 days
+                          </button>
+                          <div className="h-px bg-gray-100 my-1" />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deprioritizeContact(contact.id) }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+                          >
+                            <Clock size={13} className="text-gray-400" />
+                            Ignore for 3 months
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); blockContact(contact.id) }}
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                          >
+                            <Ban size={13} />
+                            Ignore forever
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <ChevronRight size={14} className="text-gray-300" />
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Blocked section */}
+      {blockedCount > 0 && activeStatus === "" && (
+        <div className="mt-8 flex items-center gap-2 text-xs text-gray-400">
+          <Ban size={12} />
+          <span>{blockedCount} contact{blockedCount !== 1 ? "s" : ""} blocked forever</span>
         </div>
       )}
 

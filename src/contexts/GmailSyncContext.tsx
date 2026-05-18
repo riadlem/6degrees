@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useCallback } from "react"
+import { createContext, useContext, useState, useCallback, useEffect } from "react"
 
 export type GmailSyncState =
   | { phase: "idle" }
@@ -13,6 +13,7 @@ export type GmailSyncState =
 type GmailSyncContextValue = {
   gmailSyncState: GmailSyncState
   sync: (incremental?: boolean) => void
+  lastSyncedAt: Date | null
 }
 
 const GmailSyncContext = createContext<GmailSyncContextValue | null>(null)
@@ -25,6 +26,15 @@ export function useGmailSyncContext() {
 
 export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
   const [gmailSyncState, setGmailSyncState] = useState<GmailSyncState>({ phase: "idle" })
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null)
+
+  // Seed the last-synced timestamp from the server on mount
+  useEffect(() => {
+    fetch("/api/gmail/sync")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.syncedAt) setLastSyncedAt(new Date(d.syncedAt)) })
+      .catch(() => {})
+  }, [])
 
   const sync = useCallback(async (incremental = false) => {
     setGmailSyncState({ phase: "connecting" })
@@ -73,6 +83,7 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
               setGmailSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, processed: event.processed ?? event.synced, total: event.total, current: event.current })
             } else if (event.type === "done") {
               gotTerminal = true
+              setLastSyncedAt(new Date())
               setGmailSyncState({ phase: "done", synced: event.synced, failed: event.failed })
               setTimeout(() => setGmailSyncState({ phase: "idle" }), 6000)
             } else if (event.type === "error") {
@@ -95,7 +106,7 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <GmailSyncContext.Provider value={{ gmailSyncState, sync }}>
+    <GmailSyncContext.Provider value={{ gmailSyncState, sync, lastSyncedAt }}>
       {children}
     </GmailSyncContext.Provider>
   )

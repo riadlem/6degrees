@@ -8,27 +8,38 @@ export async function GET(req: Request) {
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
+  // Ensure snoozedUntil column exists (may not be in DB yet if migration hasn't run)
+  await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "snoozedUntil" TIMESTAMP(3)`
+
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status") ?? ""
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "48"), 100)
-  const page = Math.max(parseInt(searchParams.get("page") ?? "1"), 1)
-  const skip = (page - 1) * limit
+  const now = new Date()
 
-  // lkd_pending has its own tab — skip the score requirement since contacts are explicitly queued
-  const where: Prisma.ContactWhereInput = status === "lkd_pending"
-    ? { userId, outreachStatus: "lkd_pending" }
-    : (() => {
-        // Prisma's `notIn` silently drops NULL rows in SQL — explicitly include nulls
-        const EXCLUDE = ["responded", "meeting_booked", "lkd_pending"]
-        const statusFilter: Prisma.ContactWhereInput = status === "not_contacted"
-          ? { OR: [{ outreachStatus: null }, { outreachStatus: "not_contacted" }] }
-          : status
-          ? { outreachStatus: status }
-          : { OR: [{ outreachStatus: null }, { outreachStatus: { notIn: EXCLUDE } }] }
-        return { userId, interactionScore: { gt: 0.1 }, ...statusFilter }
-      })()
+  // Build where clause per tab
+  // Note: Prisma notIn silently drops NULL rows in SQL — always OR the null case
+  const DONE_STATUSES = ["responded", "meeting_booked", "meeting_done", "lkd_pending", "ignored"]
 
-  const [contacts, total] = await Promise.all([
+  const where: Prisma.ContactWhereInput = (() => {
+    if (status === "lkd_pending") return { userId, outreachStatus: "lkd_pending" }
+    if (status === "meeting_booked") return { userId, outreachStatus: "meeting_booked" }
+    if (status === "meeting_done") return { userId, outreachStatus: "meeting_done" }
+    if (status === "responded") return { userId, outreachStatus: "responded" }
+    if (status === "drafted") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "drafted" }
+    if (status === "sent") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "sent" }
+    if (status === "not_contacted") return {
+      userId,
+      interactionScore: { gt: 0.1 },
+      OR: [{ outreachStatus: null }, { outreachStatus: "not_contacted" }],
+    }
+    // "All" tab: exclude done + blocked + lkd_pending
+    return {
+      userId,
+      interactionScore: { gt: 0.1 },
+      OR: [{ outreachStatus: null }, { outreachStatus: { notIn: DONE_STATUSES } }],
+    }
+  })()
+
+  const [rawContacts, blockedCount] = await Promise.all([
     prisma.contact.findMany({
       where,
       select: {
@@ -43,19 +54,41 @@ export async function GET(req: Request) {
         interactionScore: true,
         outreachStatus: true,
         outreachUpdatedAt: true,
+        snoozedUntil: true,
         labels: { select: { label: { select: { id: true, name: true, color: true } } } },
       },
       orderBy: { interactionScore: "desc" },
-      take: limit,
-      skip,
+      take: 200,
     }),
-    prisma.contact.count({ where }),
+    prisma.contact.count({ where: { userId, outreachStatus: "ignored" } }),
   ])
+
+  const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000
+
+  // Filter out actively snoozed contacts
+  let contacts = rawContacts.filter((c) => {
+    if (c.snoozedUntil && c.snoozedUntil > now) return false
+    return true
+  })
+
+  // For "All" tab: deprioritized contacts (within 90 days) go to the bottom
+  if (status === "") {
+    const normal: typeof contacts = []
+    const deprioritized: typeof contacts = []
+    for (const c of contacts) {
+      const isActive =
+        c.outreachStatus === "deprioritized" &&
+        c.outreachUpdatedAt != null &&
+        now.getTime() - new Date(c.outreachUpdatedAt).getTime() < NINETY_DAYS_MS
+      if (isActive) deprioritized.push(c)
+      else normal.push(c)
+    }
+    contacts = [...normal, ...deprioritized]
+  }
 
   return Response.json({
     contacts,
-    total,
-    page,
-    pages: Math.ceil(total / limit),
+    total: contacts.length,
+    blockedCount,
   })
 }

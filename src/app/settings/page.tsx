@@ -15,6 +15,18 @@ type GmailStatus = {
   matchedContacts: number
 }
 
+function formatParis(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date).replace(",", "")
+}
+
 type WhatsAppStatus = {
   importedAt: string | null
   totalMessages: number
@@ -36,7 +48,7 @@ function SettingsPageInner() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { gmailSyncState, sync: gmailSync } = useGmailSyncContext()
+  const { gmailSyncState, sync: gmailSync, lastSyncedAt } = useGmailSyncContext()
 
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -430,9 +442,9 @@ function SettingsPageInner() {
                 <span className="text-sm text-gray-700 font-medium">{gmailStatus.gmailEmail}</span>
               </div>
 
-              {gmailStatus.syncedAt && (
+              {(lastSyncedAt ?? gmailStatus.syncedAt) && (
                 <p className="text-xs text-gray-500">
-                  Last synced: {new Date(gmailStatus.syncedAt).toLocaleString()} · {gmailStatus.totalMessages.toLocaleString()} emails indexed{gmailStatus.matchedContacts > 0 ? ` · ${gmailStatus.matchedContacts} contacts matched` : ""}
+                  Last synced: {formatParis(lastSyncedAt ?? new Date(gmailStatus.syncedAt!))} · {gmailStatus.totalMessages.toLocaleString()} emails indexed{gmailStatus.matchedContacts > 0 ? ` · ${gmailStatus.matchedContacts} contacts matched` : ""}
                 </p>
               )}
 
