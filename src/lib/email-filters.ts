@@ -11,7 +11,7 @@ const AUTO_PREFIXES = new Set([
 ])
 
 const AUTO_DOMAINS = new Set([
-  "beehiiv.com", "lu.ma", "luma.com", "wework.com", "weworkemail.com",
+  "beehiiv.com", "lu.ma", "luma.com", "luma-mail.com", "wework.com", "weworkemail.com",
   "eventbrite.com", "mailchimp.com", "mc.com", "sendgrid.net", "sendgrid.com",
   "mailgun.org", "klaviyo.com", "klaviyomail.com", "hubspot.com", "hs-email.net",
   "marketo.com", "pardot.com", "stripe.com", "paddle.com", "notion.so",
@@ -52,6 +52,9 @@ export function isAutomatedEmail(email: string): boolean {
   if (prefix.includes("noreply") || prefix.includes("no-reply") || prefix.includes("no_reply")) return true
 
   if (AUTO_DOMAINS.has(domain)) return true
+
+  // Catch subdomains of known automated senders (e.g. mail.lu.ma, emails.luma.com)
+  if (domain.endsWith(".lu.ma") || domain.endsWith(".luma.com") || domain.endsWith(".luma-mail.com")) return true
 
   return false
 }
