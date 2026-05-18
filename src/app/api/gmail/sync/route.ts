@@ -146,6 +146,10 @@ export async function POST(req: Request) {
             .then((rows) => new Set(rows.map((r) => r.gmailId))),
         ])
 
+        const baseCount = existingGmailIds.size
+        // Tell the UI how many messages are already indexed so the counter starts there
+        send({ type: "status", message: `${baseCount.toLocaleString()} already indexed — scanning for new…`, baseCount, total })
+
         let synced = 0
         let inserted = 0  // genuinely new messages (not already in DB)
         let failed = 0
@@ -227,10 +231,12 @@ export async function POST(req: Request) {
           send({
             type: "progress",
             synced,
+            inserted,
             failed,
             processed,
             total,
-            current: `${processed} of ${total}`,
+            baseCount,
+            current: `${(baseCount + inserted).toLocaleString()}`,
           })
 
           // Periodically persist progress and flush new email mappings

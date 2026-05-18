@@ -285,18 +285,17 @@ function SettingsPageInner() {
     if (gmailSyncState.phase === "connecting") return "Connecting…"
     if (gmailSyncState.phase === "fetching") return gmailSyncState.message ?? "Fetching…"
     if (gmailSyncState.phase === "syncing") {
-      const { processed, total, synced, failed } = gmailSyncState
+      const { processed, total, inserted, baseCount, failed } = gmailSyncState
       const pct = total > 0 ? Math.round((processed / total) * 100) : 0
-      const parts = [`${processed} / ${total} (${pct}%)`, `${synced} indexed`]
-      if (failed > 0) parts.push(`${failed} skipped`)
+      const running = (baseCount + inserted).toLocaleString()
+      const parts = [`${running} indexed`, `${pct}% scanned`]
+      if (inserted > 0) parts.splice(1, 0, `+${inserted} new`)
+      if (failed > 0) parts.push(`${failed} failed`)
       return parts.join(" · ")
     }
     if (gmailSyncState.phase === "done") {
       const { inserted, scanned, mode } = gmailSyncState
-      if (lastSyncDiag?.mode !== mode || lastSyncDiag?.inserted !== inserted) {
-        // capture for diagnostics panel (do outside render via effect below)
-      }
-      return `Done (${mode}) — ${inserted} new · ${scanned} scanned`
+      return `Done (${mode}) — ${inserted} new · ${scanned.toLocaleString()} scanned`
     }
     return null
   })()
@@ -504,12 +503,14 @@ function SettingsPageInner() {
                       <span className={lastSyncDiag.mode === "incremental" ? "text-blue-600" : "text-amber-600"}>{lastSyncDiag.mode}</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
-                      <span className="text-gray-400">scanned</span>
+                      <span className="text-gray-400">IDs scanned</span>
                       <span className="text-gray-700">{lastSyncDiag.scanned.toLocaleString()}</span>
                     </div>
                     <div className="flex items-center justify-between gap-4">
-                      <span className="text-gray-400">new messages</span>
-                      <span className={lastSyncDiag.inserted > 0 ? "text-green-700" : "text-gray-500"}>{lastSyncDiag.inserted.toLocaleString()}</span>
+                      <span className="text-gray-400">new inserted</span>
+                      <span className={lastSyncDiag.inserted > 0 ? "text-green-700 font-semibold" : "text-gray-400"}>
+                        +{lastSyncDiag.inserted.toLocaleString()}
+                      </span>
                     </div>
                   </>
                 )}
