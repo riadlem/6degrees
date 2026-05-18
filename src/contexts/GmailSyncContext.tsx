@@ -5,9 +5,9 @@ import { createContext, useContext, useState, useCallback, useEffect } from "rea
 export type GmailSyncState =
   | { phase: "idle" }
   | { phase: "connecting" }
-  | { phase: "fetching"; total?: number; message?: string }
-  | { phase: "syncing"; synced: number; failed: number; processed: number; total: number; current?: string }
-  | { phase: "done"; synced: number; failed: number }
+  | { phase: "fetching"; total?: number; message?: string; baseCount?: number }
+  | { phase: "syncing"; synced: number; inserted: number; failed: number; processed: number; total: number; baseCount: number; current: string }
+  | { phase: "done"; synced: number; inserted: number; failed: number; mode: "incremental" | "full"; scanned: number; historyId: string | null }
   | { phase: "error"; message: string }
 
 type GmailSyncContextValue = {
@@ -36,11 +36,12 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {})
   }, [])
 
-  const sync = useCallback(async (incremental = false) => {
+  // force=true bypasses incremental and does a full re-scan (rare, for resets)
+  const sync = useCallback(async (force = false) => {
     setGmailSyncState({ phase: "connecting" })
 
     try {
-      const params = incremental ? "?incremental=true" : ""
+      const params = force ? "?force=true" : ""
       const res = await fetch(`/api/gmail/sync${params}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))
@@ -78,13 +79,30 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
           try {
             const event = JSON.parse(line.slice(6))
             if (event.type === "status") {
-              setGmailSyncState({ phase: "fetching", total: event.total, message: event.message })
+              setGmailSyncState({ phase: "fetching", total: event.total, message: event.message, baseCount: event.baseCount })
             } else if (event.type === "progress") {
-              setGmailSyncState({ phase: "syncing", synced: event.synced, failed: event.failed, processed: event.processed ?? event.synced, total: event.total, current: event.current })
+              setGmailSyncState({
+                phase: "syncing",
+                synced: event.synced,
+                inserted: event.inserted ?? 0,
+                failed: event.failed,
+                processed: event.processed ?? event.synced,
+                total: event.total,
+                baseCount: event.baseCount ?? 0,
+                current: event.current ?? String(event.synced),
+              })
             } else if (event.type === "done") {
               gotTerminal = true
               setLastSyncedAt(new Date())
-              setGmailSyncState({ phase: "done", synced: event.synced, failed: event.failed })
+              setGmailSyncState({
+                phase: "done",
+                synced: event.synced,
+                inserted: event.inserted ?? event.synced,
+                failed: event.failed,
+                mode: event.mode ?? "full",
+                scanned: event.scanned ?? event.synced,
+                historyId: event.historyId ?? null,
+              })
               setTimeout(() => setGmailSyncState({ phase: "idle" }), 6000)
             } else if (event.type === "error") {
               gotTerminal = true

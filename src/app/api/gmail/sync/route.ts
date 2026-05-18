@@ -55,7 +55,9 @@ export async function POST(req: Request) {
   const userId = session.user.id
 
   const { searchParams } = new URL(req.url)
-  const incremental = searchParams.get("incremental") === "true"
+  // force=true is the only way to run a full scan when historyId already exists.
+  // All other calls default to incremental if we have a saved historyId.
+  const force = searchParams.get("force") === "true"
 
   const token = await getGmailAccessToken(userId)
   if (!token) {
@@ -98,12 +100,15 @@ export async function POST(req: Request) {
         let messageIds: string[] = []
         let latestHistoryId: string | undefined = profileHistoryId
 
-        if (incremental && gmailSync?.historyId) {
+        // Use incremental if we have a historyId anchor, unless force=true was passed.
+        const useIncremental = !!gmailSync?.historyId && !force
+
+        if (useIncremental) {
           send({ type: "status", message: "Fetching new emails…" })
           let pageToken: string | undefined
-          let incrementalHistoryId = gmailSync.historyId
+          let incrementalHistoryId = gmailSync!.historyId as string
           do {
-            const hist = await fetchHistoryList(token, gmailSync.historyId, pageToken)
+            const hist = await fetchHistoryList(token, gmailSync!.historyId as string, pageToken)
             if (hist.historyId) incrementalHistoryId = hist.historyId
             for (const entry of hist.history ?? []) {
               for (const added of entry.messagesAdded ?? []) {
@@ -141,7 +146,12 @@ export async function POST(req: Request) {
             .then((rows) => new Set(rows.map((r) => r.gmailId))),
         ])
 
+        const baseCount = existingGmailIds.size
+        // Tell the UI how many messages are already indexed so the counter starts there
+        send({ type: "status", message: `${baseCount.toLocaleString()} already indexed — scanning for new…`, baseCount, total })
+
         let synced = 0
+        let inserted = 0  // genuinely new messages (not already in DB)
         let failed = 0
         let processed = 0
 
@@ -211,7 +221,7 @@ export async function POST(req: Request) {
                 }
 
                 existingGmailIds.add(id)
-                synced++; processed++
+                inserted++; synced++; processed++
               } catch {
                 failed++; processed++
               }
@@ -221,10 +231,12 @@ export async function POST(req: Request) {
           send({
             type: "progress",
             synced,
+            inserted,
             failed,
             processed,
             total,
-            current: `${processed} of ${total}`,
+            baseCount,
+            current: `${(baseCount + inserted).toLocaleString()}`,
           })
 
           // Periodically persist progress and flush new email mappings
@@ -270,7 +282,15 @@ export async function POST(req: Request) {
         send({ type: "status", message: "Computing relationship scores…" })
         await recomputeScores(userId)
 
-        send({ type: "done", synced, failed })
+        send({
+          type: "done",
+          synced,
+          inserted,
+          failed,
+          mode: useIncremental ? "incremental" : "full",
+          historyId: latestHistoryId ?? null,
+          scanned: total,
+        })
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Sync failed" })
       } finally {
