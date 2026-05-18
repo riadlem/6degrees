@@ -18,6 +18,7 @@ import {
   recordMatchedEmailCached,
   flushMatchCache,
 } from "@/lib/gmail-match"
+import { isAutomatedEmail } from "@/lib/email-filters"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export async function GET(req: Request) {
@@ -149,6 +150,17 @@ export async function POST(req: Request) {
 
                 const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmails)
                 if (!parsed) { failed++; processed++; return }
+
+                // Skip automated/transactional emails — never store them
+                const senderEmail = parsed.isOutbound ? (parsed.toEmails[0] ?? "") : parsed.fromEmail
+                if (
+                  parsed.listUnsubscribe ||
+                  (parsed.precedence && ["bulk", "list", "junk"].includes(parsed.precedence)) ||
+                  isAutomatedEmail(senderEmail)
+                ) {
+                  processed++
+                  return
+                }
 
                 // Match to contact using in-memory cache (no DB queries)
                 const contactId = matchEmailCached(
