@@ -32,7 +32,25 @@ export function isAutomatedEmail(email: string): boolean {
   const domain = lower.slice(atIdx + 1)
 
   if (AUTO_PREFIXES.has(prefix)) return true
-  if (prefix.startsWith("noreply") || prefix.startsWith("no-reply") || prefix.startsWith("do-not-reply")) return true
+
+  // Common automated prefix patterns, including subaddressed variants (e.g. notifications+abc123@)
+  if (
+    prefix.startsWith("noreply") ||
+    prefix.startsWith("no-reply") ||
+    prefix.startsWith("no_reply") ||
+    prefix.startsWith("do-not-reply") ||
+    prefix.startsWith("do_not_reply") ||
+    prefix.startsWith("mailer-daemon") ||
+    prefix.startsWith("auto-reply") ||
+    prefix.startsWith("auto_reply") ||
+    prefix.startsWith("notifications+") ||
+    prefix.startsWith("bounce+") ||
+    prefix.startsWith("noreply+")
+  ) return true
+
+  // Catch "noreply" or "no-reply" embedded anywhere in the prefix (e.g. bounce-noreply@, auto.noreply@)
+  if (prefix.includes("noreply") || prefix.includes("no-reply") || prefix.includes("no_reply")) return true
+
   if (AUTO_DOMAINS.has(domain)) return true
 
   return false
