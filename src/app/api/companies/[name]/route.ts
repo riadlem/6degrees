@@ -5,6 +5,21 @@ import prisma from "@/lib/prisma"
 async function ensureColumns() {
   await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "industry" TEXT`.catch(() => {})
   await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "website" TEXT`.catch(() => {})
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "CompanyDomain" (
+      "id"      TEXT NOT NULL,
+      "userId"  TEXT NOT NULL,
+      "company" TEXT NOT NULL,
+      "domain"  TEXT NOT NULL,
+      CONSTRAINT "CompanyDomain_pkey"                       PRIMARY KEY ("id"),
+      CONSTRAINT "CompanyDomain_userId_company_domain_key" UNIQUE ("userId", "company", "domain"),
+      CONSTRAINT "CompanyDomain_userId_fkey"               FOREIGN KEY ("userId")
+        REFERENCES "User"("id") ON DELETE CASCADE
+    )
+  `.catch(() => {})
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS "CompanyDomain_userId_company_idx" ON "CompanyDomain"("userId", "company")
+  `.catch(() => {})
 }
 
 export async function GET(
@@ -19,7 +34,7 @@ export async function GET(
 
   const companyName = decodeURIComponent(params.name)
 
-  const [pref, countResult, contactRows] = await Promise.all([
+  const [pref, countResult, contactRows, manualDomainRows] = await Promise.all([
     prisma.companyPreference.findUnique({
       where: { userId_company: { userId, company: companyName } },
       select: { ignored: true, isPartner: true, size: true, type: true, parentCompany: true, industry: true, website: true },
@@ -43,6 +58,11 @@ export async function GET(
         emailAddresses: { select: { email: true }, take: 5 },
       },
     }),
+    prisma.companyDomain.findMany({
+      where: { userId, company: companyName },
+      select: { domain: true },
+      orderBy: { domain: "asc" },
+    }).catch(() => [] as { domain: string }[]),
   ])
 
   // Sort: partner first, then preferred, then by interactionScore desc
@@ -52,18 +72,23 @@ export async function GET(
     return scoreB - scoreA
   })
 
-  // Collect domains from matched contacts for unmatched section
-  const domainsSet = new Set<string>()
+  // Collect domains inferred from matched contacts' email addresses
+  const inferredDomainsSet = new Set<string>()
   for (const c of contactRows) {
     if (c.emailAddress) {
       const domain = c.emailAddress.split("@")[1]?.toLowerCase()
-      if (domain) domainsSet.add(domain)
+      if (domain) inferredDomainsSet.add(domain)
     }
     for (const ea of c.emailAddresses) {
       const domain = ea.email.split("@")[1]?.toLowerCase()
-      if (domain) domainsSet.add(domain)
+      if (domain) inferredDomainsSet.add(domain)
     }
   }
+
+  const manualDomains = manualDomainRows.map((r) => r.domain)
+
+  // Merge: manual domains take priority, then inferred
+  const allDomainsSet = new Set([...manualDomains, ...inferredDomainsSet])
 
   return Response.json({
     company: {
@@ -79,7 +104,9 @@ export async function GET(
       website:          pref?.website ?? null,
     },
     contacts: sortedContacts,
-    domains: [...domainsSet],
+    domains: [...allDomainsSet],
+    manualDomains,
+    inferredDomains: [...inferredDomainsSet],
   })
 }
 
