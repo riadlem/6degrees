@@ -46,7 +46,7 @@ export async function fetchMessageList(
   pageToken?: string,
 ): Promise<{ messages: { id: string }[]; nextPageToken?: string; resultSizeEstimate?: number }> {
   const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages")
-  url.searchParams.set("q", "in:sent OR in:inbox")
+  url.searchParams.set("q", "-in:spam -in:trash -in:drafts")
   url.searchParams.set("maxResults", "100")
   if (pageToken) url.searchParams.set("pageToken", pageToken)
 
