@@ -83,23 +83,28 @@ export async function POST(req: Request) {
       }
 
       try {
-        // Fetch user's own Gmail address for outbound detection
+        // Fetch user's own Gmail address and current historyId for outbound detection
+        // and incremental sync anchoring. We snapshot historyId BEFORE fetching
+        // message IDs so any messages that arrive during the sync are included in
+        // the next incremental run.
         const profile = await fetchGmailProfile(token)
         const primaryEmail = profile?.emailAddress ?? gmailSync?.gmailEmail ?? ""
+        const profileHistoryId = profile?.historyId ?? undefined
 
         const knownRows = await prisma.userEmailAddress.findMany({ where: { userId }, select: { email: true } })
         const userEmails = knownRows.map((r) => r.email)
         if (primaryEmail && !userEmails.includes(primaryEmail)) userEmails.push(primaryEmail)
 
         let messageIds: string[] = []
+        let latestHistoryId: string | undefined = profileHistoryId
 
         if (incremental && gmailSync?.historyId) {
           send({ type: "status", message: "Fetching new emails…" })
           let pageToken: string | undefined
-          let latestHistoryId = gmailSync.historyId
+          let incrementalHistoryId = gmailSync.historyId
           do {
             const hist = await fetchHistoryList(token, gmailSync.historyId, pageToken)
-            if (hist.historyId) latestHistoryId = hist.historyId
+            if (hist.historyId) incrementalHistoryId = hist.historyId
             for (const entry of hist.history ?? []) {
               for (const added of entry.messagesAdded ?? []) {
                 messageIds.push(added.message.id)
@@ -107,6 +112,7 @@ export async function POST(req: Request) {
             }
             pageToken = hist.nextPageToken
           } while (pageToken)
+          latestHistoryId = incrementalHistoryId
 
           await prisma.gmailSync.update({ where: { userId }, data: { historyId: latestHistoryId } })
         } else {
@@ -138,7 +144,6 @@ export async function POST(req: Request) {
         let synced = 0
         let failed = 0
         let processed = 0
-        let latestHistoryId: string | undefined
 
         // Process in batches of 20 to respect rate limits
         const BATCH = 20

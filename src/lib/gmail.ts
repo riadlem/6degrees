@@ -75,7 +75,7 @@ export async function fetchMessageMetadata(
   return res.json()
 }
 
-export async function fetchGmailProfile(token: string): Promise<{ emailAddress: string } | null> {
+export async function fetchGmailProfile(token: string): Promise<{ emailAddress: string; historyId?: string } | null> {
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
     headers: { Authorization: `Bearer ${token}` },
   })
