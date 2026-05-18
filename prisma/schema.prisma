@@ -198,10 +198,11 @@ model CompanyPreference {
 }
 
 model CompanyDomain {
-  id      String @id @default(cuid())
-  userId  String
-  company String
-  domain  String
+  id       String  @id @default(cuid())
+  userId   String
+  company  String
+  domain   String
+  excluded Boolean @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

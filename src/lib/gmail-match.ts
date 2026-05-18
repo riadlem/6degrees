@@ -1,6 +1,11 @@
 import prisma from "@/lib/prisma"
 import { normalizeEmail } from "@/lib/gmail"
 
+// Strip combining diacritical marks so "Cécile" and "Cecile" compare equal.
+function stripDiacritics(s: string): string {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "")
+}
+
 // ---------------------------------------------------------------------------
 // Cache-based matching — eliminates per-message DB round trips during sync
 // ---------------------------------------------------------------------------
@@ -14,8 +19,8 @@ export type MatchCache = {
 }
 
 function usernamePatterns(firstName: string, lastName: string): string[] {
-  const f = firstName.toLowerCase().replace(/[^a-z0-9]/g, "")
-  const l = lastName.toLowerCase().replace(/[^a-z0-9]/g, "")
+  const f = stripDiacritics(firstName).toLowerCase().replace(/[^a-z0-9]/g, "")
+  const l = stripDiacritics(lastName).toLowerCase().replace(/[^a-z0-9]/g, "")
   if (!f || !l || f.length < 2 || l.length < 2) return []
   return [
     f[0] + l,           // flast  (rnajimi)
@@ -60,7 +65,7 @@ export async function buildMatchCache(userId: string): Promise<MatchCache> {
   const nameToContacts = new Map<string, string[]>()
   const patternToContacts = new Map<string, string[]>()
   for (const { id, firstName, lastName } of contactRows) {
-    const nameKey = `${firstName.toLowerCase()}|${lastName.toLowerCase()}`
+    const nameKey = `${stripDiacritics(firstName).toLowerCase()}|${stripDiacritics(lastName).toLowerCase()}`
     const nameArr = nameToContacts.get(nameKey) ?? []
     nameArr.push(id)
     nameToContacts.set(nameKey, nameArr)
@@ -108,9 +113,19 @@ export function matchEmailCached(
     // Domain guard: only auto-match if the domain is consistent with what we already
     // know about this contact, to prevent cross-person collisions.
     if (fromName && !isOutbound) {
-      const parts = fromName.trim().split(/\s+/)
-      if (parts.length >= 2) {
-        const key = `${parts[0].toLowerCase()}|${parts[parts.length - 1].toLowerCase()}`
+      // Handle "LAST, Firstname" format common in corporate address books
+      let fnPart: string, lnPart: string
+      if (fromName.includes(",")) {
+        const ci = fromName.indexOf(",")
+        lnPart = fromName.slice(0, ci).trim()
+        fnPart = fromName.slice(ci + 1).trim().split(/\s+/)[0] ?? ""
+      } else {
+        const parts = fromName.trim().split(/\s+/)
+        fnPart = parts[0] ?? ""
+        lnPart = parts[parts.length - 1] ?? ""
+      }
+      if (fnPart && lnPart && fnPart !== lnPart) {
+        const key = `${stripDiacritics(fnPart).toLowerCase()}|${stripDiacritics(lnPart).toLowerCase()}`
         const matches = cache.nameToContacts.get(key)
         if (matches?.length === 1 && domainAllowed(cache, matches[0], email)) {
           cache.emailToContact.set(email, matches[0])
