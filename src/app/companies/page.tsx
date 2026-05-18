@@ -234,7 +234,7 @@ function IndustryCell({
         <p className={cn("text-xs truncate", company.industryConfirmed ? "text-gray-500" : "text-gray-400")}>{company.industry}</p>
         <button
           onClick={(e) => startEdit(e, company.industry ?? "")}
-          className="opacity-0 group-hover/ind:opacity-100 transition-opacity text-gray-300 hover:text-gray-500 shrink-0"
+          className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/ind:opacity-100 transition-opacity shrink-0"
           title="Edit industry"
         >
           <Pencil size={10} />
@@ -396,7 +396,7 @@ function CompanyRow({
               <button
                 onClick={startRename}
                 title="Rename company"
-                className="opacity-0 group-hover/name:opacity-100 text-gray-300 hover:text-gray-500 transition-opacity shrink-0"
+                className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0"
               >
                 <Pencil size={11} />
               </button>
@@ -404,7 +404,7 @@ function CompanyRow({
                 <button
                   onClick={startEditParent}
                   title="Set parent company"
-                  className="opacity-0 group-hover/name:opacity-100 text-gray-300 hover:text-indigo-400 transition-opacity shrink-0 text-[10px] font-medium"
+                  className="text-gray-300 hover:text-indigo-400 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0 text-[10px] font-medium"
                 >
                   ↳
                 </button>
