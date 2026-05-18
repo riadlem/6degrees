@@ -46,6 +46,7 @@ export default function Navbar() {
     null
 
   return (
+    <>
     <nav className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200 h-14">
       <div className="max-w-7xl mx-auto px-4 h-full flex items-center gap-6">
         {/* Logo */}
@@ -54,8 +55,8 @@ export default function Navbar() {
           <span className="font-semibold text-gray-900 hidden sm:block">Degrees</span>
         </Link>
 
-        {/* Nav links */}
-        <div className="flex items-center gap-1">
+        {/* Nav links — desktop only */}
+        <div className="hidden sm:flex items-center gap-1">
           {navLinks.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -160,5 +161,28 @@ export default function Navbar() {
         </div>
       )}
     </nav>
+
+    {/* Bottom tab bar — mobile only */}
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex">
+      {navLinks.map(({ href, label, icon: Icon }) => {
+        const active = pathname.startsWith(href)
+        return (
+          <Link
+            key={href}
+            href={href}
+            className={cn(
+              "flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-w-0 transition-colors",
+              active ? "text-blue-600" : "text-gray-400 hover:text-gray-600"
+            )}
+          >
+            <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+            <span className="text-[10px] font-medium leading-none truncate w-full text-center px-0.5">
+              {label}
+            </span>
+          </Link>
+        )
+      })}
+    </nav>
+    </>
   )
 }

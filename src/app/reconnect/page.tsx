@@ -138,7 +138,7 @@ export default function ReconnectPage() {
           <p className="text-sm mt-1">
             {activeStatus
               ? "Try a different filter."
-              : "Connect Gmail in Settings to import your email history and unlock reconnection insights."}
+              : <>Sync your Gmail in <a href="/settings" className="text-blue-600 hover:underline">Settings</a> to surface contacts worth reaching out to.</>}
           </p>
         </div>
       ) : (

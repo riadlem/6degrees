@@ -31,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <SessionProvider>
           <GmailSyncProvider>
             <Navbar />
-            <main className="pt-14">{children}</main>
+            <main className="pt-14 pb-16 sm:pb-0">{children}</main>
             <BuildStamp />
           </GmailSyncProvider>
         </SessionProvider>
