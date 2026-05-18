@@ -188,6 +188,8 @@ model CompanyPreference {
   size          String?
   type          String?
   parentCompany String?
+  industry      String?
+  website       String?
   user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, company])

@@ -7,7 +7,6 @@ import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles, Building2
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
-import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 
 const navLinks = [
   { href: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard },
@@ -39,7 +38,6 @@ export default function Navbar() {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const { syncState } = useSyncContext()
-  const { lastSyncedAt } = useGmailSyncContext()
 
   if (!session) return null
 
@@ -63,7 +61,8 @@ export default function Navbar() {
     syncState.phase === "syncing" ? `Syncing ${syncState.synced} / ${syncState.total}` :
     null
 
-  const syncTimestamp = lastSyncedAt ? formatParis(lastSyncedAt) : null
+  const buildDate = process.env.NEXT_PUBLIC_BUILD_DATE
+  const syncTimestamp = buildDate ? formatParis(new Date(buildDate)) : null
 
   return (
     <>
