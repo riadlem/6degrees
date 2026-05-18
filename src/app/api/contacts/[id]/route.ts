@@ -32,7 +32,7 @@ export async function PATCH(
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
   const body = await request.json()
-  const allowed = ["location", "industry", "headline", "profileUrl", "company"]
+  const allowed = ["firstName", "lastName", "location", "industry", "headline", "profileUrl", "company"]
   const data: Record<string, string> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key]

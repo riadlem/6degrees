@@ -67,6 +67,9 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [enriching, setEnriching] = useState(false)
   const [editingField, setEditingField] = useState<string | null>(null)
   const [editValue, setEditValue] = useState("")
+  const [editingName, setEditingName] = useState(false)
+  const [editFirstName, setEditFirstName] = useState("")
+  const [editLastName, setEditLastName] = useState("")
   const [allLabels, setAllLabels] = useState<LabelOption[]>([])
   const [addingLabel, setAddingLabel] = useState(false)
   const [emails, setEmails] = useState<EmailEntry[]>([])
@@ -178,6 +181,20 @@ export default function ContactDetail({ contactId, onClose }: Props) {
     fetchContact()
   }
 
+  async function saveName() {
+    if (!contact) return
+    const firstName = editFirstName.trim()
+    const lastName = editLastName.trim()
+    if (!firstName) return
+    await fetch(`/api/contacts/${contact.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firstName, lastName }),
+    })
+    setEditingName(false)
+    fetchContact()
+  }
+
   if (!contactId) return null
 
   const fullName = contact ? `${contact.firstName} ${contact.lastName}` : ""
@@ -220,7 +237,38 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-bold text-gray-900">{fullName}</h3>
+                  {editingName ? (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <input
+                        autoFocus
+                        value={editFirstName}
+                        onChange={(e) => setEditFirstName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}
+                        placeholder="First name"
+                        className="text-sm font-semibold border border-blue-300 rounded px-2 py-0.5 w-28 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                      <input
+                        value={editLastName}
+                        onChange={(e) => setEditLastName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveName(); if (e.key === "Escape") setEditingName(false) }}
+                        placeholder="Last name"
+                        className="text-sm font-semibold border border-blue-300 rounded px-2 py-0.5 w-28 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                      />
+                      <button onClick={saveName} className="text-green-500 hover:text-green-600"><Check size={14} /></button>
+                      <button onClick={() => setEditingName(false)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 group/name mb-0.5">
+                      <h3 className="text-lg font-bold text-gray-900">{fullName}</h3>
+                      <button
+                        onClick={() => { setEditFirstName(contact.firstName); setEditLastName(contact.lastName); setEditingName(true) }}
+                        className="opacity-0 group-hover/name:opacity-100 transition-opacity text-gray-300 hover:text-gray-500 shrink-0"
+                        title="Edit name"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                    </div>
+                  )}
                   {contact.position && (
                     <p className="text-sm text-gray-600 mt-0.5">{contact.position}</p>
                   )}

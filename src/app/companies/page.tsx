@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle } from "lucide-react"
+import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { isSuspicious } from "@/lib/company-utils"
 import ContactRow from "@/components/ContactRow"
@@ -45,8 +45,37 @@ export type Company = {
   type: CompanyType | null
   parentCompany: string | null
   industry: string | null
+  industryConfirmed: boolean
   photos: string[]
 }
+
+// Standard industry categories for the dropdown
+const INDUSTRY_CATEGORIES = [
+  "Accounting",
+  "Aerospace & Defense",
+  "Agriculture",
+  "Consulting",
+  "Construction & Engineering",
+  "Education",
+  "Energy",
+  "Financial Services",
+  "Food & Beverages",
+  "Healthcare & Pharma",
+  "Hospitality & Tourism",
+  "Human Resources",
+  "Legal",
+  "Logistics & Transport",
+  "Manufacturing",
+  "Marketing & Advertising",
+  "Media & Entertainment",
+  "Non-Profit",
+  "Public Sector",
+  "Real Estate",
+  "Retail & Luxury",
+  "Technology",
+  "Telecommunications",
+  "Other",
+]
 
 function AvatarStack({ photos, name, count }: { photos: string[]; name: string; count: number }) {
   const inits = initials(name.split(" ")[0] ?? name, name.split(" ")[1] ?? "")
@@ -131,25 +160,116 @@ function TypeChips({
   )
 }
 
+function IndustryCell({
+  company,
+  pendingSuggestion,
+  onConfirm,
+  onDismiss,
+  onSave,
+}: {
+  company: Company
+  pendingSuggestion: string | null
+  onConfirm: (industry: string) => void
+  onDismiss: () => void
+  onSave: (industry: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState("")
+
+  function startEdit(e: React.MouseEvent, initial: string) {
+    e.stopPropagation()
+    setValue(initial)
+    setEditing(true)
+  }
+
+  function commit(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+    const trimmed = value.trim()
+    onSave(trimmed || null)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1 mt-0.5" onClick={(e) => e.stopPropagation()}>
+        <div className="relative">
+          <input
+            autoFocus
+            list="industry-categories"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(e); if (e.key === "Escape") setEditing(false) }}
+            placeholder="Industry…"
+            className="text-xs border border-blue-300 rounded px-2 py-0.5 w-40 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          />
+          <datalist id="industry-categories">
+            {INDUSTRY_CATEGORIES.map((c) => <option key={c} value={c} />)}
+          </datalist>
+        </div>
+        <button onClick={commit} className="text-green-500 hover:text-green-600 shrink-0"><Check size={12} /></button>
+        <button onClick={(e) => { e.stopPropagation(); setEditing(false) }} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={12} /></button>
+      </div>
+    )
+  }
+
+  // Pending suggestion (not yet confirmed)
+  if (pendingSuggestion && !company.industryConfirmed) {
+    return (
+      <div className="flex items-center gap-1 mt-0.5" onClick={(e) => e.stopPropagation()}>
+        <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 font-medium truncate max-w-[120px]" title={pendingSuggestion}>
+          {pendingSuggestion}
+        </span>
+        <button onClick={(e) => { e.stopPropagation(); onConfirm(pendingSuggestion) }} title="Confirm" className="text-green-500 hover:text-green-600 shrink-0"><Check size={11} /></button>
+        <button onClick={(e) => { e.stopPropagation(); startEdit(e, pendingSuggestion) }} title="Change" className="text-gray-400 hover:text-blue-500 shrink-0"><Pencil size={10} /></button>
+        <button onClick={(e) => { e.stopPropagation(); onDismiss() }} title="Skip" className="text-gray-300 hover:text-gray-500 shrink-0"><X size={11} /></button>
+      </div>
+    )
+  }
+
+  // Confirmed or derived industry
+  if (company.industry) {
+    return (
+      <div className="flex items-center gap-1 group/ind" onClick={(e) => e.stopPropagation()}>
+        <p className={cn("text-xs truncate", company.industryConfirmed ? "text-gray-500" : "text-gray-400")}>{company.industry}</p>
+        <button
+          onClick={(e) => startEdit(e, company.industry ?? "")}
+          className="opacity-0 group-hover/ind:opacity-100 transition-opacity text-gray-300 hover:text-gray-500 shrink-0"
+          title="Edit industry"
+        >
+          <Pencil size={10} />
+        </button>
+      </div>
+    )
+  }
+
+  return null
+}
+
 function CompanyRow({
   company,
   allCompanyNames,
+  pendingSuggestion,
   onSetStatus,
   onSetSize,
   onSetPartner,
   onSetType,
   onSetParent,
+  onSetIndustry,
+  onDismissSuggestion,
   onRename,
   onContactClick,
   onAddToList,
 }: {
   company: Company
   allCompanyNames: string[]
+  pendingSuggestion: string | null
   onSetStatus: (name: string, status: "preferred" | "ignored" | "none") => void
   onSetSize: (name: string, size: CompanySize | null) => void
   onSetPartner: (name: string, isPartner: boolean) => void
   onSetType: (name: string, type: CompanyType | null) => void
   onSetParent: (name: string, parent: string | null) => void
+  onSetIndustry: (name: string, industry: string | null) => void
+  onDismissSuggestion: (name: string) => void
   onRename: (oldName: string, newName: string) => void
   onContactClick: (id: string) => void
   onAddToList: (contacts: ContactSummary[]) => void
@@ -358,8 +478,15 @@ function CompanyRow({
             )}
             </>
           )}
-          {!renaming && !editingParent && company.industry && (
-            <p className="text-xs text-gray-400 truncate">{company.industry}</p>
+          {/* Industry row */}
+          {!renaming && !editingParent && (
+            <IndustryCell
+              company={company}
+              pendingSuggestion={pendingSuggestion}
+              onConfirm={(ind) => onSetIndustry(company.name, ind)}
+              onDismiss={() => onDismissSuggestion(company.name)}
+              onSave={(ind) => onSetIndustry(company.name, ind)}
+            />
           )}
         </div>
 
@@ -440,10 +567,16 @@ export default function CompaniesPage() {
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
   const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
+  const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set())
+  const [partnerFilter, setPartnerFilter] = useState<"" | "partner" | "non-partner">("")
   const [showIgnored, setShowIgnored] = useState(false)
   const [showReview, setShowReview] = useState(true)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
+  // industry suggestions: map company name → suggested industry
+  const [suggestions, setSuggestions] = useState<Map<string, string>>(new Map())
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
+  const [suggesting, setSuggesting] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -515,6 +648,20 @@ export default function CompaniesPage() {
     })
   }
 
+  async function setIndustry(name: string, industry: string | null) {
+    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, industry, industryConfirmed: !!industry }))
+    setSuggestions((prev) => { const m = new Map(prev); m.delete(name); return m })
+    await fetch("/api/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company: name, industry }),
+    })
+  }
+
+  function dismissSuggestion(name: string) {
+    setDismissedSuggestions((prev) => new Set([...prev, name]))
+  }
+
   const [autoTagging, setAutoTagging] = useState(false)
   const [autoTagResult, setAutoTagResult] = useState<number | null>(null)
 
@@ -531,6 +678,24 @@ export default function CompaniesPage() {
     } finally {
       setAutoTagging(false)
       setTimeout(() => setAutoTagResult(null), 5000)
+    }
+  }
+
+  async function suggestIndustries() {
+    setSuggesting(true)
+    try {
+      const res = await fetch("/api/companies/suggest-industries")
+      if (res.ok) {
+        const data = await res.json()
+        const map = new Map<string, string>()
+        for (const s of data.suggestions as { company: string; suggested: string }[]) {
+          map.set(s.company, s.suggested)
+        }
+        setSuggestions(map)
+        setDismissedSuggestions(new Set())
+      }
+    } finally {
+      setSuggesting(false)
     }
   }
 
@@ -566,6 +731,15 @@ export default function CompaniesPage() {
     })
   }
 
+  function toggleTypeFilter(val: string) {
+    setTypeFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(val)) next.delete(val)
+      else next.add(val)
+      return next
+    })
+  }
+
   const textMatch = (c: Company) =>
     !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.industry?.toLowerCase().includes(q.toLowerCase())
 
@@ -575,11 +749,25 @@ export default function CompaniesPage() {
     return c.size !== null && sizeFilters.has(c.size)
   }
 
-  const preferred  = companies.filter((c) => c.preferred && !c.ignored && !isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
-  const partners   = companies.filter((c) => c.isPartner && !c.preferred && !c.ignored && !isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
-  const neutral    = companies.filter((c) => !c.preferred && !c.isPartner && !c.ignored && !isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
-  const ignored    = companies.filter((c) => c.ignored && textMatch(c) && sizeMatch(c))
-  const suspicious = companies.filter((c) => !c.ignored && isSuspicious(c.name) && textMatch(c) && sizeMatch(c))
+  const typeMatch = (c: Company) => {
+    if (typeFilters.size === 0) return true
+    if (typeFilters.has("untagged") && c.type === null) return true
+    return c.type !== null && typeFilters.has(c.type)
+  }
+
+  const partnerMatch = (c: Company) => {
+    if (partnerFilter === "") return true
+    if (partnerFilter === "partner") return c.isPartner
+    return !c.isPartner
+  }
+
+  const allFilters = (c: Company) => textMatch(c) && sizeMatch(c) && typeMatch(c) && partnerMatch(c)
+
+  const preferred  = companies.filter((c) => c.preferred && !c.ignored && !isSuspicious(c.name) && allFilters(c))
+  const partners   = companies.filter((c) => c.isPartner && !c.preferred && !c.ignored && !isSuspicious(c.name) && allFilters(c))
+  const neutral    = companies.filter((c) => !c.preferred && !c.isPartner && !c.ignored && !isSuspicious(c.name) && allFilters(c))
+  const ignored    = companies.filter((c) => c.ignored && allFilters(c))
+  const suspicious = companies.filter((c) => !c.ignored && isSuspicious(c.name) && allFilters(c))
 
   const visibleCount = preferred.length + partners.length + neutral.length
 
@@ -588,8 +776,40 @@ export default function CompaniesPage() {
     { value: "untagged", label: "Untagged", short: "?" },
   ]
 
+  const allTypeOptions = [
+    ...TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label, color: o.color })),
+    { value: "untagged", label: "Untagged", color: "bg-gray-100 text-gray-600 border-gray-300" },
+  ]
+
+  const pendingSuggestionsCount = [...suggestions.entries()].filter(
+    ([name]) => !dismissedSuggestions.has(name) && !companies.find((c) => c.name === name)?.industryConfirmed
+  ).length
+
   if (status === "loading" || loading) {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+  }
+
+  function renderRow(c: Company) {
+    const sugg = suggestions.get(c.name) ?? null
+    const pending = sugg && !dismissedSuggestions.has(c.name) && !c.industryConfirmed ? sugg : null
+    return (
+      <CompanyRow
+        key={c.name}
+        company={c}
+        allCompanyNames={companies.map((c) => c.name)}
+        pendingSuggestion={pending}
+        onSetStatus={setStatus}
+        onSetSize={setSize}
+        onSetPartner={setPartner}
+        onSetType={setType}
+        onSetParent={setParent}
+        onSetIndustry={setIndustry}
+        onDismissSuggestion={dismissSuggestion}
+        onRename={renameCompany}
+        onContactClick={setActiveContactId}
+        onAddToList={setAddToListContacts}
+      />
+    )
   }
 
   return (
@@ -602,7 +822,19 @@ export default function CompaniesPage() {
             {ignored.length > 0 && <span className="ml-1 text-gray-400">({ignored.length} ignored)</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <button
+            onClick={suggestIndustries}
+            disabled={suggesting}
+            title="Auto-suggest industries from contact data and company names"
+            className="flex items-center gap-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+          >
+            <Globe size={13} />
+            {suggesting ? "Suggesting…" : "Suggest industries"}
+            {pendingSuggestionsCount > 0 && !suggesting && (
+              <span className="ml-0.5 bg-teal-600 text-white rounded-full text-[9px] font-bold px-1.5 py-0.5">{pendingSuggestionsCount}</span>
+            )}
+          </button>
           <button
             onClick={autoTag}
             disabled={autoTagging}
@@ -619,26 +851,27 @@ export default function CompaniesPage() {
         </div>
       </div>
 
-      {/* Search + size filter */}
-      <div className="flex gap-3 mb-5">
-        <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search companies or industries…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          />
-          {q && (
-            <button onClick={() => setQ("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-              <X size={14} />
-            </button>
-          )}
-        </div>
+      {/* Search */}
+      <div className="relative mb-3">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search companies or industries…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+        />
+        {q && (
+          <button onClick={() => setQ("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+            <X size={14} />
+          </button>
+        )}
+      </div>
 
-        {/* Multi-select size filter chips — includes Untagged */}
-        <div className="flex items-center gap-1 shrink-0">
+      {/* Filter chips row */}
+      <div className="flex flex-wrap gap-2 mb-5 items-center">
+        {/* Size filter */}
+        <div className="flex items-center gap-1">
           {allSizeOptions.map((opt) => {
             const active = sizeFilters.has(opt.value)
             return (
@@ -647,7 +880,7 @@ export default function CompaniesPage() {
                 onClick={() => toggleSizeFilter(opt.value)}
                 title={opt.label}
                 className={cn(
-                  "text-xs font-semibold px-2.5 py-2 rounded-lg border transition-colors",
+                  "text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors",
                   active ? SIZE_COLORS[opt.value] : "border-gray-200 text-gray-500 hover:border-gray-300 bg-white"
                 )}
               >
@@ -656,11 +889,76 @@ export default function CompaniesPage() {
             )
           })}
           {sizeFilters.size > 0 && (
-            <button onClick={() => setSizeFilters(new Set())} className="text-gray-400 hover:text-gray-600 ml-1" title="Clear size filter">
+            <button onClick={() => setSizeFilters(new Set())} className="text-gray-400 hover:text-gray-600" title="Clear size filter">
               <X size={13} />
             </button>
           )}
         </div>
+
+        <div className="w-px h-5 bg-gray-200" />
+
+        {/* Type filter */}
+        <div className="flex items-center gap-1">
+          {allTypeOptions.map((opt) => {
+            const active = typeFilters.has(opt.value)
+            return (
+              <button
+                key={opt.value}
+                onClick={() => toggleTypeFilter(opt.value)}
+                title={opt.label}
+                className={cn(
+                  "text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors",
+                  active ? opt.color : "border-gray-200 text-gray-500 hover:border-gray-300 bg-white"
+                )}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+          {typeFilters.size > 0 && (
+            <button onClick={() => setTypeFilters(new Set())} className="text-gray-400 hover:text-gray-600" title="Clear type filter">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
+        <div className="w-px h-5 bg-gray-200" />
+
+        {/* Partner filter */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPartnerFilter(partnerFilter === "partner" ? "" : "partner")}
+            className={cn(
+              "flex items-center gap-1 text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors",
+              partnerFilter === "partner"
+                ? "bg-blue-50 text-blue-700 border-blue-200"
+                : "border-gray-200 text-gray-500 hover:border-gray-300 bg-white"
+            )}
+          >
+            <Handshake size={12} />
+            Partners
+          </button>
+          <button
+            onClick={() => setPartnerFilter(partnerFilter === "non-partner" ? "" : "non-partner")}
+            className={cn(
+              "text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors",
+              partnerFilter === "non-partner"
+                ? "bg-gray-100 text-gray-700 border-gray-300"
+                : "border-gray-200 text-gray-500 hover:border-gray-300 bg-white"
+            )}
+          >
+            Non-partners
+          </button>
+        </div>
+
+        {(sizeFilters.size > 0 || typeFilters.size > 0 || partnerFilter) && (
+          <button
+            onClick={() => { setSizeFilters(new Set()); setTypeFilters(new Set()); setPartnerFilter("") }}
+            className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5 ml-1"
+          >
+            <X size={12} /> Clear all
+          </button>
+        )}
       </div>
 
       {companies.length === 0 ? (
@@ -682,11 +980,7 @@ export default function CompaniesPage() {
                 Needs review ({suspicious.length})
                 {showReview ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
-              {showReview && suspicious.map((c) => (
-                <div key={c.name} className="border-l-2 border-amber-400 pl-1">
-                  <CompanyRow company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
-                </div>
-              ))}
+              {showReview && suspicious.map(renderRow)}
             </div>
           )}
 
@@ -696,9 +990,7 @@ export default function CompaniesPage() {
               <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide flex items-center gap-1.5">
                 <Star size={11} fill="currentColor" /> Preferred
               </p>
-              {preferred.map((c) => (
-                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
-              ))}
+              {preferred.map(renderRow)}
             </div>
           )}
 
@@ -708,9 +1000,7 @@ export default function CompaniesPage() {
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-1.5">
                 <Handshake size={11} /> Partners
               </p>
-              {partners.map((c) => (
-                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
-              ))}
+              {partners.map(renderRow)}
             </div>
           )}
 
@@ -720,9 +1010,7 @@ export default function CompaniesPage() {
               {(preferred.length > 0 || partners.length > 0) && (
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4">All companies</p>
               )}
-              {neutral.map((c) => (
-                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
-              ))}
+              {neutral.map(renderRow)}
             </div>
           )}
 
@@ -737,9 +1025,7 @@ export default function CompaniesPage() {
                 Ignored ({ignored.length})
                 {showIgnored ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
               </button>
-              {showIgnored && ignored.map((c) => (
-                <CompanyRow key={c.name} company={c} allCompanyNames={companies.map((c) => c.name)} onSetStatus={setStatus} onSetSize={setSize} onSetPartner={setPartner} onSetType={setType} onSetParent={setParent} onRename={renameCompany} onContactClick={setActiveContactId} onAddToList={setAddToListContacts} />
-              ))}
+              {showIgnored && ignored.map(renderRow)}
             </div>
           )}
         </div>
