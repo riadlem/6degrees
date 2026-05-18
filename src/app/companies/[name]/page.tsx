@@ -241,7 +241,6 @@ export default function CompanyDetailPage() {
   async function removeDomain(domain: string) {
     setManualDomains((prev) => prev.filter((d) => d !== domain))
     setDomains((prev) => {
-      // keep if still inferred
       if (inferredDomains.includes(domain)) return prev
       return prev.filter((d) => d !== domain)
     })
@@ -250,6 +249,17 @@ export default function CompanyDetailPage() {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain }),
+    })
+  }
+
+  async function excludeDomain(domain: string) {
+    setInferredDomains((prev) => prev.filter((d) => d !== domain))
+    setDomains((prev) => prev.filter((d) => d !== domain))
+    setUnmatchedLoaded(false)
+    await fetch(`/api/companies/${encodeURIComponent(companyName)}/domains`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ domain, exclude: true }),
     })
   }
 
@@ -355,14 +365,18 @@ export default function CompanyDetailPage() {
 
         {/* Info fields */}
         <div className="space-y-3">
-          <EditableField
-            icon={Globe}
-            value={company.industry}
-            placeholder="Add industry…"
-            onSave={(v) => patch({ industry: v })}
-            datalist={INDUSTRY_CATEGORIES}
-            datalistId="industry-cats"
-          />
+          {/* Industry — dropdown */}
+          <div className="flex items-center gap-2">
+            <Globe size={14} className="text-gray-400 shrink-0" />
+            <select
+              value={company.industry ?? ""}
+              onChange={(e) => patch({ industry: e.target.value || null })}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-700"
+            >
+              <option value="">Add industry…</option>
+              {INDUSTRY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
           <EditableField
             icon={Building2}
             value={company.website}
@@ -390,10 +404,13 @@ export default function CompanyDetailPage() {
                   </button>
                 </span>
               ))}
-              {/* Inferred domains — display only (not manually added) */}
+              {/* Inferred domains — removable */}
               {inferredDomains.filter((d) => !manualDomains.includes(d)).map((d) => (
-                <span key={d} className="text-xs bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-2 py-0.5" title="Inferred from contacts">
+                <span key={d} className="flex items-center gap-1 text-xs bg-gray-50 text-gray-500 border border-gray-200 rounded-full px-2 py-0.5" title="Inferred from contacts">
                   {d}
+                  <button onClick={() => excludeDomain(d)} className="text-gray-300 hover:text-red-500 ml-0.5">
+                    <X size={10} />
+                  </button>
                 </span>
               ))}
               {/* Add domain */}

@@ -5,16 +5,18 @@ import prisma from "@/lib/prisma"
 async function ensureTable() {
   await prisma.$executeRaw`
     CREATE TABLE IF NOT EXISTS "CompanyDomain" (
-      "id"      TEXT NOT NULL,
-      "userId"  TEXT NOT NULL,
-      "company" TEXT NOT NULL,
-      "domain"  TEXT NOT NULL,
+      "id"       TEXT    NOT NULL,
+      "userId"   TEXT    NOT NULL,
+      "company"  TEXT    NOT NULL,
+      "domain"   TEXT    NOT NULL,
+      "excluded" BOOLEAN NOT NULL DEFAULT FALSE,
       CONSTRAINT "CompanyDomain_pkey"                       PRIMARY KEY ("id"),
       CONSTRAINT "CompanyDomain_userId_company_domain_key" UNIQUE ("userId", "company", "domain"),
       CONSTRAINT "CompanyDomain_userId_fkey"               FOREIGN KEY ("userId")
         REFERENCES "User"("id") ON DELETE CASCADE
     )
   `.catch(() => {})
+  await prisma.$executeRaw`ALTER TABLE "CompanyDomain" ADD COLUMN IF NOT EXISTS "excluded" BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {})
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS "CompanyDomain_userId_company_idx" ON "CompanyDomain"("userId", "company")
   `.catch(() => {})
@@ -60,8 +62,9 @@ export async function POST(
 
   const userId = session.user.id
   const company = decodeURIComponent(params.name)
-  const body = await req.json() as { domain?: string }
+  const body = await req.json() as { domain?: string; exclude?: boolean }
   const domain = normalizeDomain(body.domain ?? "")
+  const excluded = body.exclude === true
 
   if (!domain || !domain.includes(".")) {
     return new Response("Invalid domain", { status: 400 })
@@ -69,11 +72,11 @@ export async function POST(
 
   await prisma.companyDomain.upsert({
     where: { userId_company_domain: { userId, company, domain } },
-    create: { userId, company, domain },
-    update: {},
+    create: { userId, company, domain, excluded },
+    update: { excluded },
   }).catch(() => {})
 
-  return Response.json({ ok: true, domain })
+  return Response.json({ ok: true, domain, excluded })
 }
 
 export async function DELETE(

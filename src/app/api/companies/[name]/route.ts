@@ -7,16 +7,18 @@ async function ensureColumns() {
   await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "website" TEXT`.catch(() => {})
   await prisma.$executeRaw`
     CREATE TABLE IF NOT EXISTS "CompanyDomain" (
-      "id"      TEXT NOT NULL,
-      "userId"  TEXT NOT NULL,
-      "company" TEXT NOT NULL,
-      "domain"  TEXT NOT NULL,
+      "id"       TEXT    NOT NULL,
+      "userId"   TEXT    NOT NULL,
+      "company"  TEXT    NOT NULL,
+      "domain"   TEXT    NOT NULL,
+      "excluded" BOOLEAN NOT NULL DEFAULT FALSE,
       CONSTRAINT "CompanyDomain_pkey"                       PRIMARY KEY ("id"),
       CONSTRAINT "CompanyDomain_userId_company_domain_key" UNIQUE ("userId", "company", "domain"),
       CONSTRAINT "CompanyDomain_userId_fkey"               FOREIGN KEY ("userId")
         REFERENCES "User"("id") ON DELETE CASCADE
     )
   `.catch(() => {})
+  await prisma.$executeRaw`ALTER TABLE "CompanyDomain" ADD COLUMN IF NOT EXISTS "excluded" BOOLEAN NOT NULL DEFAULT FALSE`.catch(() => {})
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS "CompanyDomain_userId_company_idx" ON "CompanyDomain"("userId", "company")
   `.catch(() => {})
@@ -60,9 +62,9 @@ export async function GET(
     }),
     prisma.companyDomain.findMany({
       where: { userId, company: companyName },
-      select: { domain: true },
+      select: { domain: true, excluded: true },
       orderBy: { domain: "asc" },
-    }).catch(() => [] as { domain: string }[]),
+    }).catch(() => [] as { domain: string; excluded: boolean }[]),
   ])
 
   // Sort: partner first, then preferred, then by interactionScore desc
@@ -85,10 +87,14 @@ export async function GET(
     }
   }
 
-  const manualDomains = manualDomainRows.map((r) => r.domain)
+  const manualDomains = manualDomainRows.filter((r) => !r.excluded).map((r) => r.domain)
+  const excludedDomains = new Set(manualDomainRows.filter((r) => r.excluded).map((r) => r.domain))
 
-  // Merge: manual domains take priority, then inferred
-  const allDomainsSet = new Set([...manualDomains, ...inferredDomainsSet])
+  // Filter inferred domains: remove any the user has explicitly excluded
+  const inferredDomains = [...inferredDomainsSet].filter((d) => !excludedDomains.has(d))
+
+  // Merge: manual domains take priority, then non-excluded inferred
+  const allDomainsSet = new Set([...manualDomains, ...inferredDomains])
 
   return Response.json({
     company: {
@@ -106,7 +112,7 @@ export async function GET(
     contacts: sortedContacts,
     domains: [...allDomainsSet],
     manualDomains,
-    inferredDomains: [...inferredDomainsSet],
+    inferredDomains,
   })
 }
 
