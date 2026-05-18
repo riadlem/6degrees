@@ -16,6 +16,7 @@ export async function GET(
       notes: { orderBy: { createdAt: "desc" } },
       listMembers: { include: { list: { select: { id: true, name: true } } } },
       labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+      emailAddresses: { select: { email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
     },
   })
 

@@ -123,12 +123,30 @@ function SettingsPageInner() {
     setUserEmails((prev) => prev.filter((e) => e !== email))
   }
 
-  async function loadUnmatched(page = 0) {
+  async function loadUnmatched(page = 0, forceRefresh = false) {
+    if (page === 0 && !forceRefresh) {
+      try {
+        const raw = sessionStorage.getItem("unmatchedSenders_cache")
+        if (raw) {
+          const { data, ts } = JSON.parse(raw)
+          if (Date.now() - ts < 5 * 60 * 1000) {
+            setUnmatchedSenders(data.senders)
+            setUnmatchedTotal(data.total)
+            setAutoFilteredCount(data.autoFilteredCount ?? 0)
+            setUnmatchedPage(0)
+            return
+          }
+        }
+      } catch { /* ignore parse errors */ }
+    }
     setUnmatchedLoading(true)
     try {
       const res = await fetch(`/api/gmail/unmatched?page=${page}`)
       if (!res.ok) return
       const data = await res.json()
+      if (page === 0) {
+        sessionStorage.setItem("unmatchedSenders_cache", JSON.stringify({ data, ts: Date.now() }))
+      }
       setUnmatchedSenders(page === 0 ? data.senders : (prev) => [...prev, ...data.senders])
       setUnmatchedTotal(data.total)
       setAutoFilteredCount(data.autoFilteredCount ?? 0)
@@ -155,6 +173,7 @@ function SettingsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: fromEmail, reason: "manual" }),
       })
+      sessionStorage.removeItem("unmatchedSenders_cache")
       setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
       setUnmatchedTotal((n) => Math.max(0, n - 1))
     } finally {
@@ -171,6 +190,7 @@ function SettingsPageInner() {
         body: JSON.stringify({ email: fromEmail, contactId }),
       })
       if (res.ok) {
+        sessionStorage.removeItem("unmatchedSenders_cache")
         setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
         setUnmatchedTotal((n) => n - 1)
         setAssigningFor(null)

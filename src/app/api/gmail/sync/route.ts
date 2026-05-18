@@ -1,3 +1,5 @@
+export const maxDuration = 300
+
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
@@ -119,8 +121,8 @@ export async function POST(req: Request) {
         let processed = 0
         let latestHistoryId: string | undefined
 
-        // Process in batches of 10 to respect rate limits
-        const BATCH = 10
+        // Process in batches of 20 to respect rate limits
+        const BATCH = 20
         for (let i = 0; i < messageIds.length; i += BATCH) {
           const batch = messageIds.slice(i, i + BATCH)
           await Promise.all(
@@ -194,9 +196,18 @@ export async function POST(req: Request) {
             current: `${processed} of ${total}`,
           })
 
+          // Periodically persist progress so a timeout doesn't lose all work
+          if (synced > 0 && Math.floor(i / BATCH) % 25 === 0) {
+            await prisma.gmailSync.upsert({
+              where: { userId },
+              update: { totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
+              create: { userId, totalMessages: synced, syncedAt: new Date(), gmailEmail: primaryEmail || undefined },
+            })
+          }
+
           // Small delay between batches to stay within Gmail quota
           if (i + BATCH < messageIds.length) {
-            await new Promise((r) => setTimeout(r, 100))
+            await new Promise((r) => setTimeout(r, 50))
           }
         }
 
