@@ -60,7 +60,7 @@ export async function fetchMessageList(
 export async function fetchMessageMetadata(
   token: string,
   msgId: string,
-): Promise<{ id: string; payload: { headers: { name: string; value: string }[] } } | null> {
+): Promise<{ id: string; historyId?: string; payload: { headers: { name: string; value: string }[] } } | null> {
   const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}`)
   url.searchParams.set("format", "metadata")
   for (const h of ["From", "To", "Cc", "Subject", "Date", "Message-ID", "List-Unsubscribe", "Precedence"]) {

@@ -148,7 +148,13 @@ export async function POST(req: Request) {
 
         const baseCount = existingGmailIds.size
         // Tell the UI how many messages are already indexed so the counter starts there
-        send({ type: "status", message: `${baseCount.toLocaleString()} already indexed — scanning for new…`, baseCount, total })
+        send({
+          type: "status",
+          message: `${baseCount.toLocaleString()} already indexed — scanning for new…`,
+          baseCount,
+          total,
+          historyId: latestHistoryId ?? null,
+        })
 
         let synced = 0
         let inserted = 0  // genuinely new messages (not already in DB)
@@ -167,6 +173,15 @@ export async function POST(req: Request) {
 
                 const msg = await fetchMessageMetadata(token, id)
                 if (!msg) { failed++; processed++; return }
+
+                // Every message response includes historyId — track the highest
+                // seen so we have a reliable incremental-sync anchor even if the
+                // profile call didn't return one.
+                if (msg.historyId) {
+                  if (!latestHistoryId || BigInt(msg.historyId) > BigInt(latestHistoryId)) {
+                    latestHistoryId = msg.historyId
+                  }
+                }
 
                 const parsed = parseMessageHeaders(msg as Parameters<typeof parseMessageHeaders>[0], userEmails)
                 if (!parsed) { failed++; processed++; return }
@@ -259,6 +274,14 @@ export async function POST(req: Request) {
 
         // Flush any remaining new email→contact mappings
         await flushMatchCache(matchCache)
+
+        // If we still have no historyId (e.g. all messages were skipped so none
+        // were fetched, and the pre-sync profile call didn't return one), do one
+        // final profile call as a guaranteed fallback.
+        if (!latestHistoryId) {
+          const fallbackProfile = await fetchGmailProfile(token)
+          latestHistoryId = fallbackProfile?.historyId ?? undefined
+        }
 
         // Update sync state
         await prisma.gmailSync.upsert({
