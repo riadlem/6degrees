@@ -47,6 +47,8 @@ type Contact = {
   education: EducationEntry[] | null
   sharedConnections: SharedConnection[] | null
   lastInteractionAt: string | null
+  emailAddress: string | null
+  emailAddresses: { email: string; isPrimary: boolean }[]
   notes: Note[]
   listMembers: ListMembership[]
   labels: ContactLabelEntry[]
@@ -92,7 +94,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
       setEmails([])
       setEmailsExpanded(false)
       setEmailNextCursor(null)
-      fetch(`/api/contacts/${contactId}/emails?limit=5`)
+      fetch(`/api/contacts/${contactId}/emails?limit=20`)
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
           if (d) {
@@ -297,6 +299,15 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                   )}
                 </div>
               ))}
+
+              {(contact.emailAddress ?? contact.emailAddresses?.[0]?.email) && (
+                <div className="flex items-center gap-3">
+                  <Mail size={14} className="text-gray-400 shrink-0" />
+                  <span className="text-sm text-gray-700">
+                    {contact.emailAddress ?? contact.emailAddresses[0].email}
+                  </span>
+                </div>
+              )}
 
               {contact.connectedOn && (
                 <div className="flex items-center gap-3">
