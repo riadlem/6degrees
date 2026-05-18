@@ -6,9 +6,10 @@ import { normalizeEmail } from "@/lib/gmail"
 // ---------------------------------------------------------------------------
 
 export type MatchCache = {
-  emailToContact: Map<string, string>    // normalized email → contactId
-  nameToContacts: Map<string, string[]>  // "first|last" → contactId[]
+  emailToContact: Map<string, string>      // normalized email → contactId
+  nameToContacts: Map<string, string[]>    // "first|last" → contactId[]
   patternToContacts: Map<string, string[]> // email username pattern → contactId[]
+  contactDomains: Map<string, Set<string>> // contactId → known email domains (from confirmed addresses)
   pendingUpserts: Array<{ contactId: string; email: string; source: "gmail_from" | "gmail_to" }>
 }
 
@@ -43,8 +44,17 @@ export async function buildMatchCache(userId: string): Promise<MatchCache> {
   ])
 
   const emailToContact = new Map<string, string>()
+  const contactDomains = new Map<string, Set<string>>()
   for (const { email, contactId } of emailRows) {
-    emailToContact.set(normalizeEmail(email), contactId)
+    const normalized = normalizeEmail(email)
+    emailToContact.set(normalized, contactId)
+    // Track which domains are confirmed for each contact
+    const domain = normalized.split("@")[1]
+    if (domain) {
+      const set = contactDomains.get(contactId) ?? new Set<string>()
+      set.add(domain)
+      contactDomains.set(contactId, set)
+    }
   }
 
   const nameToContacts = new Map<string, string[]>()
@@ -62,7 +72,17 @@ export async function buildMatchCache(userId: string): Promise<MatchCache> {
     }
   }
 
-  return { emailToContact, nameToContacts, patternToContacts, pendingUpserts: [] }
+  return { emailToContact, nameToContacts, patternToContacts, contactDomains, pendingUpserts: [] }
+}
+
+// Returns true if the incoming email's domain is consistent with what we already
+// know about this contact. If the contact has no prior emails we allow anything
+// (cold-start). If they do, the domain must match to avoid cross-person collisions.
+function domainAllowed(cache: MatchCache, contactId: string, incomingEmail: string): boolean {
+  const knownDomains = cache.contactDomains.get(contactId)
+  if (!knownDomains || knownDomains.size === 0) return true
+  const incomingDomain = incomingEmail.split("@")[1]?.toLowerCase()
+  return !!incomingDomain && knownDomains.has(incomingDomain)
 }
 
 export function matchEmailCached(
@@ -72,34 +92,56 @@ export function matchEmailCached(
   toEmails: string[],
   isOutbound: boolean,
 ): string | null {
+  // For outbound multi-recipient emails, fuzzy matching is unreliable — we can't
+  // know which recipient is the "primary" contact. Only use exact matches.
+  const multiRecipient = isOutbound && toEmails.length > 1
   const candidates = isOutbound ? toEmails.map(normalizeEmail) : [normalizeEmail(fromEmail)]
 
   for (const email of candidates) {
-    // Pass 1: exact known address
+    // Pass 1: exact known address — always safe
     const contactId = cache.emailToContact.get(email)
     if (contactId) return contactId
 
+    if (multiRecipient) continue // skip fuzzy passes for multi-recipient outbound
+
     // Pass 2: display name match (inbound only — sender name is in From header)
+    // Domain guard: only auto-match if the domain is consistent with what we already
+    // know about this contact, to prevent cross-person collisions.
     if (fromName && !isOutbound) {
       const parts = fromName.trim().split(/\s+/)
       if (parts.length >= 2) {
         const key = `${parts[0].toLowerCase()}|${parts[parts.length - 1].toLowerCase()}`
         const matches = cache.nameToContacts.get(key)
-        if (matches?.length === 1) {
+        if (matches?.length === 1 && domainAllowed(cache, matches[0], email)) {
           cache.emailToContact.set(email, matches[0])
           cache.pendingUpserts.push({ contactId: matches[0], email, source: "gmail_from" })
+          // Track the new domain so future fuzzy passes stay consistent
+          const domain = email.split("@")[1]?.toLowerCase()
+          if (domain) {
+            const set = cache.contactDomains.get(matches[0]) ?? new Set<string>()
+            set.add(domain)
+            cache.contactDomains.set(matches[0], set)
+          }
           return matches[0]
         }
       }
     }
 
     // Pass 3: email username pattern (handles flast, first.last, firstlast, etc.)
+    // Domain guard: same — require domain consistency to avoid matching two people
+    // named "Kamel Najimi" at different companies.
     const username = email.split("@")[0].toLowerCase()
     const patternMatches = cache.patternToContacts.get(username)
-    if (patternMatches?.length === 1) {
+    if (patternMatches?.length === 1 && domainAllowed(cache, patternMatches[0], email)) {
       const source = isOutbound ? "gmail_to" : "gmail_from"
       cache.emailToContact.set(email, patternMatches[0])
       cache.pendingUpserts.push({ contactId: patternMatches[0], email, source })
+      const domain = email.split("@")[1]?.toLowerCase()
+      if (domain) {
+        const set = cache.contactDomains.get(patternMatches[0]) ?? new Set<string>()
+        set.add(domain)
+        cache.contactDomains.set(patternMatches[0], set)
+      }
       return patternMatches[0]
     }
   }
