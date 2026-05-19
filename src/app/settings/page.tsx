@@ -92,6 +92,7 @@ function SettingsPageInner() {
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
   const [phoneBookImporting, setPhoneBookImporting] = useState(false)
   const [phoneBookEnriching, setPhoneBookEnriching] = useState(false)
+  const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
@@ -430,12 +431,13 @@ function SettingsPageInner() {
     setPhoneBookImporting(true)
     setPhoneBookResult(null)
     setPhoneBookEnrichResult(null)
+    setPhoneBookError(null)
     const formData = new FormData()
     formData.append("file", file)
     try {
       const res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
-      if (!res.ok) return
       const data = await res.json()
+      if (!res.ok) { setPhoneBookError(data.error ?? "Import failed"); return }
       setPhoneBookResult(data)
       setPhoneBookCount(data.count ?? data.imported)
       setPhoneBookWithPhotos(data.withPhotos ?? 0)
@@ -919,6 +921,12 @@ function SettingsPageInner() {
         </div>
 
         <div className="px-6 py-5 space-y-4">
+          {phoneBookError && (
+            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">
+              {phoneBookError}
+            </div>
+          )}
+
           {phoneBookResult && (
             <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2 space-y-0.5">
               <p>
@@ -958,7 +966,7 @@ function SettingsPageInner() {
             <input
               ref={phoneBookRef}
               type="file"
-              accept=".vcf"
+              accept=".vcf,.vcard,.abbu"
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importPhoneBook(f) }}
             />
@@ -996,12 +1004,18 @@ function SettingsPageInner() {
 
           {phoneBookHowToOpen && (
             <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-4 py-3 space-y-2">
-              <p className="font-medium text-gray-700">Mac (Contacts.app)</p>
-              <p>Edit → Select All → File → Export → Export vCard…</p>
+              <p className="font-medium text-gray-700">Mac (Contacts.app) — exports a .vcf file</p>
+              <ol className="space-y-0.5 list-decimal list-inside">
+                <li>Edit → Select All (⌘A)</li>
+                <li>File → Export → <span className="font-semibold text-gray-800">Export vCard…</span></li>
+              </ol>
+              <p className="text-amber-700 bg-amber-50 rounded px-2 py-1">
+                ⚠ Do not use "Address Book Archive" — that creates an .abbu file which is not supported.
+              </p>
               <p className="font-medium text-gray-700 pt-1">iPhone</p>
-              <p>Contacts → tap ··· (top right) → Export</p>
+              <p>Contacts → ··· (top right) → Export → choose contacts → Share as vCard</p>
               <p className="font-medium text-gray-700 pt-1">iCloud.com</p>
-              <p>Open Contacts → select all (⌘A) → gear icon → Export vCard</p>
+              <p>Open Contacts → ⌘A to select all → gear icon → Export vCard</p>
             </div>
           )}
         </div>

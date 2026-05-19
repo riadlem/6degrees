@@ -51,11 +51,21 @@ export async function POST(req: Request) {
   await ensureTable()
 
   let vcfText: string
+  let fileName = ""
   try {
     const formData = await req.formData()
     const file = formData.get("file")
     if (!file || typeof file === "string") {
       return Response.json({ error: "No file uploaded" }, { status: 400 })
+    }
+    fileName = (file as File).name.toLowerCase()
+    if (fileName.endsWith(".abbu")) {
+      return Response.json({
+        error: "Apple Address Book archives (.abbu) cannot be parsed directly. Please export as a vCard file instead:\n\nMac: Contacts.app → Edit → Select All → File → Export → Export vCard…\niPhone: Contacts → ··· → Export\niCloud.com: select all → gear icon → Export vCard",
+      }, { status: 400 })
+    }
+    if (!fileName.endsWith(".vcf") && !fileName.endsWith(".vcard")) {
+      return Response.json({ error: `Unsupported format "${fileName}". Please upload a .vcf vCard file.` }, { status: 400 })
     }
     vcfText = await (file as File).text()
   } catch {
