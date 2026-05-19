@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search, Ban, UserPlus, ExternalLink } from "lucide-react"
+import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, Upload, AtSign, X, Plus, ChevronDown, ChevronUp, UserCheck, Search, Ban, UserPlus, ExternalLink, BookUser } from "lucide-react"
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
@@ -87,6 +87,14 @@ function SettingsPageInner() {
   const waFileRef = useRef<HTMLInputElement>(null)
   const waDbRef = useRef<HTMLInputElement>(null)
 
+  const [phoneBookCount, setPhoneBookCount] = useState(0)
+  const [phoneBookWithPhotos, setPhoneBookWithPhotos] = useState(0)
+  const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
+  const [phoneBookImporting, setPhoneBookImporting] = useState(false)
+  const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number } | null>(null)
+  const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
+  const phoneBookRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
@@ -109,6 +117,10 @@ function SettingsPageInner() {
       fetch("/api/user/emails")
         .then((r) => r.ok ? r.json() : [])
         .then((rows: { email: string }[]) => setUserEmails(rows.map((r) => r.email)))
+
+      fetch("/api/phone-contacts/import")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) { setPhoneBookCount(d.count); setPhoneBookWithPhotos(d.withPhotos); setPhoneBookWithBirthdays(d.withBirthdays) } })
     }
   }, [status])
 
@@ -409,6 +421,25 @@ function SettingsPageInner() {
     } finally {
       setWaImporting(false)
       if (waDbRef.current) waDbRef.current.value = ""
+    }
+  }
+
+  async function importPhoneBook(file: File) {
+    setPhoneBookImporting(true)
+    setPhoneBookResult(null)
+    const formData = new FormData()
+    formData.append("file", file)
+    try {
+      const res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
+      if (!res.ok) return
+      const data = await res.json()
+      setPhoneBookResult(data)
+      setPhoneBookCount(data.count ?? data.imported)
+      setPhoneBookWithPhotos(data.withPhotos ?? 0)
+      setPhoneBookWithBirthdays(data.withBirthdays ?? 0)
+    } finally {
+      setPhoneBookImporting(false)
+      if (phoneBookRef.current) phoneBookRef.current.value = ""
     }
   }
 
@@ -847,6 +878,79 @@ function SettingsPageInner() {
           <p className="text-xs text-gray-400">
             Add all addresses you use to send email — including work and personal. Gmail-connected accounts are added automatically.
           </p>
+        </div>
+      </div>
+
+      {/* Address Book */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-teal-50 flex items-center justify-center">
+            <BookUser size={18} className="text-teal-600" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="font-semibold text-gray-900">Address Book</h2>
+              {phoneBookCount > 0 && (
+                <span className="text-xs bg-teal-50 text-teal-700 border border-teal-200 rounded-full px-2 py-0.5">
+                  {phoneBookCount.toLocaleString()} contacts
+                  {phoneBookWithPhotos > 0 ? ` · ${phoneBookWithPhotos} photos` : ""}
+                  {phoneBookWithBirthdays > 0 ? ` · ${phoneBookWithBirthdays} birthdays` : ""}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">Import iCloud contacts to improve WhatsApp matching</p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {phoneBookResult && (
+            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
+              Imported {phoneBookResult.imported.toLocaleString()} of {phoneBookResult.total.toLocaleString()} contacts
+              {phoneBookResult.withPhotos > 0 ? ` · ${phoneBookResult.withPhotos} with photos` : ""}
+              {phoneBookResult.withBirthdays > 0 ? ` · ${phoneBookResult.withBirthdays} with birthdays` : ""}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <input
+              ref={phoneBookRef}
+              type="file"
+              accept=".vcf"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importPhoneBook(f) }}
+            />
+            <button
+              onClick={() => phoneBookRef.current?.click()}
+              disabled={phoneBookImporting}
+              className="flex items-center gap-2 text-sm bg-teal-600 text-white rounded-xl px-4 py-2 hover:bg-teal-700 disabled:opacity-50 transition-colors"
+            >
+              {phoneBookImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {phoneBookImporting ? "Importing…" : "Import .vcf"}
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Stored as a private lookup table — never visible in your contacts list. Photos enrich matched contacts automatically.
+          </p>
+
+          <button
+            onClick={() => setPhoneBookHowToOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            {phoneBookHowToOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            How to export from iCloud
+          </button>
+
+          {phoneBookHowToOpen && (
+            <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-4 py-3 space-y-2">
+              <p className="font-medium text-gray-700">Mac (Contacts.app)</p>
+              <p>Edit → Select All → File → Export → Export vCard…</p>
+              <p className="font-medium text-gray-700 pt-1">iPhone</p>
+              <p>Contacts → tap ··· (top right) → Export</p>
+              <p className="font-medium text-gray-700 pt-1">iCloud.com</p>
+              <p>Open Contacts → select all (⌘A) → gear icon → Export vCard</p>
+            </div>
+          )}
         </div>
       </div>
 

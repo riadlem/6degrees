@@ -71,6 +71,7 @@ model User {
   whatsAppSync   WhatsAppSync?
   userEmailAddresses UserEmailAddress[]
   dismissedEmails    DismissedEmail[]
+  phoneContacts  PhoneContact[]
 }
 
 model Contact {
@@ -310,6 +311,23 @@ model OutreachDraft {
 
   @@index([userId])
   @@index([contactId])
+}
+
+// ─── Phone / Address Book ─────────────────────────────────────────────────────
+
+model PhoneContact {
+  id        String  @id @default(cuid())
+  userId    String
+  fullName  String
+  phone     String?
+  email     String?
+  birthday  String?   // ISO date "YYYY-MM-DD"
+  photoData String?   @db.Text
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fullName])
+  @@index([userId])
 }
 
 // ─── WhatsApp integration ─────────────────────────────────────────────────────
