@@ -8,23 +8,23 @@ export async function POST(_req: Request) {
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  // Sweep 1: clear HEIC data-URIs — unrenderable in Chrome/Firefox
-  // Sweep 2: clear expired LinkedIn CDN URLs — https://media.licdn.com/ urls
-  //   expire after a few months and show broken img icons
-  // Both sweeps run before the PhoneContact matching so the enrichment loop
-  // can then apply fresh JPEG thumbnails from PhoneContact where available.
-  const [heicCleared, linkedinCleared] = await Promise.all([
+  // Sweep: clear all remote https:// photo URLs — LinkedIn CDN URLs expire and
+  // show broken images; data-URIs from the phone book never expire.
+  // Also clear HEIC data-URIs (unrenderable in Chrome/Firefox).
+  // Both sweeps run before PhoneContact matching so the loop can then apply
+  // fresh JPEG thumbnails where available.
+  const [remoteCleared, heicCleared] = await Promise.all([
+    prisma.contact.updateMany({
+      where: { userId, photoUrl: { startsWith: "https://" } },
+      data: { photoUrl: null },
+    }),
     prisma.contact.updateMany({
       where: { userId, photoUrl: { startsWith: "data:image/heic" } },
       data: { photoUrl: null },
     }),
-    prisma.contact.updateMany({
-      where: { userId, photoUrl: { startsWith: "https://media.licdn.com/" } },
-      data: { photoUrl: null },
-    }),
   ])
 
-  const photosCleared = heicCleared.count + linkedinCleared.count
+  const photosCleared = remoteCleared.count + heicCleared.count
 
   const count = await prisma.phoneContact.count({ where: { userId } })
   if (count === 0) return Response.json({ enriched: photosCleared, phones: 0, emails: 0, photos: 0, photosCleared })
