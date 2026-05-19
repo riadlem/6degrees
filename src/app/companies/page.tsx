@@ -875,7 +875,7 @@ export default function CompaniesPage() {
         )}
       </div>
 
-      {/* Filter chips row */}
+      {/* Filter chips row — wraps on mobile; separators hidden below sm */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
         {/* Size filter */}
         <div className="flex items-center gap-1">
@@ -902,7 +902,7 @@ export default function CompaniesPage() {
           )}
         </div>
 
-        <div className="w-px h-5 bg-gray-200" />
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
 
         {/* Type filter */}
         <div className="flex items-center gap-1">
@@ -929,7 +929,7 @@ export default function CompaniesPage() {
           )}
         </div>
 
-        <div className="w-px h-5 bg-gray-200" />
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
 
         {/* Partner filter */}
         <div className="flex items-center gap-1">
@@ -958,14 +958,14 @@ export default function CompaniesPage() {
           </button>
         </div>
 
-        <div className="w-px h-5 bg-gray-200" />
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
 
         {/* Industry filter */}
         <select
           value={industryFilter}
           onChange={(e) => setIndustryFilter(e.target.value)}
           className={cn(
-            "text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white",
+            "text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white max-w-[160px]",
             industryFilter ? "border-teal-300 text-teal-700 bg-teal-50" : "border-gray-200 text-gray-500"
           )}
         >

@@ -149,7 +149,7 @@ function EditableField({
       )}
       <button
         onClick={() => { setVal(value ?? ""); setEditing(true) }}
-        className="opacity-0 group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-gray-500"
+        className="md:opacity-0 md:group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-gray-500"
       >
         <Pencil size={12} />
       </button>
@@ -539,7 +539,7 @@ export default function CompanyDetailPage() {
                   </div>
 
                   {/* Email + LinkedIn */}
-                  <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-2 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     {c.emailAddress && (
                       <span className="flex items-center gap-0.5 text-[10px] text-green-600 bg-green-50 rounded-full px-2 py-0.5">
                         <Mail size={10} /> email
