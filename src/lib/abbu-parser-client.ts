@@ -37,31 +37,57 @@ async function parseAbbuZip(
   const JSZip = (await import("jszip")).default
   const zip = await JSZip.loadAsync(file)
 
-  let dbEntry: ZipEntry | null = null
-  // Map normalized UUID (no hyphens, uppercase) → zip entry for .abcdp images
+  // Collect ALL .abcddb entries — modern macOS stores contacts in per-source
+  // sub-databases under Sources/[UUID]/AddressBook-v22.abcddb, not just the root one
+  const dbEntries: { path: string; entry: ZipEntry }[] = []
+  // Map normalized UUID → zip entry for .abcdp images (all sources share the same Images folder)
   const imageEntries = new Map<string, ZipEntry>()
 
   zip.forEach((relativePath, entry) => {
     if (entry.dir) return
-    if (relativePath.endsWith(".abcddb") && !dbEntry) {
-      dbEntry = entry as ZipEntry
+    if (relativePath.endsWith(".abcddb")) {
+      dbEntries.push({ path: relativePath, entry: entry as ZipEntry })
       return
     }
     if (relativePath.endsWith(".abcdp")) {
-      // Filename is the contact UUID: e.g. "AddressBook.abbu/Images/XXXX-YYYY.abcdp"
       const fname = relativePath.split("/").pop()?.replace(/\.abcdp$/i, "") ?? ""
       if (fname) imageEntries.set(normalizeUuid(fname), entry as ZipEntry)
     }
   })
 
-  if (!dbEntry) throw new Error(
+  if (dbEntries.length === 0) throw new Error(
     "No .abcddb file found inside the ZIP.\nMake sure you right-clicked the .abbu file itself → Compress."
   )
 
-  onStatus?.(`Found database — extracting (${imageEntries.size} photo entries in archive)…`)
-  const dbBuffer = await (dbEntry as ZipEntry).async("uint8array")
-  onStatus?.(`Database extracted (${(dbBuffer.byteLength / 1024 / 1024).toFixed(1)} MB) — reading contacts…`)
-  return parseAbcddbBuffer(dbBuffer.buffer as ArrayBuffer, imageEntries, onStatus)
+  onStatus?.(`Found ${dbEntries.length} database file(s), ${imageEntries.size} photos — scanning…`)
+
+  // Try every database; merge contacts across all sources (dedup by name)
+  const allContacts: ParsedVcfContact[] = []
+  const seenNames = new Set<string>()
+
+  for (const { path, entry } of dbEntries) {
+    const shortName = path.split("/").filter(Boolean).slice(-2).join("/")
+    try {
+      const raw = await entry.async("uint8array")
+      onStatus?.(`Reading ${shortName} (${(raw.byteLength / 1024).toFixed(0)} KB)…`)
+      // Use raw.slice() to get a fresh Uint8Array with byteOffset=0 (avoids JSZip buffer-view issues)
+      const contacts = await parseAbcddbBuffer(raw.slice().buffer, imageEntries, onStatus)
+      let added = 0
+      for (const c of contacts) {
+        if (!seenNames.has(c.fullName)) {
+          seenNames.add(c.fullName)
+          allContacts.push(c)
+          added++
+        }
+      }
+      if (added > 0) onStatus?.(`  → ${added} contacts from ${shortName}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.split("\n")[0] : String(err)
+      onStatus?.(`  → skipped ${shortName}: ${msg}`)
+    }
+  }
+
+  return allContacts
 }
 
 export async function parseAbcddbBuffer(
