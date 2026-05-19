@@ -444,24 +444,38 @@ function SettingsPageInner() {
           setPhoneBookError("No contacts found in this file.")
           return
         }
-        // Send contacts in batches of 300 to keep each request well under the limit
+        // Send contacts in batches of 300; accumulate stats across all batches
         const BATCH = 300
-        let lastData: Record<string, unknown> | null = null
+        let totalImported = 0, totalWithPhotos = 0, totalEnriched = 0
+        let totalPhones = 0, totalEmails = 0, totalPhotosEnriched = 0, totalLinkedin = 0
+        let finalCount = 0, lastRes: Response | null = null
         for (let i = 0; i < contacts.length; i += BATCH) {
           const batch = contacts.slice(i, i + BATCH)
-          res = await fetch("/api/phone-contacts/import", {
+          lastRes = await fetch("/api/phone-contacts/import", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ contacts: batch }),
           })
-          lastData = await res.json()
-          if (!res.ok) { setPhoneBookError((lastData?.error as string) ?? "Import failed"); return }
+          const batchData = await lastRes.json()
+          if (!lastRes.ok) { setPhoneBookError((batchData?.error as string) ?? "Import failed"); return }
+          totalImported += (batchData.imported as number) ?? 0
+          totalWithPhotos += (batchData.withPhotos as number) ?? 0
+          totalEnriched += (batchData.enriched as number) ?? 0
+          totalPhones += (batchData.phones as number) ?? 0
+          totalEmails += (batchData.emails as number) ?? 0
+          totalPhotosEnriched += (batchData.photos as number) ?? 0
+          totalLinkedin += (batchData.linkedinUrls as number) ?? 0
+          finalCount = (batchData.count as number) ?? finalCount
         }
-        const data = lastData!
-        setPhoneBookResult(data as Parameters<typeof setPhoneBookResult>[0])
-        setPhoneBookCount((data.count as number) ?? contacts.length)
-        setPhoneBookWithPhotos((data.withPhotos as number) ?? 0)
-        setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
+        setPhoneBookResult({
+          imported: totalImported, total: contacts.length,
+          withPhotos: totalWithPhotos, withBirthdays: 0,
+          enriched: totalEnriched, phones: totalPhones,
+          emails: totalEmails, photos: totalPhotosEnriched, linkedinUrls: totalLinkedin,
+        })
+        setPhoneBookCount(finalCount || contacts.length)
+        setPhoneBookWithPhotos(totalWithPhotos)
+        setPhoneBookWithBirthdays(0)
       } else {
         // VCF / vcard — small text file, upload directly
         const formData = new FormData()

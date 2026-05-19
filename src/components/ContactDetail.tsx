@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -50,6 +50,7 @@ type Contact = {
   outreachStatus: string | null
   emailAddress: string | null
   emailAddresses: { email: string; isPrimary: boolean }[]
+  phoneNumber: string | null
   notes: Note[]
   listMembers: ListMembership[]
   labels: ContactLabelEntry[]
@@ -499,6 +500,15 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                   )}
                 </div>
               </div>
+
+              {contact.phoneNumber && (
+                <div className="flex items-center gap-3">
+                  <Phone size={14} className="text-gray-400 shrink-0" />
+                  <a href={`tel:${contact.phoneNumber}`} className="text-sm text-gray-700 hover:text-blue-600 transition-colors">
+                    {contact.phoneNumber}
+                  </a>
+                </div>
+              )}
 
               {contact.connectedOn && (
                 <div className="flex items-center gap-3">
