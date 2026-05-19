@@ -37,7 +37,7 @@ export async function runAbbuSelfTest(
   // Step 1: Load sql.js
   try {
     const initSqlJs = (await import("sql.js")).default
-    SQL = await initSqlJs()
+    SQL = await initSqlJs({ locateFile: () => "/sql-wasm.wasm" })
     onStep({ label: "Load sql.js WASM", ok: true })
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err)
