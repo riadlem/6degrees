@@ -1,8 +1,10 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { parseVcf } from "@/lib/vcf-parser"
+import { parseVcf, type ParsedVcfContact } from "@/lib/vcf-parser"
+import { parseAbcddb } from "@/lib/abbu-parser"
 import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
+import JSZip from "jszip"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -27,6 +29,18 @@ async function ensureTable() {
   await prisma.$executeRaw`ALTER TABLE "PhoneContact" ADD COLUMN IF NOT EXISTS "linkedinUrl" TEXT`.catch(() => {})
 }
 
+async function extractAbcddbFromZip(buffer: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(buffer)
+  let dbEntry: JSZip.JSZipObject | null = null
+  zip.forEach((relativePath, file) => {
+    if (!file.dir && relativePath.endsWith(".abcddb")) dbEntry = file
+  })
+  if (!dbEntry) throw new Error(
+    "No .abcddb file found inside the ZIP. Make sure you right-clicked the .abbu file and chose Compress."
+  )
+  return Buffer.from(await (dbEntry as JSZip.JSZipObject).async("arraybuffer"))
+}
+
 export async function GET(_req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -38,8 +52,6 @@ export async function GET(_req: Request) {
   const withPhotos = await prisma.phoneContact.count({ where: { userId, photoData: { not: null } } })
   const withBirthdays = await prisma.phoneContact.count({ where: { userId, birthday: { not: null } } })
 
-  // Get most recent import time via max updatedAt — use raw since no updatedAt field
-  // We approximate by checking if any row exists; importedAt not tracked separately
   return Response.json({ count, withPhotos, withBirthdays })
 }
 
@@ -50,7 +62,7 @@ export async function POST(req: Request) {
 
   await ensureTable()
 
-  let vcfText: string
+  let contacts: ParsedVcfContact[]
   let fileName = ""
   try {
     const formData = await req.formData()
@@ -59,22 +71,30 @@ export async function POST(req: Request) {
       return Response.json({ error: "No file uploaded" }, { status: 400 })
     }
     fileName = (file as File).name.toLowerCase()
-    if (fileName.endsWith(".abbu")) {
+
+    if (fileName.endsWith(".zip")) {
+      const buf = Buffer.from(await (file as File).arrayBuffer())
+      const dbBuf = await extractAbcddbFromZip(buf)
+      contacts = parseAbcddb(dbBuf)
+    } else if (fileName.endsWith(".abcddb")) {
+      const buf = Buffer.from(await (file as File).arrayBuffer())
+      contacts = parseAbcddb(buf)
+    } else if (fileName.endsWith(".vcf") || fileName.endsWith(".vcard")) {
+      contacts = parseVcf(await (file as File).text())
+    } else if (fileName.endsWith(".abbu")) {
       return Response.json({
-        error: "Apple Address Book archives (.abbu) cannot be parsed directly. Please export as a vCard file instead:\n\nMac: Contacts.app → Edit → Select All → File → Export → Export vCard…\niPhone: Contacts → ··· → Export\niCloud.com: select all → gear icon → Export vCard",
+        error: "Upload a ZIP of your .abbu file instead:\n\n1. Find your .abbu file (or use File → Export → Address Book Archive… in Contacts.app)\n2. Right-click the .abbu file → Compress\n3. Upload the resulting .zip here",
       }, { status: 400 })
+    } else {
+      return Response.json({ error: `Unsupported format. Please upload a .vcf, .zip (compressed .abbu), or .abcddb file.` }, { status: 400 })
     }
-    if (!fileName.endsWith(".vcf") && !fileName.endsWith(".vcard")) {
-      return Response.json({ error: `Unsupported format "${fileName}". Please upload a .vcf vCard file.` }, { status: 400 })
-    }
-    vcfText = await (file as File).text()
-  } catch {
-    return Response.json({ error: "Could not read uploaded file" }, { status: 400 })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Could not read uploaded file"
+    return Response.json({ error: msg }, { status: 400 })
   }
 
-  const contacts = parseVcf(vcfText)
   if (contacts.length === 0) {
-    return Response.json({ error: "No contacts found in this file. Make sure you uploaded a .vcf vCard file." }, { status: 400 })
+    return Response.json({ error: "No contacts found in this file." }, { status: 400 })
   }
 
   const total = contacts.length
