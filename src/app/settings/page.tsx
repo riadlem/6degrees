@@ -432,24 +432,54 @@ function SettingsPageInner() {
     setPhoneBookResult(null)
     setPhoneBookEnrichResult(null)
     setPhoneBookError(null)
-    const formData = new FormData()
-    formData.append("file", file)
     try {
-      const res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
-      let data: Record<string, unknown>
-      try {
-        data = await res.json()
-      } catch {
-        setPhoneBookError(`Upload failed (HTTP ${res.status}). The file may be too large — try a smaller export or upload the .abcddb file directly.`)
-        return
+      const name = file.name.toLowerCase()
+      let res: Response
+
+      if (name.endsWith(".abcddb") || name.endsWith(".zip")) {
+        // Parse in the browser — avoids Vercel's 4.5 MB body limit
+        const { parseAbcddbFile } = await import("@/lib/abbu-parser-client")
+        const contacts = await parseAbcddbFile(file)
+        if (contacts.length === 0) {
+          setPhoneBookError("No contacts found in this file.")
+          return
+        }
+        // Send contacts in batches of 300 to keep each request well under the limit
+        const BATCH = 300
+        let lastData: Record<string, unknown> | null = null
+        for (let i = 0; i < contacts.length; i += BATCH) {
+          const batch = contacts.slice(i, i + BATCH)
+          res = await fetch("/api/phone-contacts/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contacts: batch }),
+          })
+          lastData = await res.json()
+          if (!res.ok) { setPhoneBookError((lastData?.error as string) ?? "Import failed"); return }
+        }
+        const data = lastData!
+        setPhoneBookResult(data as Parameters<typeof setPhoneBookResult>[0])
+        setPhoneBookCount((data.count as number) ?? contacts.length)
+        setPhoneBookWithPhotos((data.withPhotos as number) ?? 0)
+        setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
+      } else {
+        // VCF / vcard — small text file, upload directly
+        const formData = new FormData()
+        formData.append("file", file)
+        res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
+        let data: Record<string, unknown>
+        try { data = await res.json() } catch {
+          setPhoneBookError(`Upload failed (HTTP ${res.status}).`)
+          return
+        }
+        if (!res.ok) { setPhoneBookError((data.error as string) ?? "Import failed"); return }
+        setPhoneBookResult(data as Parameters<typeof setPhoneBookResult>[0])
+        setPhoneBookCount((data.count as number) ?? (data.imported as number))
+        setPhoneBookWithPhotos((data.withPhotos as number) ?? 0)
+        setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
       }
-      if (!res.ok) { setPhoneBookError((data.error as string) ?? "Import failed"); return }
-      setPhoneBookResult(data as Parameters<typeof setPhoneBookResult>[0])
-      setPhoneBookCount((data.count as number) ?? (data.imported as number))
-      setPhoneBookWithPhotos((data.withPhotos as number) ?? 0)
-      setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
     } catch (err) {
-      setPhoneBookError(err instanceof Error ? err.message : "Upload failed")
+      setPhoneBookError(err instanceof Error ? err.message : "Import failed")
     } finally {
       setPhoneBookImporting(false)
       if (phoneBookRef.current) phoneBookRef.current.value = ""
@@ -1012,21 +1042,19 @@ function SettingsPageInner() {
 
           {phoneBookHowToOpen && (
             <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-4 py-3 space-y-2">
-              <p className="font-medium text-gray-700">Mac — easiest: upload your .abbu archive as a ZIP</p>
+              <p className="font-medium text-gray-700">Mac — .abbu archive (recommended, any size)</p>
               <ol className="space-y-0.5 list-decimal list-inside">
-                <li>In Contacts.app: <span className="font-semibold text-gray-800">File → Export → Address Book Archive…</span> (saves an .abbu file)</li>
+                <li>Contacts.app → <span className="font-semibold text-gray-800">File → Export → Address Book Archive…</span></li>
                 <li>Right-click the .abbu file → <span className="font-semibold text-gray-800">Compress</span></li>
-                <li>Upload the resulting <span className="font-semibold text-gray-800">.zip</span> here</li>
+                <li>Upload the resulting .zip here — parsed locally in your browser, nothing uploaded to the server</li>
               </ol>
-              <p className="font-medium text-gray-700 pt-1">Mac — alternative: export as vCard</p>
+              <p className="font-medium text-gray-700 pt-1">Mac — vCard export</p>
               <ol className="space-y-0.5 list-decimal list-inside">
                 <li>Edit → Select All (⌘A)</li>
                 <li>File → Export → <span className="font-semibold text-gray-800">Export vCard…</span> → upload .vcf</li>
               </ol>
-              <p className="font-medium text-gray-700 pt-1">iPhone</p>
-              <p>Contacts → ··· (top right) → Export → Share as vCard → upload .vcf</p>
-              <p className="font-medium text-gray-700 pt-1">iCloud.com</p>
-              <p>Open Contacts → ⌘A to select all → gear icon → Export vCard → upload .vcf</p>
+              <p className="font-medium text-gray-700 pt-1">iPhone / iCloud.com</p>
+              <p>iCloud.com → Contacts → ⌘A → gear icon → Export vCard → upload .vcf</p>
             </div>
           )}
         </div>
