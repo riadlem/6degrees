@@ -268,7 +268,10 @@ async function extractContacts(
     if (!fullName) continue
 
     // Use inline thumbnail as initial photo (may be overwritten by Images/ entry below)
-    const thumb = r.ZTHUMBNAILIMAGEDATA as Uint8Array | null
+    const thumbRaw = r.ZTHUMBNAILIMAGEDATA as Uint8Array | null
+    // Apple's ZTHUMBNAILIMAGEDATA sometimes prepends a 0x01 type byte before the
+    // JPEG SOI marker (FF D8 FF). Skip it so browsers can decode the image.
+    const thumb = thumbRaw && thumbRaw[0] === 0x01 && thumbRaw[1] === 0xff ? thumbRaw.subarray(1) : thumbRaw
     const thumbMime = thumb && thumb.length > 100 ? detectMime(thumb) : null
     const thumbPhoto = thumbMime ? `data:${thumbMime};base64,${uint8ToBase64(thumb!)}` : null
 
