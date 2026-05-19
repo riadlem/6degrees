@@ -81,7 +81,7 @@ function extractContacts(db: Database.Database): ParsedVcfContact[] {
     if (!fullName) continue
 
     const photoData = r.ZTHUMBNAILIMAGEDATA
-      ? `data:image/jpeg;base64,${Buffer.from(r.ZTHUMBNAILIMAGEDATA).toString("base64")}`
+      ? `data:${detectMime(r.ZTHUMBNAILIMAGEDATA)};base64,${Buffer.from(r.ZTHUMBNAILIMAGEDATA).toString("base64")}`
       : null
 
     results.push({
@@ -95,4 +95,11 @@ function extractContacts(db: Database.Database): ParsedVcfContact[] {
   }
 
   return results
+}
+
+function detectMime(buf: Buffer): string {
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg"
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png"
+  if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return "image/heic"
+  return "image/jpeg"
 }
