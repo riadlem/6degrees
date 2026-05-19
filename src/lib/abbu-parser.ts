@@ -80,8 +80,10 @@ function extractContacts(db: Database.Database): ParsedVcfContact[] {
     const fullName = [firstName, lastName].filter(Boolean).join(" ")
     if (!fullName) continue
 
-    const photoData = r.ZTHUMBNAILIMAGEDATA
-      ? `data:${detectMime(r.ZTHUMBNAILIMAGEDATA)};base64,${Buffer.from(r.ZTHUMBNAILIMAGEDATA).toString("base64")}`
+    const thumbBuf = r.ZTHUMBNAILIMAGEDATA
+    const thumbMime = thumbBuf && thumbBuf.length > 100 ? detectMime(thumbBuf) : null
+    const photoData = thumbMime
+      ? `data:${thumbMime};base64,${Buffer.from(thumbBuf!).toString("base64")}`
       : null
 
     results.push({
@@ -97,9 +99,11 @@ function extractContacts(db: Database.Database): ParsedVcfContact[] {
   return results
 }
 
-function detectMime(buf: Buffer): string {
-  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg"
+function detectMime(buf: Buffer): string | null {
+  if (buf.length < 8) return null
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg"
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png"
   if (buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return "image/heic"
-  return "image/jpeg"
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return "image/gif"
+  return null
 }
