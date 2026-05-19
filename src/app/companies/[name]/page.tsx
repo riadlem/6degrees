@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
@@ -90,7 +90,6 @@ function EditableField({
   placeholder,
   onSave,
   datalist,
-  datalistId,
   icon: Icon,
   linkify,
   href,
@@ -99,7 +98,6 @@ function EditableField({
   placeholder: string
   onSave: (v: string | null) => void
   datalist?: string[]
-  datalistId?: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon?: React.ComponentType<any>
   linkify?: boolean
@@ -107,36 +105,92 @@ function EditableField({
 }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState("")
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const escapedRef = useRef(false)
+
+  function getSuggestions(q: string): string[] {
+    if (!datalist) return []
+    const lower = q.toLowerCase().trim()
+    if (!lower) return datalist.slice(0, 8)
+    return datalist.filter((c) => c.toLowerCase().includes(lower)).slice(0, 8)
+  }
+
+  function startEdit() {
+    escapedRef.current = false
+    setVal(value ?? "")
+    setSuggestions(getSuggestions(value ?? ""))
+    setEditing(true)
+  }
+
+  function save(override?: string) {
+    const v = (override ?? val).trim() || null
+    onSave(v)
+    setEditing(false)
+    setSuggestions([])
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value
+    setVal(v)
+    setSuggestions(getSuggestions(v))
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") { save(); return }
+    if (e.key === "Escape") { escapedRef.current = true; setEditing(false); setSuggestions([]) }
+  }
+
+  function handleBlur() {
+    // Suggestions use onMouseDown+preventDefault so focus never leaves the input.
+    // This blur only fires when the user clicks truly away — save then.
+    if (!escapedRef.current) save()
+  }
+
+  const isLink = !!(linkify || (href && value))
 
   if (editing) {
     return (
       <div className="flex items-center gap-2">
         {Icon && <Icon size={14} className="text-gray-400 shrink-0" />}
-        <input
-          autoFocus
-          list={datalistId}
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { onSave(val.trim() || null); setEditing(false) }
-            if (e.key === "Escape") setEditing(false)
-          }}
-          placeholder={placeholder}
-          className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-        />
-        {datalist && datalistId && (
-          <datalist id={datalistId}>
-            {datalist.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        )}
-        <button onClick={() => { onSave(val.trim() || null); setEditing(false) }} className="text-green-500 hover:text-green-600"><Check size={14} /></button>
-        <button onClick={() => setEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+        <div className="flex-1 relative">
+          <input
+            autoFocus
+            value={val}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            onBlur={handleBlur}
+            placeholder={placeholder}
+            className="w-full text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          />
+          {suggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-50 mt-0.5 max-h-48 overflow-y-auto">
+              {suggestions.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault() // keep focus on input so blur doesn't fire
+                    save(c)
+                  }}
+                  className="w-full text-left text-sm px-3 py-1.5 hover:bg-blue-50 text-gray-700 first:rounded-t-lg last:rounded-b-lg"
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button onMouseDown={(e) => { e.preventDefault(); save() }} className="text-green-500 hover:text-green-600 shrink-0"><Check size={14} /></button>
+        <button onMouseDown={(e) => { e.preventDefault(); escapedRef.current = true; setEditing(false); setSuggestions([]) }} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={14} /></button>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-2 group/field">
+    <div
+      className={cn("flex items-center gap-2 group/field", !isLink && "cursor-text")}
+      onClick={!isLink ? startEdit : undefined}
+    >
       {Icon && <Icon size={14} className="text-gray-400 shrink-0" />}
       {value ? (
         linkify ? (
@@ -152,11 +206,16 @@ function EditableField({
           <span className="text-sm text-gray-700 flex-1 truncate">{value}</span>
         )
       ) : (
-        <span className="text-sm text-gray-300 italic flex-1">{placeholder}</span>
+        <span
+          className="text-sm text-gray-300 italic flex-1 cursor-text"
+          onClick={(e) => { e.stopPropagation(); startEdit() }}
+        >
+          {placeholder}
+        </span>
       )}
       <button
-        onClick={() => { setVal(value ?? ""); setEditing(true) }}
-        className="md:opacity-0 md:group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-gray-500"
+        onClick={(e) => { e.stopPropagation(); startEdit() }}
+        className="md:opacity-0 md:group-hover/field:opacity-100 transition-opacity text-gray-300 hover:text-gray-500 shrink-0"
       >
         <Pencil size={12} />
       </button>
@@ -412,7 +471,6 @@ export default function CompanyDetailPage() {
             placeholder="Add parent company…"
             onSave={(v) => patch({ parentCompany: v })}
             datalist={allCompanies.filter((n) => n !== company.name)}
-            datalistId="parent-company-list"
             href={(v) => `/companies/${encodeURIComponent(v)}`}
           />
           {subsidiaries.length > 0 && (
