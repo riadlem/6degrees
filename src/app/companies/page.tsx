@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe } from "lucide-react"
+import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { isSuspicious } from "@/lib/company-utils"
 import ContactRow from "@/components/ContactRow"
@@ -183,31 +183,19 @@ function IndustryCell({
     setEditing(true)
   }
 
-  function commit(e: React.MouseEvent | React.KeyboardEvent) {
-    e.stopPropagation()
-    const trimmed = value.trim()
-    onSave(trimmed || null)
-    setEditing(false)
-  }
-
   if (editing) {
     return (
       <div className="flex items-center gap-1 mt-0.5" onClick={(e) => e.stopPropagation()}>
-        <div className="relative">
-          <input
-            autoFocus
-            list="industry-categories"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") commit(e); if (e.key === "Escape") setEditing(false) }}
-            placeholder="Industry…"
-            className="text-xs border border-blue-300 rounded px-2 py-0.5 w-40 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-          />
-          <datalist id="industry-categories">
-            {INDUSTRY_CATEGORIES.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </div>
-        <button onClick={commit} className="text-green-500 hover:text-green-600 shrink-0"><Check size={12} /></button>
+        <select
+          autoFocus
+          value={value}
+          onChange={(e) => { setValue(e.target.value); onSave(e.target.value || null); setEditing(false) }}
+          onKeyDown={(e) => { if (e.key === "Escape") setEditing(false) }}
+          className="text-xs border border-blue-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white max-w-[180px]"
+        >
+          <option value="">— clear —</option>
+          {INDUSTRY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
         <button onClick={(e) => { e.stopPropagation(); setEditing(false) }} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={12} /></button>
       </div>
     )
@@ -388,11 +376,15 @@ function CompanyRow({
           ) : (
             <>
             <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-gray-900 text-sm truncate">{company.name}</span>
               <Link
                 href={`/companies/${encodeURIComponent(company.name)}`}
                 onClick={(e) => e.stopPropagation()}
-                className="font-semibold text-gray-900 text-sm truncate hover:text-blue-600 hover:underline"
-              >{company.name}</Link>
+                title="Open company page"
+                className="text-gray-400 hover:text-blue-500 shrink-0 transition-colors"
+              >
+                <ArrowUpRight size={13} />
+              </Link>
               <button
                 onClick={startRename}
                 title="Rename company"
@@ -574,6 +566,7 @@ export default function CompaniesPage() {
   const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set())
   const [partnerFilter, setPartnerFilter] = useState<"" | "partner" | "non-partner">("")
+  const [industryFilter, setIndustryFilter] = useState("")
   const [showIgnored, setShowIgnored] = useState(false)
   const [showReview, setShowReview] = useState(true)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
@@ -745,8 +738,17 @@ export default function CompaniesPage() {
     })
   }
 
+  const availableIndustries = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of companies) { if (c.industry) set.add(c.industry) }
+    return [...set].sort()
+  }, [companies])
+
   const textMatch = (c: Company) =>
     !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.industry?.toLowerCase().includes(q.toLowerCase())
+
+  const industryMatch = (c: Company) =>
+    !industryFilter || (c.industry?.toLowerCase().includes(industryFilter.toLowerCase()) ?? false)
 
   const sizeMatch = (c: Company) => {
     if (sizeFilters.size === 0) return true
@@ -766,7 +768,7 @@ export default function CompaniesPage() {
     return !c.isPartner
   }
 
-  const allFilters = (c: Company) => textMatch(c) && sizeMatch(c) && typeMatch(c) && partnerMatch(c)
+  const allFilters = (c: Company) => textMatch(c) && sizeMatch(c) && typeMatch(c) && partnerMatch(c) && industryMatch(c)
 
   const preferred  = companies.filter((c) => c.preferred && !c.ignored && !isSuspicious(c.name) && allFilters(c))
   const partners   = companies.filter((c) => c.isPartner && !c.preferred && !c.ignored && !isSuspicious(c.name) && allFilters(c))
@@ -873,7 +875,7 @@ export default function CompaniesPage() {
         )}
       </div>
 
-      {/* Filter chips row */}
+      {/* Filter chips row — wraps on mobile; separators hidden below sm */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
         {/* Size filter */}
         <div className="flex items-center gap-1">
@@ -900,7 +902,7 @@ export default function CompaniesPage() {
           )}
         </div>
 
-        <div className="w-px h-5 bg-gray-200" />
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
 
         {/* Type filter */}
         <div className="flex items-center gap-1">
@@ -927,7 +929,7 @@ export default function CompaniesPage() {
           )}
         </div>
 
-        <div className="w-px h-5 bg-gray-200" />
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
 
         {/* Partner filter */}
         <div className="flex items-center gap-1">
@@ -956,9 +958,29 @@ export default function CompaniesPage() {
           </button>
         </div>
 
-        {(sizeFilters.size > 0 || typeFilters.size > 0 || partnerFilter) && (
+        <div className="hidden sm:block w-px h-5 bg-gray-200" />
+
+        {/* Industry filter */}
+        <select
+          value={industryFilter}
+          onChange={(e) => setIndustryFilter(e.target.value)}
+          className={cn(
+            "text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white max-w-[160px]",
+            industryFilter ? "border-teal-300 text-teal-700 bg-teal-50" : "border-gray-200 text-gray-500"
+          )}
+        >
+          <option value="">All industries</option>
+          {availableIndustries.map((ind) => <option key={ind} value={ind}>{ind}</option>)}
+        </select>
+        {industryFilter && (
+          <button onClick={() => setIndustryFilter("")} className="text-gray-400 hover:text-gray-600" title="Clear industry filter">
+            <X size={13} />
+          </button>
+        )}
+
+        {(sizeFilters.size > 0 || typeFilters.size > 0 || partnerFilter || industryFilter) && (
           <button
-            onClick={() => { setSizeFilters(new Set()); setTypeFilters(new Set()); setPartnerFilter("") }}
+            onClick={() => { setSizeFilters(new Set()); setTypeFilters(new Set()); setPartnerFilter(""); setIndustryFilter("") }}
             className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-0.5 ml-1"
           >
             <X size={12} /> Clear all

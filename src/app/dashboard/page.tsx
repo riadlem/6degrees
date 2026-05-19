@@ -210,7 +210,7 @@ function CompanyTreemap({
   }
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ height }}>
       <div className="absolute top-2 right-2 z-10 flex gap-1">
         <button
           onClick={handleExport}
@@ -229,7 +229,7 @@ function CompanyTreemap({
           </button>
         )}
       </div>
-      <div ref={ref} className="relative w-full rounded-xl overflow-hidden bg-gray-200" style={{ height }}>
+      <div ref={ref} className="relative w-full h-full rounded-xl overflow-hidden bg-gray-200">
         {cells.map((cell) => {
           const logo = !failedLogos.has(cell.name) ? logos[cell.name] : undefined
           const cellW = cell.w - 2, cellH = cell.h - 2
