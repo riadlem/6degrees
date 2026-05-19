@@ -36,7 +36,7 @@ export async function GET(
 
   const companyName = decodeURIComponent(params.name)
 
-  const [pref, countResult, contactRows, manualDomainRows, subsidiaryPrefs, allCompanyRows] = await Promise.all([
+  const [pref, countResult, contactRows, manualDomainRows, subsidiaryPrefs, allCompanyRows, existingParents] = await Promise.all([
     prisma.companyPreference.findUnique({
       where: { userId_company: { userId, company: companyName } },
       select: { ignored: true, isPartner: true, size: true, type: true, parentCompany: true, industry: true, website: true },
@@ -65,8 +65,9 @@ export async function GET(
       select: { domain: true, excluded: true },
       orderBy: { domain: "asc" },
     }).catch(() => [] as { domain: string; excluded: boolean }[]),
+    // Case-insensitive match so "LVMH" and "lvmh" resolve the same
     prisma.companyPreference.findMany({
-      where: { userId, parentCompany: companyName },
+      where: { userId, parentCompany: { equals: companyName, mode: "insensitive" } },
       select: { company: true },
       orderBy: { company: "asc" },
     }).catch(() => [] as { company: string }[]),
@@ -77,6 +78,12 @@ export async function GET(
       orderBy: { company: "asc" },
       take: 300,
     }).catch(() => [] as { company: string | null }[]),
+    // Include previously used parent company names so autocomplete stays consistent
+    prisma.companyPreference.findMany({
+      where: { userId, parentCompany: { not: null } },
+      select: { parentCompany: true },
+      distinct: ["parentCompany"],
+    }).catch(() => [] as { parentCompany: string | null }[]),
   ])
 
   // Sort: partner first, then preferred, then by interactionScore desc
@@ -126,7 +133,12 @@ export async function GET(
     manualDomains,
     inferredDomains,
     subsidiaries: subsidiaryPrefs.map((r) => r.company),
-    allCompanies: (allCompanyRows as { company: string | null }[]).map((r) => r.company).filter(Boolean) as string[],
+    allCompanies: [
+      ...new Set([
+        ...(allCompanyRows as { company: string | null }[]).map((r) => r.company).filter(Boolean) as string[],
+        ...(existingParents as { parentCompany: string | null }[]).map((r) => r.parentCompany).filter(Boolean) as string[],
+      ]),
+    ].sort(),
   })
 }
 

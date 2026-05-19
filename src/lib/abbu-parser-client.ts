@@ -90,12 +90,22 @@ async function extractContacts(
   db: SqlJs["Database"]["prototype"],
   imageEntries?: Map<string, ZipEntry>,
 ): Promise<ParsedVcfContact[]> {
-  // Include ZUNIQUEID to look up full-res photos in the Images/ folder
+  // Base query never fails on any macOS version of the schema
   const records = queryAll(db, `
-    SELECT Z_PK, ZUNIQUEID, ZFIRSTNAME, ZLASTNAME, ZTHUMBNAILIMAGEDATA
+    SELECT Z_PK, ZFIRSTNAME, ZLASTNAME, ZTHUMBNAILIMAGEDATA
     FROM ZABCDRECORD
     WHERE ZFIRSTNAME IS NOT NULL OR ZLASTNAME IS NOT NULL
   `)
+
+  // ZUNIQUEID links contacts to Images/ folder entries — query separately so
+  // a missing column (schema varies across macOS versions) doesn't wipe out contacts
+  const uuidMap = new Map<number, string>()
+  if (imageEntries && imageEntries.size > 0) {
+    for (const r of queryAll(db, "SELECT Z_PK, ZUNIQUEID FROM ZABCDRECORD")) {
+      const uuid = r.ZUNIQUEID as string | null
+      if (uuid) uuidMap.set(r.Z_PK as number, normalizeUuid(uuid))
+    }
+  }
 
   // phone map: prefer Mobile/iPhone labels
   const phoneMap = new Map<number, string>()
@@ -131,9 +141,9 @@ async function extractContacts(
     }
   }
 
-  // Build base results (without photos yet — photo extraction may be async)
+  // Build base results (without full-res photos yet — async extraction follows)
   const results: ParsedVcfContact[] = []
-  const uuids: (string | null)[] = []
+  const resultPks: number[] = []
 
   for (const r of records) {
     const pk = r.Z_PK as number
@@ -142,7 +152,7 @@ async function extractContacts(
     const fullName = [first, last].filter(Boolean).join(" ")
     if (!fullName) continue
 
-    // Fall back to inline thumbnail if no Images/ entry is found
+    // Use inline thumbnail as initial photo (may be overwritten by Images/ entry below)
     const thumb = r.ZTHUMBNAILIMAGEDATA as Uint8Array | null
     const thumbMime = thumb && thumb.length > 100 ? detectMime(thumb) : null
     const thumbPhoto = thumbMime ? `data:${thumbMime};base64,${uint8ToBase64(thumb!)}` : null
@@ -155,21 +165,18 @@ async function extractContacts(
       photoData: thumbPhoto,
       linkedinUrl: linkedinMap.get(pk) ?? null,
     })
-
-    const rawUuid = (r.ZUNIQUEID as string | null) ?? null
-    uuids.push(rawUuid ? normalizeUuid(rawUuid) : null)
+    resultPks.push(pk)
   }
 
   // Enrich with full-res photos from Images/ folder (ZIP path only)
-  if (imageEntries && imageEntries.size > 0) {
-    // Process in parallel batches of 20 to avoid blocking the main thread
+  if (imageEntries && imageEntries.size > 0 && uuidMap.size > 0) {
     const PHOTO_BATCH = 20
-    const MAX_BYTES = 400 * 1024 // skip photos > 400 KB to bound memory usage
+    const MAX_BYTES = 400 * 1024
 
     for (let i = 0; i < results.length; i += PHOTO_BATCH) {
       await Promise.all(
         results.slice(i, i + PHOTO_BATCH).map(async (contact, j) => {
-          const uuid = uuids[i + j]
+          const uuid = uuidMap.get(resultPks[i + j])
           if (!uuid) return
           const entry = imageEntries.get(uuid)
           if (!entry) return
