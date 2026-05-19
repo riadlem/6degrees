@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -78,9 +78,13 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [emailsExpanded, setEmailsExpanded] = useState(false)
   const [emailNextCursor, setEmailNextCursor] = useState<string | null>(null)
   const [linkingEmail, setLinkingEmail] = useState(false)
+  const [linkEmailLoading, setLinkEmailLoading] = useState(false)
   const [emailSearchQ, setEmailSearchQ] = useState("")
   const [emailSearchResults, setEmailSearchResults] = useState<{ fromEmail: string; fromName: string | null; messageCount: number }[]>([])
   const [emailSearchLoading, setEmailSearchLoading] = useState(false)
+  const [photoUrlInput, setPhotoUrlInput] = useState("")
+  const [photoUrlOpen, setPhotoUrlOpen] = useState(false)
+  const [photoUrlLoading, setPhotoUrlLoading] = useState(false)
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return
@@ -235,18 +239,42 @@ export default function ContactDetail({ contactId, onClose }: Props) {
 
   async function linkEmail(email: string) {
     if (!contact) return
-    await fetch("/api/gmail/match", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, contactId: contact.id }),
-    })
-    setLinkingEmail(false)
-    setEmailSearchQ("")
-    setEmailSearchResults([])
-    fetchContact()
-    fetch(`/api/contacts/${contactId}/emails?limit=20`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) { setEmails(d.messages ?? []); setEmailNextCursor(d.nextCursor) } })
+    setLinkEmailLoading(true)
+    try {
+      await fetch("/api/gmail/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, contactId: contact.id }),
+      })
+      setLinkingEmail(false)
+      setEmailSearchQ("")
+      setEmailSearchResults([])
+      fetchContact()
+      fetch(`/api/contacts/${contactId}/emails?limit=20`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) { setEmails(d.messages ?? []); setEmailNextCursor(d.nextCursor) } })
+    } finally {
+      setLinkEmailLoading(false)
+    }
+  }
+
+  async function updatePhotoUrl() {
+    if (!contact || !photoUrlInput.trim()) return
+    setPhotoUrlLoading(true)
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/photo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: photoUrlInput.trim() }),
+      })
+      if (res.ok) {
+        setPhotoUrlOpen(false)
+        setPhotoUrlInput("")
+        fetchContact()
+      }
+    } finally {
+      setPhotoUrlLoading(false)
+    }
   }
 
   async function saveName() {
@@ -290,18 +318,57 @@ export default function ContactDetail({ contactId, onClose }: Props) {
         ) : contact ? (
           <div className="flex-1 overflow-y-auto">
             {/* Profile */}
-            <div className="px-5 py-5 border-b border-gray-100">
+            <div className="px-5 py-5 border-b border-gray-100 relative">
               <div className="flex items-start gap-4">
-                {contact.photoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={contact.photoUrl}
-                    alt={fullName}
-                    className="w-16 h-16 rounded-2xl object-cover border border-gray-100"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-bold">
-                    {inits}
+                <div className="relative group/photo shrink-0">
+                  {contact.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={contact.photoUrl}
+                      alt={fullName}
+                      className="w-16 h-16 rounded-2xl object-cover border border-gray-100"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-bold">
+                      {inits}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => { setPhotoUrlOpen(true); setPhotoUrlInput("") }}
+                    title="Update photo from URL"
+                    className="absolute inset-0 rounded-2xl bg-black/40 opacity-0 group-hover/photo:opacity-100 transition-opacity flex items-center justify-center"
+                  >
+                    <Camera size={16} className="text-white" />
+                  </button>
+                </div>
+                {photoUrlOpen && (
+                  <div className="absolute left-0 right-0 top-16 z-20 bg-white border border-gray-200 rounded-xl shadow-lg p-3 space-y-2 mx-5">
+                    <p className="text-xs font-medium text-gray-700">Paste photo URL (LinkedIn, Google, etc.)</p>
+                    <input
+                      autoFocus
+                      type="url"
+                      placeholder="https://…"
+                      value={photoUrlInput}
+                      onChange={(e) => setPhotoUrlInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") updatePhotoUrl(); if (e.key === "Escape") setPhotoUrlOpen(false) }}
+                      className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        disabled={photoUrlLoading || !photoUrlInput.trim()}
+                        onClick={updatePhotoUrl}
+                        className="flex items-center gap-1.5 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        {photoUrlLoading ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+                        {photoUrlLoading ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setPhotoUrlOpen(false)}
+                        className="text-xs text-gray-400 hover:text-gray-600"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
@@ -476,9 +543,11 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                           {emailSearchResults.map((r) => (
                             <button
                               key={r.fromEmail}
+                              disabled={linkEmailLoading}
                               onClick={() => linkEmail(r.fromEmail)}
-                              className="w-full text-left flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-100 bg-white"
+                              className="w-full text-left flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-100 bg-white disabled:opacity-50"
                             >
+                              {linkEmailLoading ? <Loader2 size={10} className="animate-spin text-blue-500 shrink-0" /> : null}
                               <span className="font-medium text-gray-800 truncate">{r.fromName ?? r.fromEmail}</span>
                               {r.fromName && <span className="text-gray-400 truncate">{r.fromEmail}</span>}
                               <span className="text-gray-300 ml-auto shrink-0">{r.messageCount}msg</span>

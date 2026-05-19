@@ -749,7 +749,7 @@ function SettingsPageInner() {
                                 onClick={() => addToLinkedIn(sender.fromEmail, sender.fromName)}
                                 className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded-lg disabled:opacity-40 transition-colors font-medium"
                               >
-                                <UserPlus size={11} />
+                                {addingToLinkedIn === sender.fromEmail ? <Loader2 size={11} className="animate-spin" /> : <UserPlus size={11} />}
                                 LinkedIn
                               </button>
                               <button
@@ -758,7 +758,7 @@ function SettingsPageInner() {
                                 onClick={() => dismissSender(sender.fromEmail)}
                                 className="p-1.5 rounded-lg text-gray-300 hover:text-red-400 hover:bg-red-50 disabled:opacity-40 transition-colors"
                               >
-                                <Ban size={13} />
+                                {dismissing === sender.fromEmail ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
                               </button>
                             </div>
                           </div>
@@ -773,7 +773,7 @@ function SettingsPageInner() {
                                   onClick={() => assignMatch(sender.fromEmail, rec.contactId)}
                                   className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 rounded-lg px-2.5 py-1 hover:bg-blue-100 disabled:opacity-50 transition-colors"
                                 >
-                                  <Check size={11} />
+                                  {assigning === sender.fromEmail ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
                                   {rec.name}
                                   {rec.matchReason === "domain" && <span className="text-blue-400 ml-0.5">(domain)</span>}
                                 </button>
@@ -801,9 +801,11 @@ function SettingsPageInner() {
                                   {searchResults.map((c) => (
                                     <li key={c.id}>
                                       <button
-                                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors"
+                                        disabled={assigning === sender.fromEmail}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                                         onClick={() => assignMatch(sender.fromEmail, c.id)}
                                       >
+                                        {assigning === sender.fromEmail && <Loader2 size={10} className="animate-spin text-blue-500" />}
                                         <span className="font-medium">{c.firstName} {c.lastName}</span>
                                         {c.company && <span className="text-gray-400 ml-1.5">{c.company}</span>}
                                       </button>

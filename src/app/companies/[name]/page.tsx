@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
   ArrowLeft, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
-  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus
+  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
@@ -254,6 +254,9 @@ export default function CompanyDetailPage() {
   const [matchingEmail, setMatchingEmail] = useState<string | null>(null)
   const [matchSearch, setMatchSearch] = useState("")
   const [matchResults, setMatchResults] = useState<{ id: string; firstName: string; lastName: string; company: string | null }[]>([])
+  const [assigningEmail, setAssigningEmail] = useState<string | null>(null)
+  const [dismissingEmail, setDismissingEmail] = useState<string | null>(null)
+  const [addingToLinkedInEmail, setAddingToLinkedInEmail] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -397,45 +400,60 @@ export default function CompanyDetailPage() {
   }
 
   async function dismissSender(fromEmail: string) {
-    await fetch("/api/gmail/dismiss", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: fromEmail }),
-    })
-    setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+    setDismissingEmail(fromEmail)
+    try {
+      await fetch("/api/gmail/dismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fromEmail }),
+      })
+      setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+    } finally {
+      setDismissingEmail(null)
+    }
   }
 
   async function assignMatch(fromEmail: string, contactId: string) {
-    await fetch("/api/gmail/match", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: fromEmail, contactId }),
-    })
-    setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
-    setMatchingEmail(null)
-    // Patch just the matched contact's updated score/email without reloading the page
-    fetch(`/api/contacts/${contactId}`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((updated) => {
-        if (!updated) return
-        setContacts((prev) => prev.map((c) =>
-          c.id === contactId
-            ? { ...c, interactionScore: updated.interactionScore, lastInteractionAt: updated.lastInteractionAt, emailAddress: updated.emailAddress }
-            : c
-        ))
+    setAssigningEmail(fromEmail)
+    try {
+      await fetch("/api/gmail/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: fromEmail, contactId }),
       })
-      .catch(() => {})
+      setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+      setMatchingEmail(null)
+      // Patch just the matched contact's updated score/email without reloading the page
+      fetch(`/api/contacts/${contactId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((updated) => {
+          if (!updated) return
+          setContacts((prev) => prev.map((c) =>
+            c.id === contactId
+              ? { ...c, interactionScore: updated.interactionScore, lastInteractionAt: updated.lastInteractionAt, emailAddress: updated.emailAddress }
+              : c
+          ))
+        })
+        .catch(() => {})
+    } finally {
+      setAssigningEmail(null)
+    }
   }
 
   async function addToLinkedIn(fromEmail: string, fromName: string | null) {
-    await fetch("/api/gmail/add-to-contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fromEmail, fromName }),
-    })
-    const name = fromName ?? fromEmail.split("@")[0]
-    window.open(`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(name)}`, "_blank")
-    setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+    setAddingToLinkedInEmail(fromEmail)
+    try {
+      await fetch("/api/gmail/add-to-contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromEmail, fromName }),
+      })
+      const name = fromName ?? fromEmail.split("@")[0]
+      window.open(`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(name)}`, "_blank")
+      setUnmatched((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
+    } finally {
+      setAddingToLinkedInEmail(null)
+    }
   }
 
   async function searchMatchContacts(q: string) {
@@ -832,17 +850,19 @@ export default function CompanyDetailPage() {
                       {/* Actions */}
                       <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                         <button
+                          disabled={addingToLinkedInEmail === sender.fromEmail}
                           onClick={() => addToLinkedIn(sender.fromEmail, sender.fromName)}
-                          className="flex items-center gap-1 text-xs text-sky-600 border border-sky-200 rounded-lg px-2 py-1 hover:bg-sky-50 transition-colors"
+                          className="flex items-center gap-1 text-xs text-sky-600 border border-sky-200 rounded-lg px-2 py-1 hover:bg-sky-50 disabled:opacity-50 transition-colors"
                         >
-                          <UserPlus size={11} />
+                          {addingToLinkedInEmail === sender.fromEmail ? <Loader2 size={11} className="animate-spin" /> : <UserPlus size={11} />}
                           LinkedIn
                         </button>
                         <button
+                          disabled={dismissingEmail === sender.fromEmail}
                           onClick={() => dismissSender(sender.fromEmail)}
-                          className="flex items-center gap-1 text-xs text-gray-400 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50 transition-colors"
+                          className="flex items-center gap-1 text-xs text-gray-400 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                         >
-                          <Ban size={11} />
+                          {dismissingEmail === sender.fromEmail ? <Loader2 size={11} className="animate-spin" /> : <Ban size={11} />}
                           Ignore
                         </button>
                       </div>
@@ -855,9 +875,11 @@ export default function CompanyDetailPage() {
                         {sender.suggestions.map((s) => (
                           <button
                             key={s.contactId}
+                            disabled={assigningEmail === sender.fromEmail}
                             onClick={() => assignMatch(sender.fromEmail, s.contactId)}
-                            className="text-xs text-blue-600 border border-blue-200 rounded-lg px-2 py-0.5 hover:bg-blue-50 transition-colors"
+                            className="flex items-center gap-1 text-xs text-blue-600 border border-blue-200 rounded-lg px-2 py-0.5 hover:bg-blue-50 disabled:opacity-50 transition-colors"
                           >
+                            {assigningEmail === sender.fromEmail && <Loader2 size={10} className="animate-spin" />}
                             {s.name}
                           </button>
                         ))}
@@ -885,9 +907,11 @@ export default function CompanyDetailPage() {
                             {matchResults.map((c) => (
                               <button
                                 key={c.id}
+                                disabled={assigningEmail === sender.fromEmail}
                                 onClick={() => assignMatch(sender.fromEmail, c.id)}
-                                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between"
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between disabled:opacity-50"
                               >
+                                {assigningEmail === sender.fromEmail ? <Loader2 size={12} className="animate-spin mr-1.5 text-blue-500" /> : null}
                                 <span>{c.firstName} {c.lastName}</span>
                                 {c.company && <span className="text-xs text-gray-400 truncate ml-2">{c.company}</span>}
                               </button>
