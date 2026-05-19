@@ -95,7 +95,7 @@ function SettingsPageInner() {
   const [phoneBookStatus, setPhoneBookStatus] = useState<string | null>(null)
   const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
-  const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; matched: number; alreadyUpToDate: number; phones: number; emails: number; photos: number; linkedinUrls: number; heicCleared?: number } | null>(null)
+  const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; matched: number; alreadyUpToDate: number; phones: number; emails: number; photos: number; linkedinUrls: number; photosCleared?: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
   const [phoneBookDiagRunning, setPhoneBookDiagRunning] = useState(false)
   const [phoneBookDiagSteps, setPhoneBookDiagSteps] = useState<{ label: string; ok: boolean; detail?: string }[] | null>(null)
@@ -1035,8 +1035,8 @@ function SettingsPageInner() {
 
           {phoneBookEnrichResult && (
             <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2 space-y-0.5">
-              {(phoneBookEnrichResult.heicCleared ?? 0) > 0 && (
-                <p>Cleared {phoneBookEnrichResult.heicCleared} broken HEIC photos</p>
+              {(phoneBookEnrichResult.photosCleared ?? 0) > 0 && (
+                <p>Cleared {phoneBookEnrichResult.photosCleared} broken/expired photos</p>
               )}
               {phoneBookEnrichResult.enriched > 0 ? (
                 <>
@@ -1045,7 +1045,7 @@ function SettingsPageInner() {
                     <p className="text-teal-500">{phoneBookEnrichResult.alreadyUpToDate} matched contacts already up to date</p>
                   )}
                 </>
-              ) : (phoneBookEnrichResult.heicCleared ?? 0) > 0 ? (
+              ) : (phoneBookEnrichResult.photosCleared ?? 0) > 0 ? (
                 <p className="text-teal-500">{phoneBookEnrichResult.matched} matched contacts — photos repaired</p>
               ) : phoneBookEnrichResult.matched > 0 ? (
                 <p>Matched {phoneBookEnrichResult.matched} contacts — all fields already populated</p>

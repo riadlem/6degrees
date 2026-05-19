@@ -829,15 +829,16 @@ export default function CompaniesPage() {
             {ignored.length > 0 && <span className="ml-1 text-gray-400">({ignored.length} ignored)</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
           <button
             onClick={suggestIndustries}
             disabled={suggesting}
             title="Auto-suggest industries from contact data and company names"
-            className="flex items-center gap-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+            className="flex items-center gap-1.5 text-xs font-medium text-teal-700 border border-teal-200 bg-teal-50 hover:bg-teal-100 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
           >
             <Globe size={13} />
-            {suggesting ? "Suggesting…" : "Suggest industries"}
+            <span className="hidden sm:inline">{suggesting ? "Suggesting…" : "Suggest industries"}</span>
+            <span className="sm:hidden">{suggesting ? "…" : "Industries"}</span>
             {pendingSuggestionsCount > 0 && !suggesting && (
               <span className="ml-0.5 bg-teal-600 text-white rounded-full text-[9px] font-bold px-1.5 py-0.5">{pendingSuggestionsCount}</span>
             )}
@@ -846,9 +847,10 @@ export default function CompaniesPage() {
             onClick={autoTag}
             disabled={autoTagging}
             title="Auto-detect subsidiaries for LVMH, Kering, BNP Paribas, big tech, etc."
-            className="text-xs font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+            className="flex items-center gap-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
           >
-            {autoTagging ? "Detecting…" : "Auto-detect subsidiaries"}
+            <span className="hidden sm:inline">{autoTagging ? "Detecting…" : "Auto-detect subsidiaries"}</span>
+            <span className="sm:hidden">{autoTagging ? "…" : "Subsidiaries"}</span>
           </button>
           {autoTagResult !== null && (
             <span className="text-xs text-indigo-600">
