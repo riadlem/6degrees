@@ -92,10 +92,13 @@ function SettingsPageInner() {
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
   const [phoneBookImporting, setPhoneBookImporting] = useState(false)
   const [phoneBookEnriching, setPhoneBookEnriching] = useState(false)
+  const [phoneBookStatus, setPhoneBookStatus] = useState<string | null>(null)
   const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
+  const [phoneBookDiagRunning, setPhoneBookDiagRunning] = useState(false)
+  const [phoneBookDiagSteps, setPhoneBookDiagSteps] = useState<{ label: string; ok: boolean; detail?: string }[] | null>(null)
   const phoneBookRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -432,6 +435,7 @@ function SettingsPageInner() {
     setPhoneBookResult(null)
     setPhoneBookEnrichResult(null)
     setPhoneBookError(null)
+    setPhoneBookStatus(null)
     try {
       const name = file.name.toLowerCase()
       let res: Response
@@ -439,17 +443,20 @@ function SettingsPageInner() {
       if (name.endsWith(".abcddb") || name.endsWith(".zip")) {
         // Parse in the browser — avoids Vercel's 4.5 MB body limit
         const { parseAbcddbFile } = await import("@/lib/abbu-parser-client")
-        const contacts = await parseAbcddbFile(file)
+        const contacts = await parseAbcddbFile(file, setPhoneBookStatus)
         if (contacts.length === 0) {
-          setPhoneBookError("No contacts found in this file.")
+          setPhoneBookError("No contacts found in this file.\n\nIf your .abbu file was exported from Contacts.app, make sure you right-clicked the .abbu file and selected Compress to create a .zip.")
           return
         }
         // Send contacts in batches of 300; accumulate stats across all batches
         const BATCH = 300
+        const totalBatches = Math.ceil(contacts.length / BATCH)
         let totalImported = 0, totalWithPhotos = 0, totalEnriched = 0
         let totalPhones = 0, totalEmails = 0, totalPhotosEnriched = 0, totalLinkedin = 0
         let finalCount = 0, lastRes: Response | null = null
         for (let i = 0; i < contacts.length; i += BATCH) {
+          const batchNum = Math.floor(i / BATCH) + 1
+          setPhoneBookStatus(`Uploading batch ${batchNum}/${totalBatches} (${Math.min(i + BATCH, contacts.length)} of ${contacts.length} contacts)…`)
           const batch = contacts.slice(i, i + BATCH)
           lastRes = await fetch("/api/phone-contacts/import", {
             method: "POST",
@@ -467,6 +474,7 @@ function SettingsPageInner() {
           totalLinkedin += (batchData.linkedinUrls as number) ?? 0
           finalCount = (batchData.count as number) ?? finalCount
         }
+        setPhoneBookStatus(null)
         setPhoneBookResult({
           imported: totalImported, total: contacts.length,
           withPhotos: totalWithPhotos, withBirthdays: 0,
@@ -493,10 +501,31 @@ function SettingsPageInner() {
         setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
       }
     } catch (err) {
+      setPhoneBookStatus(null)
       setPhoneBookError(err instanceof Error ? err.message : "Import failed")
     } finally {
       setPhoneBookImporting(false)
+      setPhoneBookStatus(null)
       if (phoneBookRef.current) phoneBookRef.current.value = ""
+    }
+  }
+
+  async function runAddressBookDiag() {
+    setPhoneBookDiagRunning(true)
+    setPhoneBookDiagSteps([])
+    try {
+      const { runAbbuSelfTest, postDiagnostics } = await import("@/lib/abbu-parser-diag")
+      const steps: { label: string; ok: boolean; detail?: string }[] = []
+      await runAbbuSelfTest((step) => {
+        steps.push(step)
+        setPhoneBookDiagSteps([...steps])
+      })
+      postDiagnostics({ event: "self_test", steps })
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      setPhoneBookDiagSteps((prev) => [...(prev ?? []), { label: "Self-test crashed", ok: false, detail }])
+    } finally {
+      setPhoneBookDiagRunning(false)
     }
   }
 
@@ -974,8 +1003,15 @@ function SettingsPageInner() {
 
         <div className="px-6 py-5 space-y-4">
           {phoneBookError && (
-            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">
+            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line font-mono">
               {phoneBookError}
+            </div>
+          )}
+
+          {phoneBookStatus && !phoneBookError && (
+            <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
+              <Loader2 size={12} className="animate-spin shrink-0" />
+              {phoneBookStatus}
             </div>
           )}
 
@@ -1040,7 +1076,44 @@ function SettingsPageInner() {
                 {phoneBookEnriching ? "Enriching…" : "Enrich contacts"}
               </button>
             )}
+            <button
+              onClick={runAddressBookDiag}
+              disabled={phoneBookDiagRunning || phoneBookImporting}
+              title="Verify sql.js and the parser work in this browser"
+              className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-40 transition-colors"
+            >
+              {phoneBookDiagRunning ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              {phoneBookDiagRunning ? "Testing…" : "Run self-test"}
+            </button>
           </div>
+
+          {phoneBookDiagSteps !== null && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-700">Browser self-test</span>
+                <button onClick={() => setPhoneBookDiagSteps(null)} className="text-gray-400 hover:text-gray-600"><X size={12} /></button>
+              </div>
+              <ul className="divide-y divide-gray-50">
+                {phoneBookDiagSteps.map((step, i) => (
+                  <li key={i} className="px-4 py-2 flex items-start gap-2">
+                    <span className={`text-xs font-mono shrink-0 mt-0.5 ${step.ok ? "text-green-600" : "text-red-500"}`}>
+                      {step.ok ? "✓" : "✗"}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-700">{step.label}</p>
+                      {step.detail && <p className="text-xs text-gray-400 font-mono truncate">{step.detail}</p>}
+                    </div>
+                  </li>
+                ))}
+                {phoneBookDiagRunning && (
+                  <li className="px-4 py-2 flex items-center gap-2">
+                    <Loader2 size={10} className="animate-spin text-gray-400" />
+                    <span className="text-xs text-gray-400">Running…</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
 
           <p className="text-xs text-gray-400">
             Stored as a private lookup table — never visible in your contacts list. Photos enrich matched contacts automatically.

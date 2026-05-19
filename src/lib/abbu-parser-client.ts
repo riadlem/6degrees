@@ -1,4 +1,5 @@
 import type { ParsedVcfContact } from "./vcf-parser"
+import { postDiagnostics } from "./abbu-parser-diag"
 
 type SqlJs = Awaited<ReturnType<typeof import("sql.js")["default"]>>
 // Minimal interface for a JSZip entry (avoids importing jszip types at module level)
@@ -17,14 +18,22 @@ function normalizeUuid(s: string): string {
   return s.replace(/-/g, "").toUpperCase()
 }
 
-export async function parseAbcddbFile(file: File): Promise<ParsedVcfContact[]> {
+export async function parseAbcddbFile(
+  file: File,
+  onStatus?: (msg: string) => void,
+): Promise<ParsedVcfContact[]> {
   if (file.name.toLowerCase().endsWith(".zip")) {
-    return parseAbbuZip(file)
+    return parseAbbuZip(file, onStatus)
   }
-  return parseAbcddbBuffer(await file.arrayBuffer())
+  onStatus?.(`Reading database (${(file.size / 1024 / 1024).toFixed(1)} MB)…`)
+  return parseAbcddbBuffer(await file.arrayBuffer(), undefined, onStatus)
 }
 
-async function parseAbbuZip(file: File): Promise<ParsedVcfContact[]> {
+async function parseAbbuZip(
+  file: File,
+  onStatus?: (msg: string) => void,
+): Promise<ParsedVcfContact[]> {
+  onStatus?.(`Opening ZIP archive (${(file.size / 1024 / 1024).toFixed(1)} MB)…`)
   const JSZip = (await import("jszip")).default
   const zip = await JSZip.loadAsync(file)
 
@@ -49,18 +58,21 @@ async function parseAbbuZip(file: File): Promise<ParsedVcfContact[]> {
     "No .abcddb file found inside the ZIP.\nMake sure you right-clicked the .abbu file itself → Compress."
   )
 
+  onStatus?.(`Found database — extracting (${imageEntries.size} photo entries in archive)…`)
   const dbBuffer = await (dbEntry as ZipEntry).async("uint8array")
-  return parseAbcddbBuffer(dbBuffer.buffer as ArrayBuffer, imageEntries)
+  onStatus?.(`Database extracted (${(dbBuffer.byteLength / 1024 / 1024).toFixed(1)} MB) — reading contacts…`)
+  return parseAbcddbBuffer(dbBuffer.buffer as ArrayBuffer, imageEntries, onStatus)
 }
 
 export async function parseAbcddbBuffer(
   buf: ArrayBuffer,
   imageEntries?: Map<string, ZipEntry>,
+  onStatus?: (msg: string) => void,
 ): Promise<ParsedVcfContact[]> {
   const SQL = await getSql()
   const db = new SQL.Database(new Uint8Array(buf))
   try {
-    return await extractContacts(db, imageEntries)
+    return await extractContacts(db, imageEntries, onStatus)
   } finally {
     db.close()
   }
@@ -86,16 +98,90 @@ function queryAll(
   }
 }
 
+// Like queryAll but throws on SQL error instead of silently returning []
+function queryRequired(
+  db: SqlJs["Database"]["prototype"],
+  sql: string,
+): Record<string, string | number | Uint8Array | null>[] {
+  const res = db.exec(sql)
+  if (!res.length) return []
+  const mapper = colMap(res[0].columns)
+  return res[0].values.map(mapper)
+}
+
+function listTables(db: SqlJs["Database"]["prototype"]): string[] {
+  try {
+    const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+    if (!res.length) return []
+    return res[0].values.map((row) => String(row[0]))
+  } catch {
+    return []
+  }
+}
+
 async function extractContacts(
   db: SqlJs["Database"]["prototype"],
   imageEntries?: Map<string, ZipEntry>,
+  onStatus?: (msg: string) => void,
 ): Promise<ParsedVcfContact[]> {
-  // Base query never fails on any macOS version of the schema
-  const records = queryAll(db, `
-    SELECT Z_PK, ZFIRSTNAME, ZLASTNAME, ZTHUMBNAILIMAGEDATA
-    FROM ZABCDRECORD
-    WHERE ZFIRSTNAME IS NOT NULL OR ZLASTNAME IS NOT NULL
-  `)
+  // List tables for diagnostics
+  const tables = listTables(db)
+  const hasZabcdrecord = tables.some((t) => t === "ZABCDRECORD")
+
+  if (!hasZabcdrecord) {
+    const tableList = tables.length > 0 ? tables.join(", ") : "(none found)"
+    postDiagnostics({ event: "parse_error", tables, error: `ZABCDRECORD not found. Tables: ${tableList}` })
+    throw new Error(
+      `Database does not contain a ZABCDRECORD table.\n` +
+      `Tables found: ${tableList}\n\n` +
+      `This may not be a valid AddressBook .abcddb file. ` +
+      `Make sure you compressed the .abbu bundle itself (not a file inside it).`
+    )
+  }
+
+  // Probe which columns exist (schema varies across macOS versions)
+  const sampleRow = queryAll(db, "SELECT * FROM ZABCDRECORD LIMIT 1")
+  const availableColumns = sampleRow.length > 0 ? Object.keys(sampleRow[0]) : []
+
+  // Build SELECT list based on what's actually in the schema
+  const wantedColumns = ["Z_PK", "ZFIRSTNAME", "ZLASTNAME", "ZTHUMBNAILIMAGEDATA"].filter(
+    (col) => availableColumns.length === 0 || availableColumns.includes(col)
+  )
+  // Z_PK is mandatory; if missing, fall back to rowid
+  const selectList = wantedColumns.length >= 2
+    ? wantedColumns.join(", ")
+    : "rowid AS Z_PK, ZFIRSTNAME, ZLASTNAME"
+
+  let records: Record<string, string | number | Uint8Array | null>[]
+  try {
+    records = queryRequired(db, `
+      SELECT ${selectList}
+      FROM ZABCDRECORD
+      WHERE ZFIRSTNAME IS NOT NULL OR ZLASTNAME IS NOT NULL
+    `)
+  } catch (err) {
+    // Try without WHERE clause — some builds store nulls differently
+    try {
+      records = queryRequired(db, `SELECT ${selectList} FROM ZABCDRECORD`)
+    } catch (err2) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const err2Msg = err2 instanceof Error ? err2.message : String(err2)
+      postDiagnostics({
+        event: "parse_error",
+        tables,
+        zabcdrecordColumns: availableColumns,
+        error: `Query failed: ${errMsg} / fallback: ${err2Msg}`,
+      })
+      throw new Error(
+        `Failed to read contacts from ZABCDRECORD.\n` +
+        `Error: ${errMsg}\n` +
+        `Fallback error: ${err2Msg}\n` +
+        `Available columns: ${availableColumns.join(", ") || "(could not determine)"}`
+      )
+    }
+  }
+
+  onStatus?.(`Found ${records.length.toLocaleString()} contact records — loading details…`)
 
   // ZUNIQUEID links contacts to Images/ folder entries — query separately so
   // a missing column (schema varies across macOS versions) doesn't wipe out contacts
@@ -104,6 +190,9 @@ async function extractContacts(
     for (const r of queryAll(db, "SELECT Z_PK, ZUNIQUEID FROM ZABCDRECORD")) {
       const uuid = r.ZUNIQUEID as string | null
       if (uuid) uuidMap.set(r.Z_PK as number, normalizeUuid(uuid))
+    }
+    if (uuidMap.size > 0) {
+      onStatus?.(`Mapped ${uuidMap.size} photo UUIDs — will load full-res photos from archive…`)
     }
   }
 
@@ -168,10 +257,39 @@ async function extractContacts(
     resultPks.push(pk)
   }
 
+  if (results.length === 0 && records.length > 0) {
+    // Records exist but all were filtered out (all had null/empty names)
+    postDiagnostics({
+      event: "zero_contacts",
+      tables,
+      zabcdrecordColumns: availableColumns,
+      zabcdrecordRowCount: records.length,
+      error: `${records.length} rows in ZABCDRECORD but all had empty/null names`,
+    })
+  } else if (results.length === 0) {
+    postDiagnostics({
+      event: "zero_contacts",
+      tables,
+      zabcdrecordColumns: availableColumns,
+      zabcdrecordRowCount: 0,
+      error: "ZABCDRECORD exists but returned 0 rows matching the WHERE clause",
+    })
+  }
+
+  const thumbCount = results.filter((r) => r.photoData).length
+  onStatus?.(
+    `Parsed ${results.length.toLocaleString()} contacts` +
+    (phoneMap.size > 0 ? ` · ${phoneMap.size} phones` : "") +
+    (emailMap.size > 0 ? ` · ${emailMap.size} emails` : "") +
+    (thumbCount > 0 ? ` · ${thumbCount} thumbnails` : "") +
+    (imageEntries && imageEntries.size > 0 ? ` — loading ${Math.min(uuidMap.size, imageEntries.size)} full-res photos…` : "")
+  )
+
   // Enrich with full-res photos from Images/ folder (ZIP path only)
   if (imageEntries && imageEntries.size > 0 && uuidMap.size > 0) {
     const PHOTO_BATCH = 20
     const MAX_BYTES = 400 * 1024
+    let photosLoaded = 0
 
     for (let i = 0; i < results.length; i += PHOTO_BATCH) {
       await Promise.all(
@@ -183,11 +301,20 @@ async function extractContacts(
           try {
             const bytes = await entry.async("uint8array")
             const mime = bytes.length > 100 && bytes.length <= MAX_BYTES ? detectMime(bytes) : null
-            if (mime) contact.photoData = `data:${mime};base64,${uint8ToBase64(bytes)}`
+            if (mime) {
+              contact.photoData = `data:${mime};base64,${uint8ToBase64(bytes)}`
+              photosLoaded++
+            }
           } catch { /* skip broken entries */ }
         })
       )
+      if (i % (PHOTO_BATCH * 5) === 0 && i > 0) {
+        onStatus?.(`Loading photos… ${photosLoaded} loaded (${Math.round((i / results.length) * 100)}%)`)
+      }
     }
+
+    const finalPhotoCount = results.filter((r) => r.photoData).length
+    onStatus?.(`Photos done — ${finalPhotoCount} total (${thumbCount} thumbnails + ${photosLoaded} full-res)`)
   }
 
   return results
