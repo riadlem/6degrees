@@ -17,7 +17,7 @@ export interface FilterState {
   preferredCompanies: boolean
   sector: string
   companyType: string
-  gmailMatched: "" | "matched" | "unmatched"
+  gmailMatched: "" | "matched" | "unmatched" | "email_no_linkedin"
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -153,7 +153,8 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
             onClick={() => onChange({
               gmailMatched:
                 filters.gmailMatched === "" ? "matched" :
-                filters.gmailMatched === "matched" ? "unmatched" : ""
+                filters.gmailMatched === "matched" ? "unmatched" :
+                filters.gmailMatched === "unmatched" ? "email_no_linkedin" : ""
             })}
             className={cn(
               "flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border transition-colors font-medium",
@@ -161,11 +162,16 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
                 ? "bg-green-50 border-green-300 text-green-700"
                 : filters.gmailMatched === "unmatched"
                 ? "bg-gray-50 border-gray-300 text-gray-500"
+                : filters.gmailMatched === "email_no_linkedin"
+                ? "bg-orange-50 border-orange-300 text-orange-700"
                 : "border-gray-200 text-gray-500 hover:bg-gray-50"
             )}
           >
             <Mail size={11} />
-            {filters.gmailMatched === "matched" ? "Gmail ✓" : filters.gmailMatched === "unmatched" ? "No Gmail" : "Gmail"}
+            {filters.gmailMatched === "matched" ? "Gmail ✓" :
+             filters.gmailMatched === "unmatched" ? "No Gmail" :
+             filters.gmailMatched === "email_no_linkedin" ? "Email, no LinkedIn" :
+             "Gmail"}
           </button>
         </div>
         <div className="flex items-center gap-2">

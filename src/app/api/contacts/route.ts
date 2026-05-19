@@ -128,8 +128,9 @@ export async function GET(request: Request) {
           ? [{ company: { in: companyTypeNames, mode: "insensitive" as const } }]
           : [{ id: "__no_match__" }]
         : []),
-      ...(gmailMatched === "matched"   ? [{ emailAddress: { not: null } }] : []),
-      ...(gmailMatched === "unmatched" ? [{ emailAddress: null }] : []),
+      ...(gmailMatched === "matched"         ? [{ emailAddress: { not: null } }] : []),
+      ...(gmailMatched === "unmatched"       ? [{ emailAddress: null }] : []),
+      ...(gmailMatched === "email_no_linkedin" ? [{ emailAddress: { not: null }, profileUrl: null }] : []),
     ],
   }
 

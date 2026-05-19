@@ -4,6 +4,7 @@ import { StickyNote, Plus, Mail } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
+import { STATUS_BADGE } from "@/lib/reconnect-status"
 
 interface Props {
   contact: ContactSummary
@@ -82,8 +83,13 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         <p className="text-xs text-gray-400 truncate">{contact.location ?? ""}</p>
       </div>
 
-      {/* Labels + lists + notes */}
+      {/* Status + labels + lists + notes */}
       <div className="flex items-center gap-1 shrink-0">
+        {contact.outreachStatus && STATUS_BADGE[contact.outreachStatus] && (
+          <span className={cn("text-xs rounded-full px-2 py-0.5 border font-medium shrink-0", STATUS_BADGE[contact.outreachStatus].className)}>
+            {STATUS_BADGE[contact.outreachStatus].label}
+          </span>
+        )}
         {contact.labels.slice(0, 2).map(({ label }) => (
           <LabelBadge key={label.id} label={label} />
         ))}

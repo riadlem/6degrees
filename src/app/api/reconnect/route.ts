@@ -28,14 +28,23 @@ export async function GET(req: Request) {
     if (status === "sent") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "sent" }
     if (status === "not_contacted") return {
       userId,
-      interactionScore: { gt: 0.1 },
-      OR: [{ outreachStatus: null }, { outreachStatus: "not_contacted" }],
+      OR: [
+        // Auto-surfaced by interaction score with no explicit status
+        { interactionScore: { gt: 0.1 }, outreachStatus: null },
+        // Explicitly pinned to Reconnect (regardless of score)
+        { outreachStatus: "not_contacted" },
+      ],
     }
-    // "All" tab: exclude done + blocked + lkd_pending
+    // "All" tab: exclude done + blocked + lkd_pending; always include manually-pinned contacts
     return {
       userId,
-      interactionScore: { gt: 0.1 },
-      OR: [{ outreachStatus: null }, { outreachStatus: { notIn: DONE_STATUSES } }],
+      OR: [
+        {
+          interactionScore: { gt: 0.1 },
+          OR: [{ outreachStatus: null }, { outreachStatus: { notIn: DONE_STATUSES } }],
+        },
+        { outreachStatus: "not_contacted" },
+      ],
     }
   })()
 

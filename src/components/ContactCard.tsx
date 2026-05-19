@@ -3,6 +3,7 @@
 import { Users, Building2, MapPin, Calendar, StickyNote, Plus, Mail } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
+import { STATUS_BADGE } from "@/lib/reconnect-status"
 
 export type ContactSummary = {
   id: string
@@ -16,6 +17,7 @@ export type ContactSummary = {
   emailAddress: string | null
   commonConnections: number | null
   connectedOn: string | null
+  outreachStatus: string | null
   notes: { id: string }[]
   listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]
@@ -130,7 +132,12 @@ export default function ContactCard({
 
         {/* Footer badges */}
         <div className="mt-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {contact.outreachStatus && STATUS_BADGE[contact.outreachStatus] && (
+              <span className={cn("inline-flex items-center text-xs rounded-full px-2 py-0.5 border font-medium", STATUS_BADGE[contact.outreachStatus].className)}>
+                {STATUS_BADGE[contact.outreachStatus].label}
+              </span>
+            )}
             {contact.commonConnections != null && contact.commonConnections > 0 && (
               <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
                 <Users size={10} />

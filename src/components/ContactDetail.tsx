@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft, Link2Off
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -47,6 +47,7 @@ type Contact = {
   education: EducationEntry[] | null
   sharedConnections: SharedConnection[] | null
   lastInteractionAt: string | null
+  outreachStatus: string | null
   emailAddress: string | null
   emailAddresses: { email: string; isPrimary: boolean }[]
   notes: Note[]
@@ -75,6 +76,10 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [emails, setEmails] = useState<EmailEntry[]>([])
   const [emailsExpanded, setEmailsExpanded] = useState(false)
   const [emailNextCursor, setEmailNextCursor] = useState<string | null>(null)
+  const [linkingEmail, setLinkingEmail] = useState(false)
+  const [emailSearchQ, setEmailSearchQ] = useState("")
+  const [emailSearchResults, setEmailSearchResults] = useState<{ fromEmail: string; fromName: string | null; messageCount: number }[]>([])
+  const [emailSearchLoading, setEmailSearchLoading] = useState(false)
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return
@@ -97,6 +102,9 @@ export default function ContactDetail({ contactId, onClose }: Props) {
       setEmails([])
       setEmailsExpanded(false)
       setEmailNextCursor(null)
+      setLinkingEmail(false)
+      setEmailSearchQ("")
+      setEmailSearchResults([])
       fetch(`/api/contacts/${contactId}/emails?limit=20`)
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
@@ -107,6 +115,26 @@ export default function ContactDetail({ contactId, onClose }: Props) {
         })
     }
   }, [contactId])
+
+  useEffect(() => {
+    if (!linkingEmail || !emailSearchQ.trim()) {
+      setEmailSearchResults([])
+      return
+    }
+    const timer = setTimeout(async () => {
+      setEmailSearchLoading(true)
+      try {
+        const res = await fetch(`/api/gmail/unmatched?q=${encodeURIComponent(emailSearchQ)}`)
+        if (res.ok) {
+          const d = await res.json()
+          setEmailSearchResults(d.senders?.slice(0, 6) ?? [])
+        }
+      } finally {
+        setEmailSearchLoading(false)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [emailSearchQ, linkingEmail])
 
   async function loadMoreEmails() {
     if (!contactId || !emailNextCursor) return
@@ -189,6 +217,35 @@ export default function ContactDetail({ contactId, onClose }: Props) {
       body: JSON.stringify({ email }),
     })
     fetchContact()
+  }
+
+  async function toggleReconnect() {
+    if (!contact) return
+    const newStatus = contact.outreachStatus === "not_contacted" ? null : "not_contacted"
+    const res = await fetch(`/api/reconnect/${contact.id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    })
+    if (res.ok) {
+      setContact((prev) => prev ? { ...prev, outreachStatus: newStatus } : prev)
+    }
+  }
+
+  async function linkEmail(email: string) {
+    if (!contact) return
+    await fetch("/api/gmail/match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, contactId: contact.id }),
+    })
+    setLinkingEmail(false)
+    setEmailSearchQ("")
+    setEmailSearchResults([])
+    fetchContact()
+    fetch(`/api/contacts/${contactId}/emails?limit=20`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) { setEmails(d.messages ?? []); setEmailNextCursor(d.nextCursor) } })
   }
 
   async function saveName() {
@@ -289,7 +346,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
               </div>
 
               {/* Action buttons */}
-              <div className="flex gap-2 mt-4">
+              <div className="flex gap-2 mt-4 flex-wrap">
                 {contact.profileUrl && (
                   <a
                     href={contact.profileUrl}
@@ -314,6 +371,20 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                   <Sparkles size={12} className={enriching ? "animate-pulse" : ""} />
                   {enriching ? "Enriching…" : contact.coworkEnrichedAt ? "Re-enrich" : "Enrich with Cowork"}
                 </button>
+                {(contact.outreachStatus === null || contact.outreachStatus === "not_contacted") && (
+                  <button
+                    onClick={toggleReconnect}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs border rounded-lg px-3 py-1.5 transition-colors",
+                      contact.outreachStatus === "not_contacted"
+                        ? "text-green-600 border-green-200 bg-green-50 hover:bg-green-100"
+                        : "text-gray-500 border-gray-200 hover:bg-gray-50"
+                    )}
+                  >
+                    <Bookmark size={12} fill={contact.outreachStatus === "not_contacted" ? "currentColor" : "none"} />
+                    {contact.outreachStatus === "not_contacted" ? "In Reconnect" : "Add to Reconnect"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -358,25 +429,76 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                 </div>
               ))}
 
-              {contact.emailAddresses.length > 0 && (
-                <div className="flex items-start gap-3">
-                  <Mail size={14} className="text-gray-400 shrink-0 mt-1" />
-                  <div className="flex flex-wrap gap-1.5">
-                    {contact.emailAddresses.map((ea) => (
-                      <span key={ea.email} className="group/email flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2.5 py-0.5 text-gray-700">
-                        {ea.email}
+              <div className="flex items-start gap-3">
+                <Mail size={14} className="text-gray-400 shrink-0 mt-1" />
+                <div className="flex-1 min-w-0">
+                  {contact.emailAddresses.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-1.5">
+                      {contact.emailAddresses.map((ea) => (
+                        <span key={ea.email} className="group/email flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2.5 py-0.5 text-gray-700">
+                          {ea.email}
+                          <button
+                            title="Unlink this email address"
+                            onClick={() => unlinkEmail(ea.email)}
+                            className="text-gray-300 hover:text-red-500 md:opacity-0 md:group-hover/email:opacity-100 transition-opacity ml-0.5"
+                          >
+                            <Link2Off size={10} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {linkingEmail ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <div className="relative flex-1">
+                          <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input
+                            autoFocus
+                            type="text"
+                            placeholder="Search by email or name…"
+                            value={emailSearchQ}
+                            onChange={(e) => setEmailSearchQ(e.target.value)}
+                            className="w-full pl-6 pr-2 py-1.5 text-xs border border-blue-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
                         <button
-                          title="Unlink this email address"
-                          onClick={() => unlinkEmail(ea.email)}
-                          className="text-gray-300 hover:text-red-500 md:opacity-0 md:group-hover/email:opacity-100 transition-opacity ml-0.5"
+                          onClick={() => { setLinkingEmail(false); setEmailSearchQ(""); setEmailSearchResults([]) }}
+                          className="text-gray-400 hover:text-gray-600"
                         >
-                          <Link2Off size={10} />
+                          <X size={13} />
                         </button>
-                      </span>
-                    ))}
-                  </div>
+                      </div>
+                      {emailSearchLoading && <p className="text-xs text-gray-400">Searching…</p>}
+                      {emailSearchResults.length > 0 && (
+                        <div className="space-y-0.5">
+                          {emailSearchResults.map((r) => (
+                            <button
+                              key={r.fromEmail}
+                              onClick={() => linkEmail(r.fromEmail)}
+                              className="w-full text-left flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-100 bg-white"
+                            >
+                              <span className="font-medium text-gray-800 truncate">{r.fromName ?? r.fromEmail}</span>
+                              {r.fromName && <span className="text-gray-400 truncate">{r.fromEmail}</span>}
+                              <span className="text-gray-300 ml-auto shrink-0">{r.messageCount}msg</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {emailSearchQ.trim() && !emailSearchLoading && emailSearchResults.length === 0 && (
+                        <p className="text-xs text-gray-400">No unmatched senders found</p>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setLinkingEmail(true)}
+                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
+                    >
+                      <Link2 size={11} /> Link email address
+                    </button>
+                  )}
                 </div>
-              )}
+              </div>
 
               {contact.connectedOn && (
                 <div className="flex items-center gap-3">
