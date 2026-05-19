@@ -10,6 +10,7 @@ import {
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import Link from "next/link"
+import { STATUS_BADGE } from "@/lib/reconnect-status"
 
 type CompanyType = "brand" | "non-brand" | "independent"
 type CompanySize = "small" | "medium" | "corporate" | "fortune500"
@@ -533,6 +534,11 @@ export default function CompanyDetailPage() {
                         <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
                           <Clock size={9} />
                           {formatDate(c.lastInteractionAt)}
+                        </span>
+                      )}
+                      {c.outreachStatus && STATUS_BADGE[c.outreachStatus] && (
+                        <span className={cn("text-[10px] rounded-full px-1.5 py-0.5 border font-medium", STATUS_BADGE[c.outreachStatus].className)}>
+                          {STATUS_BADGE[c.outreachStatus].label}
                         </span>
                       )}
                     </div>
