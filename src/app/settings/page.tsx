@@ -92,6 +92,7 @@ function SettingsPageInner() {
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
   const [phoneBookImporting, setPhoneBookImporting] = useState(false)
   const [phoneBookEnriching, setPhoneBookEnriching] = useState(false)
+  const [phoneBookStatus, setPhoneBookStatus] = useState<string | null>(null)
   const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
@@ -432,6 +433,7 @@ function SettingsPageInner() {
     setPhoneBookResult(null)
     setPhoneBookEnrichResult(null)
     setPhoneBookError(null)
+    setPhoneBookStatus(null)
     try {
       const name = file.name.toLowerCase()
       let res: Response
@@ -439,17 +441,20 @@ function SettingsPageInner() {
       if (name.endsWith(".abcddb") || name.endsWith(".zip")) {
         // Parse in the browser — avoids Vercel's 4.5 MB body limit
         const { parseAbcddbFile } = await import("@/lib/abbu-parser-client")
-        const contacts = await parseAbcddbFile(file)
+        const contacts = await parseAbcddbFile(file, setPhoneBookStatus)
         if (contacts.length === 0) {
-          setPhoneBookError("No contacts found in this file.")
+          setPhoneBookError("No contacts found in this file.\n\nIf your .abbu file was exported from Contacts.app, make sure you right-clicked the .abbu file and selected Compress to create a .zip.")
           return
         }
         // Send contacts in batches of 300; accumulate stats across all batches
         const BATCH = 300
+        const totalBatches = Math.ceil(contacts.length / BATCH)
         let totalImported = 0, totalWithPhotos = 0, totalEnriched = 0
         let totalPhones = 0, totalEmails = 0, totalPhotosEnriched = 0, totalLinkedin = 0
         let finalCount = 0, lastRes: Response | null = null
         for (let i = 0; i < contacts.length; i += BATCH) {
+          const batchNum = Math.floor(i / BATCH) + 1
+          setPhoneBookStatus(`Uploading batch ${batchNum}/${totalBatches} (${Math.min(i + BATCH, contacts.length)} of ${contacts.length} contacts)…`)
           const batch = contacts.slice(i, i + BATCH)
           lastRes = await fetch("/api/phone-contacts/import", {
             method: "POST",
@@ -467,6 +472,7 @@ function SettingsPageInner() {
           totalLinkedin += (batchData.linkedinUrls as number) ?? 0
           finalCount = (batchData.count as number) ?? finalCount
         }
+        setPhoneBookStatus(null)
         setPhoneBookResult({
           imported: totalImported, total: contacts.length,
           withPhotos: totalWithPhotos, withBirthdays: 0,
@@ -493,9 +499,11 @@ function SettingsPageInner() {
         setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
       }
     } catch (err) {
+      setPhoneBookStatus(null)
       setPhoneBookError(err instanceof Error ? err.message : "Import failed")
     } finally {
       setPhoneBookImporting(false)
+      setPhoneBookStatus(null)
       if (phoneBookRef.current) phoneBookRef.current.value = ""
     }
   }
@@ -974,8 +982,15 @@ function SettingsPageInner() {
 
         <div className="px-6 py-5 space-y-4">
           {phoneBookError && (
-            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">
+            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line font-mono">
               {phoneBookError}
+            </div>
+          )}
+
+          {phoneBookStatus && !phoneBookError && (
+            <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
+              <Loader2 size={12} className="animate-spin shrink-0" />
+              {phoneBookStatus}
             </div>
           )}
 
