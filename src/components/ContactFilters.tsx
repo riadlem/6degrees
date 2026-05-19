@@ -11,6 +11,7 @@ export interface FilterState {
   company: string
   industry: string
   location: string
+  country: string
   position: string
   label: string
   sort: string
@@ -26,6 +27,7 @@ interface FilterOptions {
   companies: (string | null)[]
   industries: (string | null)[]
   locations: (string | null)[]
+  countries: (string | null)[]
   labels: LabelOption[]
 }
 
@@ -49,6 +51,10 @@ const SORT_OPTIONS = [
   { value: "recent",        label: "Recently synced" },
   { value: "location",      label: "Location A–Z" },
   { value: "score",         label: "Interaction score" },
+  { value: "country",       label: "Country A–Z" },
+  { value: "country_desc",  label: "Country Z–A" },
+  { value: "industry",      label: "Industry A–Z" },
+  { value: "industry_desc", label: "Industry Z–A" },
 ]
 
 const COMPANY_TYPE_OPTIONS = [
@@ -90,7 +96,7 @@ function FilterSelect({
 export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
   const activeCount =
-    [filters.company, filters.industry, filters.location, filters.position, filters.label, filters.sector, filters.companyType]
+    [filters.company, filters.industry, filters.location, filters.country, filters.position, filters.label, filters.sector, filters.companyType]
       .filter(Boolean).length +
     (filters.preferredCompanies ? 1 : 0) +
     (filters.gmailMatched ? 1 : 0)
@@ -288,6 +294,12 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
             value={filters.location}
             options={options.locations}
             onChange={(v) => onChange({ location: v })}
+          />
+          <FilterSelect
+            label="Country"
+            value={filters.country}
+            options={options.countries}
+            onChange={(v) => onChange({ country: v })}
           />
 
           {options.labels.length > 0 && (

@@ -21,6 +21,7 @@ export async function GET(request: Request) {
   const sector = searchParams.get("sector") ?? ""
   const companyType = searchParams.get("companyType") ?? ""
   const gmailMatched = searchParams.get("gmailMatched") ?? ""
+  const country = searchParams.get("country") ?? ""
   const sort = searchParams.get("sort") ?? "name"
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const limit = parseInt(searchParams.get("limit") ?? "48", 10)
@@ -131,6 +132,7 @@ export async function GET(request: Request) {
       ...(gmailMatched === "matched"         ? [{ emailAddress: { not: null } }] : []),
       ...(gmailMatched === "unmatched"       ? [{ emailAddress: null }] : []),
       ...(gmailMatched === "email_no_linkedin" ? [{ emailAddress: { not: null }, profileUrl: null }] : []),
+      ...(country ? [{ country: { contains: country, mode: "insensitive" as const } }] : []),
     ],
   }
 
@@ -143,6 +145,10 @@ export async function GET(request: Request) {
     sort === "mutual"         ? { commonConnections: "desc" } :
     sort === "name_desc"      ? { lastName: "desc" } :
     sort === "score"          ? { interactionScore: "desc" } :
+    sort === "country"        ? { country: "asc" } :
+    sort === "country_desc"   ? { country: "desc" } :
+    sort === "industry"       ? { industry: "asc" } :
+    sort === "industry_desc"  ? { industry: "desc" } :
     { firstName: "asc" }
 
   const [contacts, total] = await Promise.all([
@@ -160,7 +166,7 @@ export async function GET(request: Request) {
     prisma.contact.count({ where }),
   ])
 
-  const [industries, companies, locations, labels] = await Promise.all([
+  const [industries, companies, locations, countries, labels] = await Promise.all([
     prisma.contact.findMany({
       where: { userId: session.user.id, industry: { not: null } },
       select: { industry: true },
@@ -187,6 +193,12 @@ export async function GET(request: Request) {
       distinct: ["location"],
       orderBy: { location: "asc" },
     }),
+    prisma.contact.findMany({
+      where: { userId: session.user.id, country: { not: null } },
+      select: { country: true },
+      distinct: ["country"],
+      orderBy: { country: "asc" },
+    }),
     prisma.label.findMany({
       where: { userId: session.user.id },
       orderBy: { name: "asc" },
@@ -202,6 +214,7 @@ export async function GET(request: Request) {
       industries: industries.map((r) => r.industry).filter(Boolean),
       companies: companies.map((r) => r.company).filter(Boolean),
       locations: locations.map((r) => r.location).filter(Boolean),
+      countries: countries.map((r) => r.country).filter(Boolean),
       labels,
     },
   })

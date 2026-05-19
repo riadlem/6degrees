@@ -50,6 +50,8 @@ export async function GET(
         lastName: true,
         position: true,
         company: true,
+        country: true,
+        industry: true,
         photoUrl: true,
         emailAddress: true,
         lastInteractionAt: true,

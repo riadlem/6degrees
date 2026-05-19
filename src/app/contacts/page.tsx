@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus, Tag, Sparkles, Upload } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil } from "lucide-react"
+import BulkAssignPopover from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
@@ -13,7 +14,7 @@ import ManageLabelsModal from "@/components/ManageLabelsModal"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "",
+  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "", country: "",
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -25,6 +26,7 @@ type ApiMeta = {
     industries: (string | null)[]
     companies: (string | null)[]
     locations: (string | null)[]
+    countries: (string | null)[]
     labels: LabelOption[]
   }
 }
@@ -46,6 +48,24 @@ function ContactsContent() {
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
+
+  function selectAll() { setSelectedIds(new Set(allContacts.map((c) => c.id))) }
+
+  async function handleBulkAssign(field: "country" | "industry" | "note", value: string) {
+    const ids = [...selectedIds]
+    await fetch("/api/contacts/bulk", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, field, value }),
+    })
+    if (field !== "note") {
+      setAllContacts((prev) => prev.map((c) =>
+        selectedIds.has(c.id) ? { ...c, [field]: value || null } as ContactSummary : c
+      ))
+    }
+    setSelectedIds(new Set())
+    fetchPage(filters, 1, false)
+  }
 
   type ImportState =
     | { phase: "idle" }
@@ -108,6 +128,7 @@ function ContactsContent() {
         page: String(p), limit: "48",
         preferredCompanies: f.preferredCompanies ? "true" : "false",
         sector: f.sector, companyType: f.companyType, gmailMatched: f.gmailMatched,
+        country: f.country,
       })
       const res = await fetch(`/api/contacts?${params}`)
       if (!res.ok) return
@@ -258,6 +279,11 @@ function ContactsContent() {
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {selectedIds.size > 0 && (
             <>
+              <BulkAssignPopover
+                count={selectedIds.size}
+                industries={(meta?.filters.industries ?? []).filter(Boolean) as string[]}
+                onAssign={handleBulkAssign}
+              />
               <button
                 onClick={() => setLabelContacts(selectedContacts)}
                 className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
@@ -423,7 +449,7 @@ function ContactsContent() {
       <div className="mb-5">
         <ContactFilters
           filters={filters}
-          options={meta?.filters ?? { industries: [], companies: [], locations: [], labels: [] }}
+          options={meta?.filters ?? { industries: [], companies: [], locations: [], countries: [], labels: [] }}
           total={meta?.total ?? 0}
           view={view}
           onViewChange={handleViewChange}
@@ -433,14 +459,27 @@ function ContactsContent() {
       </div>
 
       {/* Bulk select bar */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between mb-4 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm">
-          <span className="text-blue-700 font-medium">{selectedIds.size} contact{selectedIds.size !== 1 ? "s" : ""} selected</span>
-          <button onClick={() => setSelectedIds(new Set())} className="text-blue-500 hover:text-blue-700 text-xs">
-            Clear selection
+      <div className="flex items-center justify-between mb-4 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={selectAll}
+            className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Select all {allContacts.length}{meta && meta.total > allContacts.length ? ` of ${meta.total}` : ""}
           </button>
+          {selectedIds.size > 0 && (
+            <>
+              <span className="text-gray-300">|</span>
+              <span className="text-blue-700 font-medium">{selectedIds.size} selected</span>
+            </>
+          )}
         </div>
-      )}
+        {selectedIds.size > 0 && (
+          <button onClick={() => setSelectedIds(new Set())} className="text-gray-400 hover:text-gray-600 text-xs">
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Contact list/grid */}
       {loading ? (
@@ -480,16 +519,33 @@ function ContactsContent() {
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
-          {allContacts.map((contact) => (
-            <ContactRow
-              key={contact.id}
-              contact={contact}
-              selected={selectedIds.has(contact.id)}
-              onSelect={toggleSelect}
-              onClick={(c) => setActiveContactId(c.id)}
-              onAddToList={(c) => setAddToListContacts([c])}
-            />
-          ))}
+          {(() => {
+            const groupKey = filters.sort === "country" || filters.sort === "country_desc" ? "country"
+              : filters.sort === "industry" || filters.sort === "industry_desc" ? "industry"
+              : null
+            let lastGroup: string | null | undefined = undefined
+            return allContacts.map((contact) => {
+              const group = groupKey ? (contact as Record<string, unknown>)[groupKey] as string | null : undefined
+              const showHeader = groupKey && group !== lastGroup
+              lastGroup = group
+              return (
+                <div key={contact.id}>
+                  {showHeader && (
+                    <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      {group ?? "—"}
+                    </div>
+                  )}
+                  <ContactRow
+                    contact={contact}
+                    selected={selectedIds.has(contact.id)}
+                    onSelect={toggleSelect}
+                    onClick={(c) => setActiveContactId(c.id)}
+                    onAddToList={(c) => setAddToListContacts([c])}
+                  />
+                </div>
+              )
+            })
+          })()}
         </div>
       )}
 
