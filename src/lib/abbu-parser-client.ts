@@ -327,7 +327,8 @@ async function extractContacts(
           try {
             const bytes = await entry.async("uint8array")
             const mime = bytes.length > 100 && bytes.length <= MAX_BYTES ? detectMime(bytes) : null
-            if (mime) {
+            // Only store browser-renderable formats — HEIC is not supported in Chrome/Firefox
+            if (mime && mime !== "image/heic") {
               contact.photoData = `data:${mime};base64,${uint8ToBase64(bytes)}`
               photosLoaded++
             }
