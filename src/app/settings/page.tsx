@@ -92,6 +92,7 @@ function SettingsPageInner() {
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
   const [phoneBookImporting, setPhoneBookImporting] = useState(false)
   const [phoneBookEnriching, setPhoneBookEnriching] = useState(false)
+  const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
@@ -430,12 +431,13 @@ function SettingsPageInner() {
     setPhoneBookImporting(true)
     setPhoneBookResult(null)
     setPhoneBookEnrichResult(null)
+    setPhoneBookError(null)
     const formData = new FormData()
     formData.append("file", file)
     try {
       const res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
-      if (!res.ok) return
       const data = await res.json()
+      if (!res.ok) { setPhoneBookError(data.error ?? "Import failed"); return }
       setPhoneBookResult(data)
       setPhoneBookCount(data.count ?? data.imported)
       setPhoneBookWithPhotos(data.withPhotos ?? 0)
@@ -919,6 +921,12 @@ function SettingsPageInner() {
         </div>
 
         <div className="px-6 py-5 space-y-4">
+          {phoneBookError && (
+            <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-line">
+              {phoneBookError}
+            </div>
+          )}
+
           {phoneBookResult && (
             <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2 space-y-0.5">
               <p>
@@ -958,7 +966,7 @@ function SettingsPageInner() {
             <input
               ref={phoneBookRef}
               type="file"
-              accept=".vcf"
+              accept=".vcf,.vcard,.abcddb,.zip,.abbu"
               className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importPhoneBook(f) }}
             />
@@ -968,7 +976,7 @@ function SettingsPageInner() {
               className="flex items-center gap-2 text-sm bg-teal-600 text-white rounded-xl px-4 py-2 hover:bg-teal-700 disabled:opacity-50 transition-colors"
             >
               {phoneBookImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              {phoneBookImporting ? "Importing…" : "Import .vcf"}
+              {phoneBookImporting ? "Importing…" : "Import contacts"}
             </button>
             {phoneBookCount > 0 && (
               <button
@@ -991,17 +999,26 @@ function SettingsPageInner() {
             className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
           >
             {phoneBookHowToOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            How to export from iCloud
+            How to export your contacts
           </button>
 
           {phoneBookHowToOpen && (
             <div className="text-xs text-gray-600 bg-gray-50 rounded-xl px-4 py-3 space-y-2">
-              <p className="font-medium text-gray-700">Mac (Contacts.app)</p>
-              <p>Edit → Select All → File → Export → Export vCard…</p>
+              <p className="font-medium text-gray-700">Mac — easiest: upload your .abbu archive as a ZIP</p>
+              <ol className="space-y-0.5 list-decimal list-inside">
+                <li>In Contacts.app: <span className="font-semibold text-gray-800">File → Export → Address Book Archive…</span> (saves an .abbu file)</li>
+                <li>Right-click the .abbu file → <span className="font-semibold text-gray-800">Compress</span></li>
+                <li>Upload the resulting <span className="font-semibold text-gray-800">.zip</span> here</li>
+              </ol>
+              <p className="font-medium text-gray-700 pt-1">Mac — alternative: export as vCard</p>
+              <ol className="space-y-0.5 list-decimal list-inside">
+                <li>Edit → Select All (⌘A)</li>
+                <li>File → Export → <span className="font-semibold text-gray-800">Export vCard…</span> → upload .vcf</li>
+              </ol>
               <p className="font-medium text-gray-700 pt-1">iPhone</p>
-              <p>Contacts → tap ··· (top right) → Export</p>
+              <p>Contacts → ··· (top right) → Export → Share as vCard → upload .vcf</p>
               <p className="font-medium text-gray-700 pt-1">iCloud.com</p>
-              <p>Open Contacts → select all (⌘A) → gear icon → Export vCard</p>
+              <p>Open Contacts → ⌘A to select all → gear icon → Export vCard → upload .vcf</p>
             </div>
           )}
         </div>
