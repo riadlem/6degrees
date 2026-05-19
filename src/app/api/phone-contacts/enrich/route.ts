@@ -3,16 +3,20 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
 
-// The Apple ZTHUMBNAILIMAGEDATA field prepends a 0x01 byte before the JPEG SOI
-// marker (FF D8 FF). The base64 of such data starts with "Af/Y" (/9j/ is valid JPEG).
-// Browsers reject images that don't start exactly at FF D8, so we strip the prefix.
-const CORRUPT_PREFIX = "data:image/jpeg;base64,Af/Y"
+// Valid JPEG base64 always starts with /9j/ (0xFF 0xD8 0xFF).
+// Apple's ZTHUMBNAILIMAGEDATA prepends a 0x01 type byte, making base64
+// start with Af/Y or other non-/9j/ prefixes — browsers reject these.
+const VALID_JPEG_B64_PREFIX = "data:image/jpeg;base64,/9j/"
 
-function fixAppleJpeg(dataUri: string): string {
+// Try to repair a JPEG data-URI by stripping a leading garbage byte.
+// Returns the fixed data-URI if bytes[1..3] = FF D8 FF, otherwise null.
+function tryRepairJpeg(dataUri: string): string | null {
   const b64 = dataUri.slice("data:image/jpeg;base64,".length)
   const bytes = Buffer.from(b64, "base64")
-  // Strip the leading 0x01 byte — JPEG must start at FF D8
-  return `data:image/jpeg;base64,${bytes.subarray(1).toString("base64")}`
+  if (bytes.length > 3 && bytes[1] === 0xff && bytes[2] === 0xd8 && bytes[3] === 0xff) {
+    return `data:image/jpeg;base64,${bytes.subarray(1).toString("base64")}`
+  }
+  return null
 }
 
 export async function POST(_req: Request) {
@@ -32,39 +36,51 @@ export async function POST(_req: Request) {
     }),
   ])
 
-  // ── Step 2: fix Apple's 0x01-prefixed JPEGs in Contact table ──────────────
-  const corruptContacts = await prisma.contact.findMany({
-    where: { userId, photoUrl: { startsWith: CORRUPT_PREFIX } },
+  // ── Step 2: fix invalid JPEGs in Contact table ─────────────────────────────
+  // Any data:image/jpeg that doesn't start with the valid /9j/ prefix is corrupt.
+  const badJpegContacts = await prisma.contact.findMany({
+    where: {
+      userId,
+      photoUrl: { startsWith: "data:image/jpeg" },
+      NOT: { photoUrl: { startsWith: VALID_JPEG_B64_PREFIX } },
+    },
     select: { id: true, photoUrl: true },
   })
-  if (corruptContacts.length > 0) {
+  let photosFixed = 0
+  if (badJpegContacts.length > 0) {
     await Promise.all(
-      corruptContacts.map((c) =>
-        prisma.contact.update({
+      badJpegContacts.map((c) => {
+        const fixed = tryRepairJpeg(c.photoUrl!)
+        photosFixed++
+        return prisma.contact.update({
           where: { id: c.id },
-          data: { photoUrl: fixAppleJpeg(c.photoUrl!) },
+          data: { photoUrl: fixed }, // null clears unrecoverable photos
         })
-      )
+      })
     )
   }
 
-  // ── Step 3: fix Apple's 0x01-prefixed JPEGs in PhoneContact table ─────────
-  const corruptPhoneContacts = await prisma.phoneContact.findMany({
-    where: { userId, photoData: { startsWith: CORRUPT_PREFIX } },
+  // ── Step 3: fix invalid JPEGs in PhoneContact table ───────────────────────
+  const badJpegPhoneContacts = await prisma.phoneContact.findMany({
+    where: {
+      userId,
+      photoData: { startsWith: "data:image/jpeg" },
+      NOT: { photoData: { startsWith: VALID_JPEG_B64_PREFIX } },
+    },
     select: { id: true, photoData: true },
   })
-  if (corruptPhoneContacts.length > 0) {
+  if (badJpegPhoneContacts.length > 0) {
     await Promise.all(
-      corruptPhoneContacts.map((c) =>
-        prisma.phoneContact.update({
+      badJpegPhoneContacts.map((c) => {
+        const fixed = tryRepairJpeg(c.photoData!)
+        return prisma.phoneContact.update({
           where: { id: c.id },
-          data: { photoData: fixAppleJpeg(c.photoData!) },
+          data: { photoData: fixed },
         })
-      )
+      })
     )
   }
 
-  const photosFixed = corruptContacts.length
   const photosCleared = remoteCleared.count + heicCleared.count
 
   const count = await prisma.phoneContact.count({ where: { userId } })
