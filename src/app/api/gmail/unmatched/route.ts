@@ -64,6 +64,7 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0"))
+  const q = searchParams.get("q")?.toLowerCase().trim() ?? ""
 
   // Load dismissed emails for this user
   const dismissed = await prisma.dismissedEmail.findMany({
@@ -94,8 +95,24 @@ export async function GET(req: Request) {
     }
   }
 
-  const total = actionable.length
-  const paginated = actionable.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  // If searching by name, gather fromEmails where fromName contains q
+  let nameMatchEmails = new Set<string>()
+  if (q) {
+    const nameMatches = await prisma.emailMessage.findMany({
+      where: { userId, contactId: null, isOutbound: false, fromName: { contains: q, mode: "insensitive" } },
+      select: { fromEmail: true },
+      distinct: ["fromEmail"],
+      take: 100,
+    })
+    nameMatchEmails = new Set(nameMatches.map((m) => m.fromEmail))
+  }
+
+  const filtered = q
+    ? actionable.filter((g) => g.fromEmail.toLowerCase().includes(q) || nameMatchEmails.has(g.fromEmail))
+    : actionable
+
+  const total = filtered.length
+  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   // Fetch fromName + recommendations for this page
   const senders = await Promise.all(
