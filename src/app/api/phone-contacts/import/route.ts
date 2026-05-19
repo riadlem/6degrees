@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseVcf } from "@/lib/vcf-parser"
+import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -12,7 +13,8 @@ async function ensureTable() {
       "phone"     TEXT,
       "email"     TEXT,
       "birthday"  TEXT,
-      "photoData" TEXT,
+      "photoData"   TEXT,
+      "linkedinUrl" TEXT,
       CONSTRAINT "PhoneContact_pkey"               PRIMARY KEY ("id"),
       CONSTRAINT "PhoneContact_userId_fullName_key" UNIQUE ("userId", "fullName"),
       CONSTRAINT "PhoneContact_userId_fkey"         FOREIGN KEY ("userId")
@@ -22,6 +24,7 @@ async function ensureTable() {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS "PhoneContact_userId_idx" ON "PhoneContact"("userId")
   `.catch(() => {})
+  await prisma.$executeRaw`ALTER TABLE "PhoneContact" ADD COLUMN IF NOT EXISTS "linkedinUrl" TEXT`.catch(() => {})
 }
 
 export async function GET(_req: Request) {
@@ -81,6 +84,7 @@ export async function POST(req: Request) {
               email: c.email ?? undefined,
               birthday: c.birthday ?? undefined,
               photoData: c.photoData ?? undefined,
+              linkedinUrl: c.linkedinUrl ?? undefined,
             },
             create: {
               userId,
@@ -89,6 +93,7 @@ export async function POST(req: Request) {
               email: c.email,
               birthday: c.birthday,
               photoData: c.photoData,
+              linkedinUrl: c.linkedinUrl,
             },
           })
           imported++
@@ -100,5 +105,10 @@ export async function POST(req: Request) {
   const withPhotos = contacts.filter((c) => c.photoData).length
   const withBirthdays = contacts.filter((c) => c.birthday).length
 
-  return Response.json({ imported, total, withPhotos, withBirthdays })
+  // Enrich existing LinkedIn/Gmail contacts with data from this import
+  const enrichStats = await enrichContactsFromPhoneBook(userId, contacts)
+
+  const count = await prisma.phoneContact.count({ where: { userId } })
+
+  return Response.json({ imported, total, withPhotos, withBirthdays, count, ...enrichStats })
 }

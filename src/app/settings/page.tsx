@@ -91,7 +91,9 @@ function SettingsPageInner() {
   const [phoneBookWithPhotos, setPhoneBookWithPhotos] = useState(0)
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
   const [phoneBookImporting, setPhoneBookImporting] = useState(false)
-  const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number } | null>(null)
+  const [phoneBookEnriching, setPhoneBookEnriching] = useState(false)
+  const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
+  const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
   const phoneBookRef = useRef<HTMLInputElement>(null)
 
@@ -427,6 +429,7 @@ function SettingsPageInner() {
   async function importPhoneBook(file: File) {
     setPhoneBookImporting(true)
     setPhoneBookResult(null)
+    setPhoneBookEnrichResult(null)
     const formData = new FormData()
     formData.append("file", file)
     try {
@@ -440,6 +443,19 @@ function SettingsPageInner() {
     } finally {
       setPhoneBookImporting(false)
       if (phoneBookRef.current) phoneBookRef.current.value = ""
+    }
+  }
+
+  async function enrichFromPhoneBook() {
+    setPhoneBookEnriching(true)
+    setPhoneBookEnrichResult(null)
+    try {
+      const res = await fetch("/api/phone-contacts/enrich", { method: "POST" })
+      if (!res.ok) return
+      const data = await res.json()
+      setPhoneBookEnrichResult(data)
+    } finally {
+      setPhoneBookEnriching(false)
     }
   }
 
@@ -904,14 +920,41 @@ function SettingsPageInner() {
 
         <div className="px-6 py-5 space-y-4">
           {phoneBookResult && (
-            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
-              Imported {phoneBookResult.imported.toLocaleString()} of {phoneBookResult.total.toLocaleString()} contacts
-              {phoneBookResult.withPhotos > 0 ? ` · ${phoneBookResult.withPhotos} with photos` : ""}
-              {phoneBookResult.withBirthdays > 0 ? ` · ${phoneBookResult.withBirthdays} with birthdays` : ""}
+            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2 space-y-0.5">
+              <p>
+                Imported {phoneBookResult.imported.toLocaleString()} of {phoneBookResult.total.toLocaleString()} contacts
+                {phoneBookResult.withPhotos > 0 ? ` · ${phoneBookResult.withPhotos} with photos` : ""}
+                {phoneBookResult.withBirthdays > 0 ? ` · ${phoneBookResult.withBirthdays} with birthdays` : ""}
+              </p>
+              {phoneBookResult.enriched > 0 && (
+                <p className="text-teal-600">
+                  Enriched {phoneBookResult.enriched} contacts —
+                  {phoneBookResult.emails > 0 ? ` ${phoneBookResult.emails} emails` : ""}
+                  {phoneBookResult.phones > 0 ? ` ${phoneBookResult.phones} phones` : ""}
+                  {phoneBookResult.photos > 0 ? ` ${phoneBookResult.photos} photos` : ""}
+                  {phoneBookResult.linkedinUrls > 0 ? ` ${phoneBookResult.linkedinUrls} LinkedIn` : ""}
+                </p>
+              )}
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          {phoneBookEnrichResult && (
+            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
+              {phoneBookEnrichResult.enriched > 0 ? (
+                <>
+                  Enriched {phoneBookEnrichResult.enriched} contacts —
+                  {phoneBookEnrichResult.emails > 0 ? ` ${phoneBookEnrichResult.emails} emails` : ""}
+                  {phoneBookEnrichResult.phones > 0 ? ` ${phoneBookEnrichResult.phones} phones` : ""}
+                  {phoneBookEnrichResult.photos > 0 ? ` ${phoneBookEnrichResult.photos} photos` : ""}
+                  {phoneBookEnrichResult.linkedinUrls > 0 ? ` ${phoneBookEnrichResult.linkedinUrls} LinkedIn` : ""}
+                </>
+              ) : (
+                "All matching contacts are already up to date."
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 flex-wrap">
             <input
               ref={phoneBookRef}
               type="file"
@@ -921,12 +964,22 @@ function SettingsPageInner() {
             />
             <button
               onClick={() => phoneBookRef.current?.click()}
-              disabled={phoneBookImporting}
+              disabled={phoneBookImporting || phoneBookEnriching}
               className="flex items-center gap-2 text-sm bg-teal-600 text-white rounded-xl px-4 py-2 hover:bg-teal-700 disabled:opacity-50 transition-colors"
             >
               {phoneBookImporting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               {phoneBookImporting ? "Importing…" : "Import .vcf"}
             </button>
+            {phoneBookCount > 0 && (
+              <button
+                onClick={enrichFromPhoneBook}
+                disabled={phoneBookEnriching || phoneBookImporting}
+                className="flex items-center gap-2 text-sm border border-teal-300 text-teal-700 rounded-xl px-4 py-2 hover:bg-teal-50 disabled:opacity-50 transition-colors"
+              >
+                {phoneBookEnriching ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                {phoneBookEnriching ? "Enriching…" : "Enrich contacts"}
+              </button>
+            )}
           </div>
 
           <p className="text-xs text-gray-400">

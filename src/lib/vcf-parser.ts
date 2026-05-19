@@ -2,8 +2,9 @@ export type ParsedVcfContact = {
   fullName: string
   phone: string | null
   email: string | null
-  birthday: string | null  // "YYYY-MM-DD"
-  photoData: string | null // "data:image/jpeg;base64,..."
+  birthday: string | null   // "YYYY-MM-DD"
+  photoData: string | null  // "data:image/jpeg;base64,..."
+  linkedinUrl: string | null
 }
 
 export function parseVcf(text: string): ParsedVcfContact[] {
@@ -38,6 +39,7 @@ function parseVcard(lines: string[]): ParsedVcfContact | null {
   let email: string | null = null
   let birthday: string | null = null
   let photoData: string | null = null
+  let linkedinUrl: string | null = null
   let phonePriority = 0 // 0=none, 1=any TEL, 2=CELL/MOBILE
 
   for (const line of lines) {
@@ -74,11 +76,24 @@ function parseVcard(lines: string[]): ParsedVcfContact | null {
       if (value.length > 100) {
         photoData = `data:${mime};base64,${value.replace(/\s/g, "")}`
       }
+    } else if (propBase === "X-SOCIALPROFILE") {
+      // X-SOCIALPROFILE;type=linkedin:https://www.linkedin.com/in/username
+      if (/TYPE=LINKEDIN/i.test(prop) && !linkedinUrl) {
+        linkedinUrl = extractLinkedInUrl(value)
+      }
+    } else if (propBase === "URL") {
+      // URL:https://www.linkedin.com/in/username  or  URL;type=LinkedIn:...
+      if (!linkedinUrl) {
+        const isLinkedInTyped = /TYPE=LINKEDIN/i.test(prop)
+        if (isLinkedInTyped || value.toLowerCase().includes("linkedin.com/in/")) {
+          linkedinUrl = extractLinkedInUrl(value)
+        }
+      }
     }
   }
 
   if (!fullName || fullName.length < 1) return null
-  return { fullName, phone, email, birthday, photoData }
+  return { fullName, phone, email, birthday, photoData, linkedinUrl }
 }
 
 function decodeVcardText(value: string): string {
@@ -95,6 +110,15 @@ function normalizePhone(phone: string): string {
   // Keep leading + and digits
   const stripped = phone.replace(/[^\d+]/g, "")
   return stripped || phone.trim()
+}
+
+function extractLinkedInUrl(value: string): string | null {
+  const v = value.trim()
+  if (!v) return null
+  // Normalize to https://www.linkedin.com/in/... form
+  const match = v.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+  if (match) return `https://www.linkedin.com/in/${match[1]}`
+  return null
 }
 
 function parseBday(value: string): string | null {

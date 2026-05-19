@@ -316,13 +316,14 @@ model OutreachDraft {
 // ─── Phone / Address Book ─────────────────────────────────────────────────────
 
 model PhoneContact {
-  id        String  @id @default(cuid())
-  userId    String
-  fullName  String
-  phone     String?
-  email     String?
-  birthday  String?   // ISO date "YYYY-MM-DD"
-  photoData String?   @db.Text
+  id          String  @id @default(cuid())
+  userId      String
+  fullName    String
+  phone       String?
+  email       String?
+  birthday    String?   // ISO date "YYYY-MM-DD"
+  photoData   String?   @db.Text
+  linkedinUrl String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
