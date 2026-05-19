@@ -112,7 +112,7 @@ function extractContacts(db: SqlJs["Database"]["prototype"]): ParsedVcfContact[]
     // ZTHUMBNAILIMAGEDATA comes back as Uint8Array from sql.js
     const thumb = r.ZTHUMBNAILIMAGEDATA as Uint8Array | null
     const photoData = thumb && thumb.length > 100
-      ? `data:image/jpeg;base64,${uint8ToBase64(thumb)}`
+      ? `data:${detectMime(thumb)};base64,${uint8ToBase64(thumb)}`
       : null
 
     results.push({
@@ -127,8 +127,20 @@ function extractContacts(db: SqlJs["Database"]["prototype"]): ParsedVcfContact[]
   return results
 }
 
+// Detect image MIME type from magic bytes to avoid mislabeling HEIC/PNG as JPEG
+function detectMime(bytes: Uint8Array): string {
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg"
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png"
+  if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "image/heic"
+  return "image/jpeg" // safe fallback
+}
+
+// Chunked to avoid stack overflow on large blobs; no quality change (lossless encoding)
 function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192
   let binary = ""
-  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
   return btoa(binary)
 }
