@@ -255,32 +255,34 @@ function ContactsContent() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           {selectedIds.size > 0 && (
             <>
               <button
                 onClick={() => setLabelContacts(selectedContacts)}
-                className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+                className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
               >
                 <Tag size={14} />
-                Label {selectedIds.size}
+                <span className="hidden sm:inline">Label </span>{selectedIds.size}
               </button>
               <button
                 onClick={() => setAddToListContacts(selectedContacts)}
-                className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-xl transition-colors font-medium"
+                className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
               >
                 <ListPlus size={15} />
-                Add {selectedIds.size} to list
+                <span className="hidden sm:inline">Add {selectedIds.size} to list</span>
+                <span className="sm:hidden">{selectedIds.size}</span>
               </button>
             </>
           )}
 
           <a
             href="/enrich"
-            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium"
+            title="Enrich contacts"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
           >
             <Sparkles size={14} />
-            Enrich
+            <span className="hidden sm:inline">Enrich</span>
           </a>
 
           {/* Hidden file input for CSV import */}
@@ -295,28 +297,29 @@ function ContactsContent() {
             onClick={() => fileInputRef.current?.click()}
             disabled={importState.phase === "importing" || syncState.phase !== "idle"}
             title="Import Connections.csv from your LinkedIn data export"
-            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <Upload size={14} />
-            Import CSV
+            <span className="hidden sm:inline">Import CSV</span>
           </button>
 
           <button
             onClick={() => sync()}
             disabled={syncState.phase !== "idle" || importState.phase === "importing"}
             title="Quick sync: fetches connections from the last 30 days. Use 'Restart' for a full sync."
-            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
+            className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium disabled:opacity-50"
           >
             <RefreshCw size={14} className={syncState.phase !== "idle" ? "animate-spin" : ""} />
-            {syncState.phase === "idle" ? "Sync (30 days)" : "Syncing…"}
+            <span className="hidden sm:inline">{syncState.phase === "idle" ? "Sync (30 days)" : "Syncing…"}</span>
           </button>
 
           <a
             href="/api/auth/linkedin-connect"
-            className="flex items-center gap-1.5 text-sm text-white bg-[#0A66C2] hover:bg-[#004182] px-3 py-2 rounded-xl transition-colors font-medium"
+            title="Connect LinkedIn"
+            className="flex items-center gap-1.5 text-sm text-white bg-[#0A66C2] hover:bg-[#004182] px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
           >
             <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current shrink-0"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-            Connect LinkedIn
+            <span className="hidden sm:inline">Connect LinkedIn</span>
           </a>
         </div>
       </div>

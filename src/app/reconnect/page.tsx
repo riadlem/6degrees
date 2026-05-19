@@ -296,14 +296,14 @@ export default function ReconnectPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1.5 text-xs text-sky-600 border border-sky-200 rounded-lg px-2.5 py-1.5 hover:bg-sky-50 transition-colors opacity-0 group-hover:opacity-100"
+                        className="hidden sm:flex items-center gap-1.5 text-xs text-sky-600 border border-sky-200 rounded-lg px-2.5 py-1.5 hover:bg-sky-50 transition-colors sm:opacity-0 sm:group-hover:opacity-100"
                       >
                         <ExternalLink size={11} />
                         Search LinkedIn
                       </a>
                       <button
                         onClick={(e) => { e.stopPropagation(); markInvitationSent(contact.id) }}
-                        className="flex items-center gap-1.5 text-xs text-green-600 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors opacity-0 group-hover:opacity-100"
+                        className="hidden sm:flex items-center gap-1.5 text-xs text-green-600 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors sm:opacity-0 sm:group-hover:opacity-100"
                       >
                         <Check size={11} />
                         Invitation sent
@@ -314,7 +314,7 @@ export default function ReconnectPage() {
                       {contact.emailAddress && (
                         <button
                           onClick={() => setDraftContact(contact)}
-                          className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
+                          className="hidden sm:flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors sm:opacity-0 sm:group-hover:opacity-100"
                         >
                           <Mail size={11} />
                           Draft email
@@ -324,7 +324,7 @@ export default function ReconnectPage() {
                         value={contact.outreachStatus ?? "not_contacted"}
                         onChange={(e) => updateStatus(contact.id, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-600 opacity-0 group-hover:opacity-100"
+                        className="hidden sm:block text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-600 sm:opacity-0 sm:group-hover:opacity-100"
                       >
                         <option value="not_contacted">Not contacted</option>
                         <option value="drafted">Drafted</option>
@@ -336,11 +336,11 @@ export default function ReconnectPage() {
                     </>
                   )}
 
-                  {/* ··· more actions */}
+                  {/* ··· more actions — always visible on mobile, hover-only on desktop */}
                   <div className="relative">
                     <button
                       onClick={(e) => { e.stopPropagation(); setMoreOpenId(moreOpenId === contact.id ? null : contact.id) }}
-                      className="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
+                      className="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors sm:opacity-0 sm:group-hover:opacity-100"
                     >
                       <MoreHorizontal size={14} />
                     </button>
