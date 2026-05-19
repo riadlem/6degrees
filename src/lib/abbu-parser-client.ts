@@ -1,4 +1,5 @@
 import type { ParsedVcfContact } from "./vcf-parser"
+import { postDiagnostics } from "./abbu-parser-diag"
 
 type SqlJs = Awaited<ReturnType<typeof import("sql.js")["default"]>>
 // Minimal interface for a JSZip entry (avoids importing jszip types at module level)
@@ -129,6 +130,7 @@ async function extractContacts(
 
   if (!hasZabcdrecord) {
     const tableList = tables.length > 0 ? tables.join(", ") : "(none found)"
+    postDiagnostics({ event: "parse_error", tables, error: `ZABCDRECORD not found. Tables: ${tableList}` })
     throw new Error(
       `Database does not contain a ZABCDRECORD table.\n` +
       `Tables found: ${tableList}\n\n` +
@@ -162,10 +164,18 @@ async function extractContacts(
     try {
       records = queryRequired(db, `SELECT ${selectList} FROM ZABCDRECORD`)
     } catch (err2) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const err2Msg = err2 instanceof Error ? err2.message : String(err2)
+      postDiagnostics({
+        event: "parse_error",
+        tables,
+        zabcdrecordColumns: availableColumns,
+        error: `Query failed: ${errMsg} / fallback: ${err2Msg}`,
+      })
       throw new Error(
         `Failed to read contacts from ZABCDRECORD.\n` +
-        `Error: ${err instanceof Error ? err.message : String(err)}\n` +
-        `Fallback error: ${err2 instanceof Error ? err2.message : String(err2)}\n` +
+        `Error: ${errMsg}\n` +
+        `Fallback error: ${err2Msg}\n` +
         `Available columns: ${availableColumns.join(", ") || "(could not determine)"}`
       )
     }
@@ -245,6 +255,25 @@ async function extractContacts(
       linkedinUrl: linkedinMap.get(pk) ?? null,
     })
     resultPks.push(pk)
+  }
+
+  if (results.length === 0 && records.length > 0) {
+    // Records exist but all were filtered out (all had null/empty names)
+    postDiagnostics({
+      event: "zero_contacts",
+      tables,
+      zabcdrecordColumns: availableColumns,
+      zabcdrecordRowCount: records.length,
+      error: `${records.length} rows in ZABCDRECORD but all had empty/null names`,
+    })
+  } else if (results.length === 0) {
+    postDiagnostics({
+      event: "zero_contacts",
+      tables,
+      zabcdrecordColumns: availableColumns,
+      zabcdrecordRowCount: 0,
+      error: "ZABCDRECORD exists but returned 0 rows matching the WHERE clause",
+    })
   }
 
   const thumbCount = results.filter((r) => r.photoData).length
