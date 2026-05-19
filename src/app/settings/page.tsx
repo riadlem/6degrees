@@ -95,7 +95,7 @@ function SettingsPageInner() {
   const [phoneBookStatus, setPhoneBookStatus] = useState<string | null>(null)
   const [phoneBookError, setPhoneBookError] = useState<string | null>(null)
   const [phoneBookResult, setPhoneBookResult] = useState<{ imported: number; total: number; withPhotos: number; withBirthdays: number; enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
-  const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
+  const [phoneBookEnrichResult, setPhoneBookEnrichResult] = useState<{ enriched: number; matched: number; alreadyUpToDate: number; phones: number; emails: number; photos: number; linkedinUrls: number } | null>(null)
   const [phoneBookHowToOpen, setPhoneBookHowToOpen] = useState(false)
   const [phoneBookDiagRunning, setPhoneBookDiagRunning] = useState(false)
   const [phoneBookDiagSteps, setPhoneBookDiagSteps] = useState<{ label: string; ok: boolean; detail?: string }[] | null>(null)
@@ -1022,30 +1022,30 @@ function SettingsPageInner() {
                 {phoneBookResult.withPhotos > 0 ? ` · ${phoneBookResult.withPhotos} with photos` : ""}
                 {phoneBookResult.withBirthdays > 0 ? ` · ${phoneBookResult.withBirthdays} with birthdays` : ""}
               </p>
-              {phoneBookResult.enriched > 0 && (
+              {(phoneBookResult.enriched > 0 || (phoneBookResult as { matched?: number }).matched !== undefined) && (
                 <p className="text-teal-600">
-                  Enriched {phoneBookResult.enriched} contacts —
-                  {phoneBookResult.emails > 0 ? ` ${phoneBookResult.emails} emails` : ""}
-                  {phoneBookResult.phones > 0 ? ` ${phoneBookResult.phones} phones` : ""}
-                  {phoneBookResult.photos > 0 ? ` ${phoneBookResult.photos} photos` : ""}
-                  {phoneBookResult.linkedinUrls > 0 ? ` ${phoneBookResult.linkedinUrls} LinkedIn` : ""}
+                  {phoneBookResult.enriched > 0
+                    ? `Enriched ${phoneBookResult.enriched} contacts —${phoneBookResult.emails > 0 ? ` ${phoneBookResult.emails} emails` : ""}${phoneBookResult.phones > 0 ? ` ${phoneBookResult.phones} phones` : ""}${phoneBookResult.photos > 0 ? ` ${phoneBookResult.photos} photos` : ""}${phoneBookResult.linkedinUrls > 0 ? ` ${phoneBookResult.linkedinUrls} LinkedIn` : ""}`
+                    : `Matched ${(phoneBookResult as { matched?: number }).matched ?? 0} contacts — fields already populated`
+                  }
                 </p>
               )}
             </div>
           )}
 
           {phoneBookEnrichResult && (
-            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2">
+            <div className="text-xs text-teal-700 bg-teal-50 rounded-lg px-3 py-2 space-y-0.5">
               {phoneBookEnrichResult.enriched > 0 ? (
                 <>
-                  Enriched {phoneBookEnrichResult.enriched} contacts —
-                  {phoneBookEnrichResult.emails > 0 ? ` ${phoneBookEnrichResult.emails} emails` : ""}
-                  {phoneBookEnrichResult.phones > 0 ? ` ${phoneBookEnrichResult.phones} phones` : ""}
-                  {phoneBookEnrichResult.photos > 0 ? ` ${phoneBookEnrichResult.photos} photos` : ""}
-                  {phoneBookEnrichResult.linkedinUrls > 0 ? ` ${phoneBookEnrichResult.linkedinUrls} LinkedIn` : ""}
+                  <p>Enriched {phoneBookEnrichResult.enriched} contacts —{phoneBookEnrichResult.emails > 0 ? ` ${phoneBookEnrichResult.emails} emails` : ""}{phoneBookEnrichResult.phones > 0 ? ` ${phoneBookEnrichResult.phones} phones` : ""}{phoneBookEnrichResult.photos > 0 ? ` ${phoneBookEnrichResult.photos} photos` : ""}{phoneBookEnrichResult.linkedinUrls > 0 ? ` ${phoneBookEnrichResult.linkedinUrls} LinkedIn` : ""}</p>
+                  {phoneBookEnrichResult.alreadyUpToDate > 0 && (
+                    <p className="text-teal-500">{phoneBookEnrichResult.alreadyUpToDate} matched contacts already up to date</p>
+                  )}
                 </>
+              ) : phoneBookEnrichResult.matched > 0 ? (
+                <p>Matched {phoneBookEnrichResult.matched} contacts — all fields already populated</p>
               ) : (
-                "All matching contacts are already up to date."
+                <p className="text-amber-600">No address book contacts matched your LinkedIn contacts. Names or emails may differ between the two.</p>
               )}
             </div>
           )}
