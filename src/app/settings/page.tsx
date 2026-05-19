@@ -436,12 +436,20 @@ function SettingsPageInner() {
     formData.append("file", file)
     try {
       const res = await fetch("/api/phone-contacts/import", { method: "POST", body: formData })
-      const data = await res.json()
-      if (!res.ok) { setPhoneBookError(data.error ?? "Import failed"); return }
-      setPhoneBookResult(data)
-      setPhoneBookCount(data.count ?? data.imported)
-      setPhoneBookWithPhotos(data.withPhotos ?? 0)
-      setPhoneBookWithBirthdays(data.withBirthdays ?? 0)
+      let data: Record<string, unknown>
+      try {
+        data = await res.json()
+      } catch {
+        setPhoneBookError(`Upload failed (HTTP ${res.status}). The file may be too large — try a smaller export or upload the .abcddb file directly.`)
+        return
+      }
+      if (!res.ok) { setPhoneBookError((data.error as string) ?? "Import failed"); return }
+      setPhoneBookResult(data as Parameters<typeof setPhoneBookResult>[0])
+      setPhoneBookCount((data.count as number) ?? (data.imported as number))
+      setPhoneBookWithPhotos((data.withPhotos as number) ?? 0)
+      setPhoneBookWithBirthdays((data.withBirthdays as number) ?? 0)
+    } catch (err) {
+      setPhoneBookError(err instanceof Error ? err.message : "Upload failed")
     } finally {
       setPhoneBookImporting(false)
       if (phoneBookRef.current) phoneBookRef.current.value = ""
