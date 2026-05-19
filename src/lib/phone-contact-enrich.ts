@@ -187,7 +187,10 @@ export async function enrichContactsFromPhoneBook(
       emailIndex.set(e, contactId)
       updated = true
     }
-    if (pc.photoData && !contact.photoUrl) {
+    // Prefer a local data-URI over a remote URL: LinkedIn CDN URLs expire,
+    // phone-book data-URIs never do. Overwrite remote URLs with local photos.
+    const existingPhotoIsRemote = !!contact.photoUrl && !contact.photoUrl.startsWith("data:")
+    if (pc.photoData && (!contact.photoUrl || existingPhotoIsRemote)) {
       photoUpdates.push({ id: contactId, photo: pc.photoData })
       contact.photoUrl = pc.photoData
       updated = true
