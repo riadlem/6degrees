@@ -22,7 +22,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
     <div
       className={cn(
         "group flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition-colors",
-        selected ? "bg-blue-50" : "hover:bg-gray-50"
+        selected ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
       )}
       onClick={() => onClick?.(contact)}
     >

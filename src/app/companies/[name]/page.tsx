@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
+import BulkAssignPopover from "@/components/BulkAssignPopover"
 import Link from "next/link"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 
@@ -53,6 +54,8 @@ type ContactRow = {
   interactionScore: number | null
   outreachStatus: string | null
   profileUrl: string | null
+  country: string | null
+  industry: string | null
   labels: { label: { id: string; name: string; color: string } }[]
 }
 
@@ -240,6 +243,9 @@ export default function CompanyDetailPage() {
   const [allCompanies, setAllCompanies] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set())
+  const [contactSort, setContactSort] = useState<string>("score")  // default: by interaction score
+  const [contactFilter, setContactFilter] = useState<string>("")   // text filter on name/position/country/industry
 
   // Unmatched senders
   const [unmatched, setUnmatched] = useState<UnmatchedSender[]>([])
@@ -273,6 +279,53 @@ export default function CompanyDetailPage() {
   }, [companyName])
 
   useEffect(() => { if (status === "authenticated") load() }, [status, load])
+
+  const filteredContacts = contacts
+    .filter((c) => {
+      if (!contactFilter) return true
+      const q = contactFilter.toLowerCase()
+      return (
+        `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
+        (c.position ?? "").toLowerCase().includes(q) ||
+        (c.country ?? "").toLowerCase().includes(q) ||
+        (c.industry ?? "").toLowerCase().includes(q)
+      )
+    })
+    .sort((a, b) => {
+      if (contactSort === "name") return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)
+      if (contactSort === "name_desc") return `${b.firstName} ${b.lastName}`.localeCompare(`${a.firstName} ${a.lastName}`)
+      if (contactSort === "country") return (a.country ?? "").localeCompare(b.country ?? "")
+      if (contactSort === "industry") return (a.industry ?? "").localeCompare(b.industry ?? "")
+      if (contactSort === "position") return (a.position ?? "").localeCompare(b.position ?? "")
+      // default: score desc
+      return (b.interactionScore ?? 0) - (a.interactionScore ?? 0)
+    })
+
+  function toggleContactSelect(id: string) {
+    setSelectedContactIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function selectAllContacts() { setSelectedContactIds(new Set(filteredContacts.map(c => c.id))) }
+  function clearContactSelection() { setSelectedContactIds(new Set()) }
+
+  async function handleBulkAssign(field: "country" | "industry" | "note", value: string) {
+    const ids = [...selectedContactIds]
+    await fetch("/api/contacts/bulk", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, field, value }),
+    })
+    // Optimistically update local state for country/industry
+    if (field !== "note") {
+      setContacts((prev) => prev.map((c) =>
+        selectedContactIds.has(c.id) ? { ...c, [field]: value || null } : c
+      ))
+    }
+    clearContactSelection()
+  }
 
   async function loadUnmatched() {
     if (domains.length === 0) { setUnmatchedLoaded(true); return }
@@ -581,24 +634,93 @@ export default function CompanyDetailPage() {
 
       {/* Contacts */}
       <div className="bg-white border border-gray-200 rounded-2xl mb-6 overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-100 flex items-center gap-2">
-          <Users size={14} className="text-gray-400" />
-          <h2 className="font-semibold text-gray-800 text-sm">{company.count} contact{company.count !== 1 ? "s" : ""}</h2>
+        <div className="px-5 py-3 border-b border-gray-100 space-y-2">
+          {/* Title row */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Users size={14} className="text-gray-400" />
+              <h2 className="font-semibold text-gray-800 text-sm">{company.count} contact{company.count !== 1 ? "s" : ""}</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Sort select */}
+              <select
+                value={contactSort}
+                onChange={(e) => setContactSort(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="score">By score</option>
+                <option value="name">Name A–Z</option>
+                <option value="name_desc">Name Z–A</option>
+                <option value="country">Country A–Z</option>
+                <option value="industry">Industry A–Z</option>
+                <option value="position">Position A–Z</option>
+              </select>
+              {/* Select all / none */}
+              {selectedContactIds.size === 0 ? (
+                <button onClick={selectAllContacts} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                  Select all
+                </button>
+              ) : (
+                <button onClick={clearContactSelection} className="text-xs text-gray-500 hover:text-gray-700">
+                  Clear ({selectedContactIds.size})
+                </button>
+              )}
+            </div>
+          </div>
+          {/* Search/filter row */}
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Filter by name, role, country…"
+              value={contactFilter}
+              onChange={(e) => setContactFilter(e.target.value)}
+              className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+            />
+            {selectedContactIds.size > 0 && (
+              <BulkAssignPopover
+                count={selectedContactIds.size}
+                industries={[...new Set(contacts.map(c => c.industry).filter(Boolean))] as string[]}
+                onAssign={handleBulkAssign}
+              />
+            )}
+          </div>
         </div>
         {contacts.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">No contacts found</p>
+        ) : filteredContacts.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8">No contacts match your filter</p>
         ) : (
           <div className="divide-y divide-gray-50">
-            {contacts.map((c) => {
+            {filteredContacts.map((c) => {
               const inits = initials(c.firstName, c.lastName)
               const score = c.interactionScore ?? 0
               const scoreWidth = Math.min(100, score * 20)
               return (
                 <div
                   key={c.id}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors group"
+                  className={cn(
+                    "flex items-center gap-3 px-5 py-3 cursor-pointer transition-colors group",
+                    selectedContactIds.has(c.id) ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
+                  )}
                   onClick={() => setSelectedContactId(c.id)}
                 >
+                  {/* Checkbox */}
+                  <div
+                    className="shrink-0"
+                    onClick={(e) => { e.stopPropagation(); toggleContactSelect(c.id) }}
+                  >
+                    <div className={cn(
+                      "w-4 h-4 rounded border-2 flex items-center justify-center transition-colors",
+                      selectedContactIds.has(c.id) ? "bg-blue-600 border-blue-600" : "border-gray-300 hover:border-gray-400"
+                    )}>
+                      {selectedContactIds.has(c.id) && (
+                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                          <path d="M10 3L5 8.5 2 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Avatar */}
                   {c.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -613,6 +735,12 @@ export default function CompanyDetailPage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-gray-900 text-sm truncate">{c.firstName} {c.lastName}</p>
                     {c.position && <p className="text-xs text-gray-500 truncate">{c.position}</p>}
+                    {(c.country || c.industry) && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {c.country && <span className="text-[9px] bg-gray-100 text-gray-500 rounded px-1 py-0.5">{c.country}</span>}
+                        {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 mt-1">
                       <div className="w-16 h-1 bg-gray-100 rounded-full overflow-hidden">
                         <div className="h-full bg-blue-400 rounded-full" style={{ width: `${scoreWidth}%` }} />

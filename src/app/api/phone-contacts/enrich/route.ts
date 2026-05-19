@@ -4,20 +4,9 @@ import prisma from "@/lib/prisma"
 import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
 
 // Valid JPEG base64 always starts with /9j/ (0xFF 0xD8 0xFF).
-// Apple's ZTHUMBNAILIMAGEDATA prepends a 0x01 type byte, making base64
-// start with Af/Y or other non-/9j/ prefixes — browsers reject these.
+// Apple's ZTHUMBNAILIMAGEDATA prepends a 0x01 type byte, shifting the
+// base64 prefix to Af/Y. Fix by stripping byte 0 with a single SQL UPDATE.
 const VALID_JPEG_B64_PREFIX = "data:image/jpeg;base64,/9j/"
-
-// Try to repair a JPEG data-URI by stripping a leading garbage byte.
-// Returns the fixed data-URI if bytes[1..3] = FF D8 FF, otherwise null.
-function tryRepairJpeg(dataUri: string): string | null {
-  const b64 = dataUri.slice("data:image/jpeg;base64,".length)
-  const bytes = Buffer.from(b64, "base64")
-  if (bytes.length > 3 && bytes[1] === 0xff && bytes[2] === 0xd8 && bytes[3] === 0xff) {
-    return `data:image/jpeg;base64,${bytes.subarray(1).toString("base64")}`
-  }
-  return null
-}
 
 export async function POST(_req: Request) {
   const session = await getServerSession(authOptions)
@@ -37,49 +26,43 @@ export async function POST(_req: Request) {
   ])
 
   // ── Step 2: fix invalid JPEGs in Contact table ─────────────────────────────
-  // Any data:image/jpeg that doesn't start with the valid /9j/ prefix is corrupt.
-  const badJpegContacts = await prisma.contact.findMany({
-    where: {
-      userId,
-      photoUrl: { startsWith: "data:image/jpeg" },
-      NOT: { photoUrl: { startsWith: VALID_JPEG_B64_PREFIX } },
-    },
-    select: { id: true, photoUrl: true },
-  })
-  let photosFixed = 0
-  if (badJpegContacts.length > 0) {
-    await Promise.all(
-      badJpegContacts.map((c) => {
-        const fixed = tryRepairJpeg(c.photoUrl!)
-        photosFixed++
-        return prisma.contact.update({
-          where: { id: c.id },
-          data: { photoUrl: fixed }, // null clears unrecoverable photos
-        })
-      })
-    )
-  }
+  // Single SQL UPDATE — avoids N round trips that caused the previous
+  // Promise.all approach to time out for large contact lists.
+  // Postgres: decode base64 → strip byte 0 (the Apple 0x01 prefix) →
+  // re-encode to base64 → prepend the data-URI header.
+  // translate() removes the newlines that Postgres encode() inserts.
+  const photosFixed = await prisma.$executeRaw`
+    UPDATE "Contact"
+    SET "photoUrl" =
+      'data:image/jpeg;base64,' ||
+      translate(
+        encode(
+          substring(decode(substring("photoUrl" FROM 24), 'base64') FROM 2),
+          'base64'
+        ),
+        E'\n', ''
+      )
+    WHERE "userId" = ${userId}
+      AND "photoUrl" LIKE 'data:image/jpeg%'
+      AND "photoUrl" NOT LIKE ${VALID_JPEG_B64_PREFIX + "%"}
+  `
 
   // ── Step 3: fix invalid JPEGs in PhoneContact table ───────────────────────
-  const badJpegPhoneContacts = await prisma.phoneContact.findMany({
-    where: {
-      userId,
-      photoData: { startsWith: "data:image/jpeg" },
-      NOT: { photoData: { startsWith: VALID_JPEG_B64_PREFIX } },
-    },
-    select: { id: true, photoData: true },
-  })
-  if (badJpegPhoneContacts.length > 0) {
-    await Promise.all(
-      badJpegPhoneContacts.map((c) => {
-        const fixed = tryRepairJpeg(c.photoData!)
-        return prisma.phoneContact.update({
-          where: { id: c.id },
-          data: { photoData: fixed },
-        })
-      })
-    )
-  }
+  await prisma.$executeRaw`
+    UPDATE "PhoneContact"
+    SET "photoData" =
+      'data:image/jpeg;base64,' ||
+      translate(
+        encode(
+          substring(decode(substring("photoData" FROM 24), 'base64') FROM 2),
+          'base64'
+        ),
+        E'\n', ''
+      )
+    WHERE "userId" = ${userId}
+      AND "photoData" LIKE 'data:image/jpeg%'
+      AND "photoData" NOT LIKE ${VALID_JPEG_B64_PREFIX + "%"}
+  `
 
   const photosCleared = remoteCleared.count + heicCleared.count
 
