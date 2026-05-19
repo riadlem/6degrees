@@ -2,9 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseVcf, type ParsedVcfContact } from "@/lib/vcf-parser"
-import { parseAbcddb } from "@/lib/abbu-parser"
 import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
-import JSZip from "jszip"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -29,17 +27,6 @@ async function ensureTable() {
   await prisma.$executeRaw`ALTER TABLE "PhoneContact" ADD COLUMN IF NOT EXISTS "linkedinUrl" TEXT`.catch(() => {})
 }
 
-async function extractAbcddbFromZip(buffer: Buffer): Promise<Buffer> {
-  const zip = await JSZip.loadAsync(buffer)
-  let dbEntry: JSZip.JSZipObject | null = null
-  zip.forEach((relativePath, file) => {
-    if (!file.dir && relativePath.endsWith(".abcddb")) dbEntry = file
-  })
-  if (!dbEntry) throw new Error(
-    "No .abcddb file found inside the ZIP. Make sure you right-clicked the .abbu file and chose Compress."
-  )
-  return Buffer.from(await (dbEntry as JSZip.JSZipObject).async("arraybuffer"))
-}
 
 export async function GET(_req: Request) {
   const session = await getServerSession(authOptions)
@@ -63,34 +50,45 @@ export async function POST(req: Request) {
   await ensureTable()
 
   let contacts: ParsedVcfContact[]
-  let fileName = ""
-  try {
-    const formData = await req.formData()
-    const file = formData.get("file")
-    if (!file || typeof file === "string") {
-      return Response.json({ error: "No file uploaded" }, { status: 400 })
-    }
-    fileName = (file as File).name.toLowerCase()
 
-    if (fileName.endsWith(".zip")) {
-      const buf = Buffer.from(await (file as File).arrayBuffer())
-      const dbBuf = await extractAbcddbFromZip(buf)
-      contacts = parseAbcddb(dbBuf)
-    } else if (fileName.endsWith(".abcddb")) {
-      const buf = Buffer.from(await (file as File).arrayBuffer())
-      contacts = parseAbcddb(buf)
-    } else if (fileName.endsWith(".vcf") || fileName.endsWith(".vcard")) {
-      contacts = parseVcf(await (file as File).text())
-    } else if (fileName.endsWith(".abbu")) {
-      return Response.json({
-        error: "Upload a ZIP of your .abbu file instead:\n\n1. Find your .abbu file (or use File → Export → Address Book Archive… in Contacts.app)\n2. Right-click the .abbu file → Compress\n3. Upload the resulting .zip here",
-      }, { status: 400 })
-    } else {
-      return Response.json({ error: `Unsupported format. Please upload a .vcf, .zip (compressed .abbu), or .abcddb file.` }, { status: 400 })
+  const contentType = req.headers.get("content-type") ?? ""
+
+  if (contentType.includes("application/json")) {
+    // Pre-parsed contacts from client-side ABCDDB parsing (bypasses upload size limit)
+    try {
+      const body = await req.json()
+      contacts = body.contacts as ParsedVcfContact[]
+      if (!Array.isArray(contacts)) return Response.json({ error: "Invalid contacts payload" }, { status: 400 })
+    } catch {
+      return Response.json({ error: "Invalid JSON body" }, { status: 400 })
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Could not read uploaded file"
-    return Response.json({ error: msg }, { status: 400 })
+  } else {
+    let fileName = ""
+    try {
+      const formData = await req.formData()
+      const file = formData.get("file")
+      if (!file || typeof file === "string") {
+        return Response.json({ error: "No file uploaded" }, { status: 400 })
+      }
+      fileName = (file as File).name.toLowerCase()
+
+      if (fileName.endsWith(".vcf") || fileName.endsWith(".vcard")) {
+        contacts = parseVcf(await (file as File).text())
+      } else if (fileName.endsWith(".zip") || fileName.endsWith(".abcddb")) {
+        return Response.json({
+          error: "File too large to upload directly. It will be parsed in your browser instead — please try again.",
+        }, { status: 400 })
+      } else if (fileName.endsWith(".abbu")) {
+        return Response.json({
+          error: "Upload a ZIP of your .abbu file instead:\n\n1. Right-click the .abbu file → Compress\n2. Upload the resulting .zip here",
+        }, { status: 400 })
+      } else {
+        return Response.json({ error: `Unsupported format. Please upload a .vcf, .zip (compressed .abbu), or .abcddb file.` }, { status: 400 })
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not read uploaded file"
+      return Response.json({ error: msg }, { status: 400 })
+    }
   }
 
   if (contacts.length === 0) {
