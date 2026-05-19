@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseWhatsAppExport, extractChatName } from "@/lib/whatsapp-parser"
-import { matchChatNameToContact } from "@/lib/whatsapp-match"
+import { matchChatNameToContact, enrichContactFromPhoneBook } from "@/lib/whatsapp-match"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
@@ -64,7 +64,10 @@ export async function POST(req: Request) {
 
           const contactId = await matchChatNameToContact(userId, chatName)
           totalChats++
-          if (contactId) totalMatched++
+          if (contactId) {
+            totalMatched++
+            await enrichContactFromPhoneBook(userId, contactId, chatName)
+          }
 
           // Upsert messages in chunks of 200
           let synced = 0

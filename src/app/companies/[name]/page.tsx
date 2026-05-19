@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
-  ArrowLeft, Handshake, Globe, Building2, Users, Check, X, Pencil,
+  ArrowLeft, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
   ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
@@ -93,6 +93,7 @@ function EditableField({
   datalistId,
   icon: Icon,
   linkify,
+  href,
 }: {
   value: string | null
   placeholder: string
@@ -102,6 +103,7 @@ function EditableField({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   icon?: React.ComponentType<any>
   linkify?: boolean
+  href?: (v: string) => string
 }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState("")
@@ -142,6 +144,10 @@ function EditableField({
             className="text-sm text-blue-600 hover:underline flex-1 truncate flex items-center gap-1">
             {value} <ExternalLink size={11} />
           </a>
+        ) : href ? (
+          <Link href={href(value)} className="text-sm text-indigo-600 hover:underline flex-1 truncate">
+            {value}
+          </Link>
         ) : (
           <span className="text-sm text-gray-700 flex-1 truncate">{value}</span>
         )
@@ -171,6 +177,8 @@ export default function CompanyDetailPage() {
   const [inferredDomains, setInferredDomains] = useState<string[]>([])
   const [addingDomain, setAddingDomain] = useState(false)
   const [newDomain, setNewDomain] = useState("")
+  const [subsidiaries, setSubsidiaries] = useState<string[]>([])
+  const [allCompanies, setAllCompanies] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
 
@@ -197,6 +205,8 @@ export default function CompanyDetailPage() {
         setDomains(data.domains)
         setManualDomains(data.manualDomains ?? [])
         setInferredDomains(data.inferredDomains ?? [])
+        setSubsidiaries(data.subsidiaries ?? [])
+        setAllCompanies(data.allCompanies ?? [])
       }
     } finally {
       setLoading(false)
@@ -396,10 +406,29 @@ export default function CompanyDetailPage() {
             onSave={(v) => patch({ website: v })}
             linkify
           />
-          {company.parentCompany && (
-            <div className="flex items-center gap-2 text-sm text-indigo-600">
-              <span className="text-gray-400 text-xs">↳</span>
-              <span>{company.parentCompany}</span>
+          <EditableField
+            icon={Network}
+            value={company.parentCompany}
+            placeholder="Add parent company…"
+            onSave={(v) => patch({ parentCompany: v })}
+            datalist={allCompanies.filter((n) => n !== company.name)}
+            datalistId="parent-company-list"
+            href={(v) => `/companies/${encodeURIComponent(v)}`}
+          />
+          {subsidiaries.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Network size={14} className="text-gray-400 shrink-0 mt-1" />
+              <div className="flex flex-wrap gap-1.5 flex-1">
+                {subsidiaries.map((sub) => (
+                  <Link
+                    key={sub}
+                    href={`/companies/${encodeURIComponent(sub)}`}
+                    className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-full px-2.5 py-0.5 hover:bg-indigo-100 transition-colors"
+                  >
+                    {sub}
+                  </Link>
+                ))}
+              </div>
             </div>
           )}
 

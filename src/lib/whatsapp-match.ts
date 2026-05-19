@@ -4,7 +4,49 @@ export async function matchChatNameToContact(
   userId: string,
   chatName: string,
 ): Promise<string | null> {
-  const parts = chatName.trim().split(/\s+/)
+  // Step 1: direct name split match against Contact
+  const directId = await directNameMatch(userId, chatName)
+  if (directId) return directId
+
+  // Step 2: look up chatName in address book (PhoneContact)
+  let phoneContact: { fullName: string; email: string | null } | null = null
+  try {
+    phoneContact = await prisma.phoneContact.findFirst({
+      where: { userId, fullName: { equals: chatName, mode: "insensitive" } },
+      select: { fullName: true, email: true },
+    })
+  } catch { /* PhoneContact table may not exist yet */ }
+
+  if (!phoneContact) return null
+
+  // Step 3: email match — strongest signal
+  if (phoneContact.email) {
+    const normalEmail = phoneContact.email.toLowerCase().trim()
+
+    const emailAddr = await prisma.contactEmailAddress.findFirst({
+      where: { contact: { userId }, email: normalEmail },
+      select: { contactId: true },
+    })
+    if (emailAddr) return emailAddr.contactId
+
+    const direct = await prisma.contact.findFirst({
+      where: { userId, emailAddress: normalEmail },
+      select: { id: true },
+    })
+    if (direct) return direct.id
+  }
+
+  // Step 4: retry name match using canonical full name from address book
+  if (phoneContact.fullName.toLowerCase() !== chatName.toLowerCase()) {
+    const canonicalId = await directNameMatch(userId, phoneContact.fullName)
+    if (canonicalId) return canonicalId
+  }
+
+  return null
+}
+
+async function directNameMatch(userId: string, name: string): Promise<string | null> {
+  const parts = name.trim().split(/\s+/)
   if (parts.length < 2) return null
 
   const firstName = parts[0]
@@ -17,10 +59,30 @@ export async function matchChatNameToContact(
       lastName: { equals: lastName, mode: "insensitive" },
     },
     select: { id: true },
-    take: 3,
+    take: 2,
   })
 
-  // Only accept unambiguous single match
-  if (matches.length === 1) return matches[0].id
-  return null
+  return matches.length === 1 ? matches[0].id : null
+}
+
+export async function enrichContactFromPhoneBook(
+  userId: string,
+  contactId: string,
+  chatName: string,
+): Promise<void> {
+  let phoneContact: { photoData: string | null } | null = null
+  try {
+    phoneContact = await prisma.phoneContact.findFirst({
+      where: { userId, fullName: { equals: chatName, mode: "insensitive" } },
+      select: { photoData: true },
+    })
+  } catch { return }
+
+  if (!phoneContact?.photoData) return
+
+  // Only set photo if contact doesn't already have one
+  await prisma.contact.updateMany({
+    where: { id: contactId, photoUrl: null },
+    data: { photoUrl: phoneContact.photoData },
+  })
 }
