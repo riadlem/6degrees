@@ -101,6 +101,12 @@ function SettingsPageInner() {
   const [phoneBookDiagSteps, setPhoneBookDiagSteps] = useState<{ label: string; ok: boolean; detail?: string }[] | null>(null)
   const phoneBookRef = useRef<HTMLInputElement>(null)
 
+  const [coworkImporting, setCoworkImporting] = useState(false)
+  const [coworkResult, setCoworkResult] = useState<{ total: number; matched: number; updated: number; photos: number; notFound: string[] } | null>(null)
+  const [coworkError, setCoworkError] = useState<string | null>(null)
+  const coworkCsvRef = useRef<HTMLInputElement>(null)
+  const coworkPhotosRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
@@ -550,6 +556,30 @@ function SettingsPageInner() {
       setToken(d.token)
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  async function runCoworkImport() {
+    const csvFile = coworkCsvRef.current?.files?.[0]
+    const photosFile = coworkPhotosRef.current?.files?.[0]
+    if (!csvFile) { setCoworkError("Please select a CSV file."); return }
+    setCoworkImporting(true)
+    setCoworkResult(null)
+    setCoworkError(null)
+    try {
+      const fd = new FormData()
+      fd.append("csv", csvFile)
+      if (photosFile) fd.append("photos", photosFile)
+      const res = await fetch("/api/contacts/cowork-import", { method: "POST", body: fd })
+      const data = await res.json()
+      if (!res.ok) { setCoworkError(data.error ?? "Import failed"); return }
+      setCoworkResult(data)
+    } catch (err) {
+      setCoworkError(err instanceof Error ? err.message : "Import failed")
+    } finally {
+      setCoworkImporting(false)
+      if (coworkCsvRef.current) coworkCsvRef.current.value = ""
+      if (coworkPhotosRef.current) coworkPhotosRef.current.value = ""
     }
   }
 
@@ -1152,6 +1182,69 @@ function SettingsPageInner() {
               </ol>
               <p className="font-medium text-gray-700 pt-1">iPhone / iCloud.com</p>
               <p>iCloud.com → Contacts → ⌘A → gear icon → Export vCard → upload .vcf</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Cowork Import */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
+            <Upload size={18} className="text-orange-500" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">Cowork Import</h2>
+            <p className="text-xs text-gray-500">Upload photos and enriched data collected by Cowork</p>
+          </div>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">CSV file <span className="text-gray-400">(name, city, country, shared_contacts, title, linkedin_url, photo_filename)</span></label>
+              <input
+                ref={coworkCsvRef}
+                type="file"
+                accept=".csv"
+                className="block text-xs text-gray-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 transition-colors"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Photos ZIP <span className="text-gray-400">(optional — filenames must match photo_filename column)</span></label>
+              <input
+                ref={coworkPhotosRef}
+                type="file"
+                accept=".zip"
+                className="block text-xs text-gray-500 file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 transition-colors"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={runCoworkImport}
+            disabled={coworkImporting}
+            className="flex items-center gap-1.5 text-sm bg-orange-500 text-white rounded-lg px-4 py-2 hover:bg-orange-600 disabled:opacity-50 transition-colors"
+          >
+            {coworkImporting ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+            {coworkImporting ? "Importing…" : "Import"}
+          </button>
+
+          {coworkError && (
+            <p className="text-xs text-red-500">{coworkError}</p>
+          )}
+
+          {coworkResult && (
+            <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 space-y-1 text-xs">
+              <p className="font-semibold text-orange-800">Import complete</p>
+              <p className="text-gray-600">{coworkResult.matched} / {coworkResult.total} contacts matched · {coworkResult.updated} updated · {coworkResult.photos} photos saved</p>
+              {coworkResult.notFound.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-gray-400 cursor-pointer">{coworkResult.notFound.length} not found</summary>
+                  <ul className="mt-1 space-y-0.5 pl-3">
+                    {coworkResult.notFound.map((n) => <li key={n} className="text-gray-500">{n}</li>)}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
         </div>
