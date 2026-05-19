@@ -7,6 +7,7 @@ import {
   getGmailAccessToken,
   fetchMessageList,
   fetchMessageMetadata,
+  fetchMessageMinimal,
   fetchGmailProfile,
   fetchHistoryList,
   parseMessageHeaders,
@@ -85,6 +86,31 @@ export async function POST(req: Request) {
       }
 
       try {
+        // Bootstrap: if historyId is missing but emails are already indexed,
+        // recover the anchor from the newest indexed message (1 API call) rather than
+        // re-scanning thousands of messages. force=true bypasses this.
+        if (!gmailSync?.historyId && !force) {
+          const newestMsg = await prisma.emailMessage.findFirst({
+            where: { userId },
+            orderBy: { sentAt: "desc" },
+            select: { gmailId: true },
+          })
+          if (newestMsg) {
+            send({ type: "status", message: "Anchoring to existing index…" })
+            const msgData = await fetchMessageMinimal(token, newestMsg.gmailId)
+            if (msgData?.historyId) {
+              await prisma.gmailSync.upsert({
+                where: { userId },
+                update: { historyId: msgData.historyId },
+                create: { userId, historyId: msgData.historyId },
+              })
+              const indexed = await prisma.emailMessage.count({ where: { userId } })
+              send({ type: "done", mode: "bootstrapped", historyId: msgData.historyId, synced: 0, inserted: 0, failed: 0, scanned: 0, indexed })
+              return
+            }
+          }
+        }
+
         // Fetch user's own Gmail address and current historyId for outbound detection
         // and incremental sync anchoring. We snapshot historyId BEFORE fetching
         // message IDs so any messages that arrive during the sync are included in

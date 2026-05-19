@@ -56,9 +56,10 @@ export async function GET(req: Request) {
   const token = await tokenRes.json()
   const nowSec = Math.floor(Date.now() / 1000)
 
-  // Fetch Gmail address to use as providerAccountId
+  // Fetch Gmail address and current historyId to use as providerAccountId + incremental anchor
   const profile = await fetchGmailProfile(token.access_token)
   const gmailEmail = profile?.emailAddress ?? userId
+  const historyId = profile?.historyId ?? undefined
 
   await prisma.account.upsert({
     where: { provider_providerAccountId: { provider: "gmail", providerAccountId: gmailEmail } },
@@ -83,8 +84,8 @@ export async function GET(req: Request) {
 
   await prisma.gmailSync.upsert({
     where: { userId },
-    update: { gmailEmail },
-    create: { userId, gmailEmail },
+    update: { gmailEmail },               // never overwrite an existing historyId on reconnect
+    create: { userId, gmailEmail, historyId },  // anchor set on first connection
   })
 
   // Auto-register the connected address so outbound detection picks it up

@@ -75,6 +75,20 @@ export async function fetchMessageMetadata(
   return res.json()
 }
 
+export async function fetchMessageMinimal(
+  token: string,
+  msgId: string,
+): Promise<{ historyId: string } | null> {
+  const url = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}`)
+  url.searchParams.set("format", "minimal")
+  url.searchParams.set("fields", "historyId")
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) return null
+  return res.json()
+}
+
 export async function fetchGmailProfile(token: string): Promise<{ emailAddress: string; historyId?: string } | null> {
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
     headers: { Authorization: `Bearer ${token}` },
