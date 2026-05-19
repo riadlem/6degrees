@@ -146,11 +146,12 @@ export async function enrichContactsFromPhoneBook(
   }
 
   // ── Collect updates ────────────────────────────────────────────────────────
-  const phoneUpdates:   { id: string; phone: string }[] = []
-  const emailUpdates:   { id: string; email: string }[] = []
-  const photoUpdates:   { id: string; photo: string }[] = []
+  const phoneUpdates:    { id: string; phone: string }[] = []
+  const emailUpdates:    { id: string; email: string }[] = []
+  const photoUpdates:    { id: string; photo: string }[] = []
+  const clearPhotoUpdates: string[] = []
   const linkedinUpdates: { id: string; url: string }[] = []
-  const newEmailRows:   { contactId: string; email: string }[] = []
+  const newEmailRows:    { contactId: string; email: string }[] = []
   const seen = new Set<string>()
 
   let matched = 0
@@ -187,12 +188,21 @@ export async function enrichContactsFromPhoneBook(
       emailIndex.set(e, contactId)
       updated = true
     }
-    // Prefer a local data-URI over a remote URL: LinkedIn CDN URLs expire,
-    // phone-book data-URIs never do. Overwrite remote URLs with local photos.
-    const existingPhotoIsRemote = !!contact.photoUrl && !contact.photoUrl.startsWith("data:")
-    if (pc.photoData && (!contact.photoUrl || existingPhotoIsRemote)) {
-      photoUpdates.push({ id: contactId, photo: pc.photoData })
+    // Overwrite remote CDN URLs (expire) and unrenderable HEIC data-URIs with
+    // a renderable local photo. If source photo is also HEIC (or absent), clear
+    // a broken HEIC rather than leave an image that browsers can't display.
+    const isHeic = (url: string | null) => !!url?.startsWith("data:image/heic")
+    const existingIsBroken = !!contact.photoUrl && (
+      !contact.photoUrl.startsWith("data:") || isHeic(contact.photoUrl)
+    )
+    const newPhotoIsRenderable = !!pc.photoData && !isHeic(pc.photoData)
+    if (newPhotoIsRenderable && (!contact.photoUrl || existingIsBroken)) {
+      photoUpdates.push({ id: contactId, photo: pc.photoData! })
       contact.photoUrl = pc.photoData
+      updated = true
+    } else if (existingIsBroken && !newPhotoIsRenderable) {
+      clearPhotoUpdates.push(contactId)
+      contact.photoUrl = null
       updated = true
     }
     if (pc.linkedinUrl && !contact.profileUrl) {
@@ -211,10 +221,11 @@ export async function enrichContactsFromPhoneBook(
     }
   }
 
-  await applyBatch(phoneUpdates,    (u) => prisma.contact.update({ where: { id: u.id }, data: { phoneNumber: u.phone } }))
-  await applyBatch(emailUpdates,    (u) => prisma.contact.update({ where: { id: u.id }, data: { emailAddress: u.email } }))
-  await applyBatch(photoUpdates,    (u) => prisma.contact.update({ where: { id: u.id }, data: { photoUrl: u.photo } }))
-  await applyBatch(linkedinUpdates, (u) => prisma.contact.update({ where: { id: u.id }, data: { profileUrl: u.url } }))
+  await applyBatch(phoneUpdates,      (u) => prisma.contact.update({ where: { id: u.id }, data: { phoneNumber: u.phone } }))
+  await applyBatch(emailUpdates,      (u) => prisma.contact.update({ where: { id: u.id }, data: { emailAddress: u.email } }))
+  await applyBatch(photoUpdates,      (u) => prisma.contact.update({ where: { id: u.id }, data: { photoUrl: u.photo } }))
+  await applyBatch(clearPhotoUpdates, (id) => prisma.contact.update({ where: { id }, data: { photoUrl: null } }))
+  await applyBatch(linkedinUpdates,   (u) => prisma.contact.update({ where: { id: u.id }, data: { profileUrl: u.url } }))
   await applyBatch(newEmailRows,    (u) =>
     prisma.contactEmailAddress.upsert({
       where:  { contactId_email: { contactId: u.contactId, email: u.email } },
@@ -227,6 +238,7 @@ export async function enrichContactsFromPhoneBook(
     ...phoneUpdates.map((u) => u.id),
     ...emailUpdates.map((u) => u.id),
     ...photoUpdates.map((u) => u.id),
+    ...clearPhotoUpdates,
     ...linkedinUpdates.map((u) => u.id),
   ]).size
 
