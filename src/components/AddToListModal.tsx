@@ -18,12 +18,15 @@ type Contact = {
 }
 
 interface Props {
-  contacts: Contact[]   // one or many
+  // contactIds: the authoritative list of IDs to add — always use these for the API call
+  contactIds: string[]
+  // contacts: optional display data (used for title + alreadyInList check for single-contact case)
+  contacts?: Contact[]
   onClose: () => void
   onDone: () => void
 }
 
-export default function AddToListModal({ contacts, onClose, onDone }: Props) {
+export default function AddToListModal({ contactIds, contacts, onClose, onDone }: Props) {
   const [lists, setLists] = useState<ContactList[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -36,9 +39,11 @@ export default function AddToListModal({ contacts, onClose, onDone }: Props) {
       .then(setLists)
   }, [])
 
-  // Pre-select lists that already contain ALL the contacts
+  // Pre-select lists that already contain ALL the contacts (only reliable for single-contact)
   const alreadyInList = (listId: string) =>
-    contacts.every((c) => c.listMembers.some((m) => m.listId === listId))
+    contacts != null && contacts.length > 0
+      ? contacts.every((c) => c.listMembers.some((m) => m.listId === listId))
+      : false
 
   async function createList() {
     if (!newName.trim()) return
@@ -57,24 +62,27 @@ export default function AddToListModal({ contacts, onClose, onDone }: Props) {
   async function save() {
     if (selected.size === 0) return
     setSaving(true)
-    const contactIds = contacts.map((c) => c.id)
-    await Promise.all(
+    // Always use contactIds prop — it contains all IDs even when allContacts is paginated
+    const results = await Promise.all(
       [...selected].map((listId) =>
         fetch(`/api/lists/${listId}/members`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contactIds }),
-        })
+        }).then((r) => r.json())
       )
     )
     setSaving(false)
+    // Show integrity confirmation in console for debugging
+    const totalAdded = results.reduce((sum, r) => sum + (r.added ?? 0), 0)
+    console.log(`[AddToList] requested=${contactIds.length}, added=${totalAdded} across ${selected.size} list(s)`)
     onDone()
   }
 
   const title =
-    contacts.length === 1
+    contacts && contacts.length === 1
       ? `${contacts[0].firstName} ${contacts[0].lastName}`
-      : `${contacts.length} contacts`
+      : `${contactIds.length} contacts`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20">
