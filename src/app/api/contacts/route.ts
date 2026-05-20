@@ -219,3 +219,63 @@ export async function GET(request: Request) {
     },
   })
 }
+
+// POST: filter contacts to a specific set of IDs (used by segment builder display mode).
+// Avoids URL length limits of a GET with hundreds of IDs in query params.
+export async function POST(request: Request) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+  const userId = session.user.id
+
+  const body = await request.json() as { ids?: string[]; sort?: string; page?: number; limit?: number }
+  const { ids = [], sort = "name", page = 1, limit = 48 } = body
+
+  if (ids.length === 0) {
+    return Response.json({ contacts: [], total: 0, page: 1, pages: 0, filters: { industries: [], companies: [], locations: [], countries: [], labels: [] } })
+  }
+
+  const orderBy: Prisma.ContactOrderByWithRelationInput =
+    sort === "company"        ? { company: "asc" } :
+    sort === "connected"      ? { connectedOn: "desc" } :
+    sort === "connected_asc"  ? { connectedOn: "asc" } :
+    sort === "recent"         ? { syncedAt: "desc" } :
+    sort === "location"       ? { location: "asc" } :
+    sort === "mutual"         ? { commonConnections: "desc" } :
+    sort === "name_desc"      ? { lastName: "desc" } :
+    sort === "score"          ? { interactionScore: "desc" } :
+    sort === "country"        ? { country: "asc" } :
+    sort === "country_desc"   ? { country: "desc" } :
+    sort === "industry"       ? { industry: "asc" } :
+    sort === "industry_desc"  ? { industry: "desc" } :
+    { firstName: "asc" }
+
+  const where: Prisma.ContactWhereInput = {
+    userId,
+    id: { in: ids },
+    NOT: { firstName: "", lastName: "" },
+  }
+
+  const [contacts, total] = await Promise.all([
+    prisma.contact.findMany({
+      where,
+      orderBy,
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        notes: { orderBy: { createdAt: "desc" }, take: 1 },
+        listMembers: { select: { listId: true, list: { select: { name: true } } } },
+        labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+      },
+    }),
+    prisma.contact.count({ where }),
+  ])
+
+  // Return empty filter options in segment mode — filters panel is hidden
+  return Response.json({
+    contacts,
+    total,
+    page,
+    pages: Math.ceil(total / limit),
+    filters: { industries: [], companies: [], locations: [], countries: [], labels: [] },
+  })
+}

@@ -48,11 +48,22 @@ function ContactsContent() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [segmentOpen, setSegmentOpen] = useState(false)
+  const [segmentIds, setSegmentIds] = useState<string[] | null>(null)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
-  const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
+  // contactIds: authoritative IDs to add; contacts: optional display data (single-contact case)
+  const [addToListState, setAddToListState] = useState<{ contactIds: string[]; contacts?: ContactSummary[] } | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
 
-  function selectAll() { setSelectedIds(new Set(allContacts.map((c) => c.id))) }
+  function selectAll() {
+    // In segment mode select ALL segment IDs, not just the loaded page
+    if (segmentIds) setSelectedIds(new Set(segmentIds))
+    else setSelectedIds(new Set(allContacts.map((c) => c.id)))
+  }
+
+  function clearSegment() {
+    setSegmentIds(null)
+    setSelectedIds(new Set())
+  }
 
   async function handleBulkAssign(field: "country" | "industry" | "note", value: string) {
     const ids = [...selectedIds]
@@ -121,21 +132,33 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  const fetchPage = useCallback(async (f: FilterState, p: number, append: boolean) => {
+  const fetchPage = useCallback(async (f: FilterState, p: number, append: boolean, segIds?: string[] | null) => {
     if (!append) setLoading(true)
     else setLoadingMore(true)
     try {
-      const params = new URLSearchParams({
-        q: f.q, company: f.company, industry: f.industry,
-        location: f.location, position: f.position, label: f.label, sort: f.sort,
-        page: String(p), limit: "48",
-        preferredCompanies: f.preferredCompanies ? "true" : "false",
-        sector: f.sector, companyType: f.companyType, gmailMatched: f.gmailMatched,
-        country: f.country,
-      })
-      const res = await fetch(`/api/contacts?${params}`)
-      if (!res.ok) return
-      const data = await res.json()
+      let data
+      if (segIds && segIds.length > 0) {
+        // Segment mode: POST with explicit IDs to avoid URL length limits
+        const res = await fetch("/api/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: segIds, sort: f.sort, page: p, limit: 48 }),
+        })
+        if (!res.ok) return
+        data = await res.json()
+      } else {
+        const params = new URLSearchParams({
+          q: f.q, company: f.company, industry: f.industry,
+          location: f.location, position: f.position, label: f.label, sort: f.sort,
+          page: String(p), limit: "48",
+          preferredCompanies: f.preferredCompanies ? "true" : "false",
+          sector: f.sector, companyType: f.companyType, gmailMatched: f.gmailMatched,
+          country: f.country,
+        })
+        const res = await fetch(`/api/contacts?${params}`)
+        if (!res.ok) return
+        data = await res.json()
+      }
       setMeta({ total: data.total, pages: data.pages, filters: data.filters })
       if (append) {
         setAllContacts((prev) => [...prev, ...data.contacts])
@@ -149,20 +172,22 @@ function ContactsContent() {
     }
   }, [])
 
-  // Debounce filter changes → reset to page 1
+  // Debounce filter/segment changes → reset to page 1
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       setPage(1)
-      setSelectedIds(new Set())
-      fetchPage(filters, 1, false)
+      // Only clear selection on non-segment filter changes; segment mode manages its own selection
+      if (!segmentIds) setSelectedIds(new Set())
+      fetchPage(filters, 1, false, segmentIds)
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [filters, fetchPage])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, fetchPage, segmentIds])
 
   // Load next page when page increments beyond 1
   useEffect(() => {
-    if (page > 1) fetchPage(filters, page, true)
+    if (page > 1) fetchPage(filters, page, true, segmentIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page])
 
@@ -185,9 +210,9 @@ function ContactsContent() {
   // Refresh on sync progress / completion
   useEffect(() => {
     if (syncState.phase === "done") {
-      setPage(1); fetchPage(filters, 1, false)
+      setPage(1); fetchPage(filters, 1, false, segmentIds)
     } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
-      fetchPage(filters, 1, false)
+      fetchPage(filters, 1, false, segmentIds)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState])
@@ -266,7 +291,8 @@ function ContactsContent() {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
   }
 
-  const selectedContacts = allContacts.filter((c) => selectedIds.has(c.id))
+  // For display-only use cases (label modal); NOT used for add-to-list (would miss off-page contacts)
+  const selectedContactsOnPage = allContacts.filter((c) => selectedIds.has(c.id))
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
@@ -288,14 +314,14 @@ function ContactsContent() {
                 onAssign={handleBulkAssign}
               />
               <button
-                onClick={() => setLabelContacts(selectedContacts)}
+                onClick={() => setLabelContacts(selectedContactsOnPage)}
                 className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
               >
                 <Tag size={14} />
                 <span className="hidden sm:inline">Label </span>{selectedIds.size}
               </button>
               <button
-                onClick={() => setAddToListContacts(selectedContacts)}
+                onClick={() => setAddToListState({ contactIds: [...selectedIds] })}
                 className="flex items-center gap-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
               >
                 <ListPlus size={15} />
@@ -467,11 +493,30 @@ function ContactsContent() {
         <div className="mb-4">
           <SegmentBuilder
             onSelect={(ids) => {
+              setSegmentIds(ids)
               setSelectedIds(new Set(ids))
               setSegmentOpen(false)
             }}
             onClose={() => setSegmentOpen(false)}
           />
+        </div>
+      )}
+
+      {/* Segment active banner */}
+      {segmentIds && !segmentOpen && (
+        <div className="mb-4 flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm">
+          <span className="text-blue-800 font-medium">
+            Segment active — showing <span className="font-bold">{meta?.total ?? segmentIds.length}</span> of {segmentIds.length} matched contacts
+            {meta && meta.total !== segmentIds.length && (
+              <span className="text-blue-500 font-normal ml-1">(some may have been filtered by sort or deduplication)</span>
+            )}
+          </span>
+          <button
+            onClick={clearSegment}
+            className="text-blue-600 hover:text-blue-800 font-semibold text-xs ml-4 shrink-0"
+          >
+            Clear segment
+          </button>
         </div>
       )}
 
@@ -495,7 +540,10 @@ function ContactsContent() {
             onClick={selectAll}
             className="text-xs text-blue-600 hover:text-blue-700 font-medium"
           >
-            Select all {allContacts.length}{meta && meta.total > allContacts.length ? ` of ${meta.total}` : ""}
+            {segmentIds
+              ? `Select all ${segmentIds.length} segment contacts`
+              : `Select all ${allContacts.length}${meta && meta.total > allContacts.length ? ` of ${meta.total}` : ""}`
+            }
           </button>
           {selectedIds.size > 0 && (
             <>
@@ -543,7 +591,7 @@ function ContactsContent() {
               selected={selectedIds.has(contact.id)}
               onSelect={toggleSelect}
               onClick={(c) => setActiveContactId(c.id)}
-              onAddToList={(c) => setAddToListContacts([c])}
+              onAddToList={(c) => setAddToListState({ contactIds: [c.id], contacts: [c] })}
             />
           ))}
         </div>
@@ -570,7 +618,7 @@ function ContactsContent() {
                     selected={selectedIds.has(contact.id)}
                     onSelect={toggleSelect}
                     onClick={(c) => setActiveContactId(c.id)}
-                    onAddToList={(c) => setAddToListContacts([c])}
+                    onAddToList={(c) => setAddToListState({ contactIds: [c.id], contacts: [c] })}
                   />
                 </div>
               )
@@ -594,11 +642,12 @@ function ContactsContent() {
       />
 
       {/* Add to list modal */}
-      {addToListContacts && (
+      {addToListState && (
         <AddToListModal
-          contacts={addToListContacts}
-          onClose={() => { setAddToListContacts(null); setSelectedIds(new Set()) }}
-          onDone={() => { setAddToListContacts(null); setSelectedIds(new Set()); fetchPage(filters, 1, false) }}
+          contactIds={addToListState.contactIds}
+          contacts={addToListState.contacts}
+          onClose={() => { setAddToListState(null); setSelectedIds(new Set()) }}
+          onDone={() => { setAddToListState(null); setSelectedIds(new Set()); fetchPage(filters, 1, false, segmentIds) }}
         />
       )}
 

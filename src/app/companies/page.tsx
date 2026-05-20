@@ -1063,6 +1063,7 @@ export default function CompaniesPage() {
       <ContactDetail contactId={activeContactId} onClose={() => setActiveContactId(null)} />
       {addToListContacts && (
         <AddToListModal
+          contactIds={addToListContacts.map((c) => c.id)}
           contacts={addToListContacts}
           onClose={() => setAddToListContacts(null)}
           onDone={() => { setAddToListContacts(null) }}
