@@ -567,13 +567,70 @@ function SettingsPageInner() {
     setCoworkResult(null)
     setCoworkError(null)
     try {
-      const fd = new FormData()
-      fd.append("csv", csvFile)
-      if (photosFile) fd.append("photos", photosFile)
-      const res = await fetch("/api/contacts/cowork-import", { method: "POST", body: fd })
-      const data = await res.json()
-      if (!res.ok) { setCoworkError(data.error ?? "Import failed"); return }
-      setCoworkResult(data)
+      // Parse CSV in browser
+      const csvText = await csvFile.text()
+      const lines = csvText.split(/\r?\n/).filter((l) => l.trim())
+      if (lines.length < 2) { setCoworkError("CSV has no data rows"); return }
+
+      function parseLine(line: string): string[] {
+        const fields: string[] = []
+        let cur = "", inQ = false
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i]
+          if (ch === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++ } else inQ = !inQ }
+          else if (ch === ',' && !inQ) { fields.push(cur.trim()); cur = "" }
+          else cur += ch
+        }
+        fields.push(cur.trim())
+        return fields
+      }
+
+      const headers = parseLine(lines[0])
+      const rows = lines.slice(1).map((line) => {
+        const vals = parseLine(line)
+        return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? ""])) as Record<string, string>
+      })
+
+      // Extract photos from ZIP in browser
+      const photoMap = new Map<string, string>() // filename → data-URI
+      if (photosFile) {
+        const JSZip = (await import("jszip")).default
+        const zip = await JSZip.loadAsync(await photosFile.arrayBuffer())
+        const loads: Promise<void>[] = []
+        zip.forEach((path, entry) => {
+          if (entry.dir) return
+          const filename = path.split("/").pop()!
+          loads.push(
+            entry.async("uint8array").then((u8) => {
+              let mime = "image/jpeg"
+              if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
+              else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
+              const b64 = btoa(String.fromCharCode(...u8))
+              photoMap.set(filename, `data:${mime};base64,${b64}`)
+            })
+          )
+        })
+        await Promise.all(loads)
+      }
+
+      // Attach photoData to each row
+      const enrichedRows = rows.map((row) => ({
+        ...row,
+        photoData: row.photo_filename ? photoMap.get(row.photo_filename) : undefined,
+      }))
+
+      const res = await fetch("/api/contacts/cowork-import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: enrichedRows }),
+      })
+      let data: Record<string, unknown>
+      try { data = await res.json() } catch {
+        setCoworkError(`Server error (HTTP ${res.status})`)
+        return
+      }
+      if (!res.ok) { setCoworkError((data.error as string) ?? "Import failed"); return }
+      setCoworkResult(data as Parameters<typeof setCoworkResult>[0])
     } catch (err) {
       setCoworkError(err instanceof Error ? err.message : "Import failed")
     } finally {
