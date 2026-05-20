@@ -116,7 +116,10 @@ export async function POST(req: Request) {
       const rows = await prisma.$queryRaw<{ company: string }[]>(
         Prisma.sql`
           SELECT "company" FROM "Contact"
-          WHERE "userId" = ${userId} AND "company" IS NOT NULL
+          WHERE "userId" = ${userId}
+            AND "company" IS NOT NULL
+            AND "firstName" != ''
+            AND "lastName" != ''
           GROUP BY "company"
           HAVING COUNT(*) ${Prisma.raw(op)} ${n}
         `

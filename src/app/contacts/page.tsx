@@ -505,33 +505,64 @@ function ContactsContent() {
       {/* Segment active banner */}
       {segmentIds && !segmentOpen && (
         <div className="mb-4 flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm">
-          <span className="text-blue-800 font-medium">
-            Segment active — showing <span className="font-bold">{meta?.total ?? segmentIds.length}</span> of {segmentIds.length} matched contacts
-            {meta && meta.total !== segmentIds.length && (
-              <span className="text-blue-500 font-normal ml-1">(some may have been filtered by sort or deduplication)</span>
-            )}
+          <span className="text-blue-800 font-medium flex items-center gap-2 min-w-0">
+            <span className="shrink-0">Segment:</span>
+            <span className="font-bold shrink-0">{segmentIds.length}</span>
+            <span className="text-blue-600 shrink-0">contacts matched</span>
           </span>
           <button
             onClick={clearSegment}
             className="text-blue-600 hover:text-blue-800 font-semibold text-xs ml-4 shrink-0"
           >
-            Clear segment
+            ✕ Clear
           </button>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="mb-5">
-        <ContactFilters
-          filters={filters}
-          options={meta?.filters ?? { industries: [], companies: [], locations: [], countries: [], labels: [] }}
-          total={meta?.total ?? 0}
-          view={view}
-          onViewChange={handleViewChange}
-          onChange={handleFilterChange}
-          onReset={handleReset}
-        />
-      </div>
+      {/* Filters — hidden in segment mode (filters are inactive there; only sort applies) */}
+      {segmentIds ? (
+        <div className="mb-5 flex items-center gap-3">
+          <span className="text-sm text-gray-500">
+            <span className="font-semibold text-gray-900">{meta?.total ?? segmentIds.length}</span> contact{(meta?.total ?? segmentIds.length) !== 1 ? "s" : ""}
+          </span>
+          <select
+            value={filters.sort}
+            onChange={(e) => handleFilterChange({ sort: e.target.value })}
+            className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-600"
+          >
+            {[
+              { value: "name",          label: "Name A–Z" },
+              { value: "name_desc",     label: "Name Z–A" },
+              { value: "company",       label: "Company A–Z" },
+              { value: "connected",     label: "Recently connected" },
+              { value: "mutual",        label: "Most connections" },
+              { value: "score",         label: "Interaction score" },
+            ].map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button onClick={() => handleViewChange("grid")} className={cn("px-2.5 py-1.5 transition-colors", view === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")} title="Grid">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/></svg>
+            </button>
+            <button onClick={() => handleViewChange("list")} className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")} title="List">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="6" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="10" width="12" height="2" rx="1" fill="currentColor"/></svg>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-5">
+          <ContactFilters
+            filters={filters}
+            options={meta?.filters ?? { industries: [], companies: [], locations: [], countries: [], labels: [] }}
+            total={meta?.total ?? 0}
+            view={view}
+            onViewChange={handleViewChange}
+            onChange={handleFilterChange}
+            onReset={handleReset}
+          />
+        </div>
+      )}
 
       {/* Bulk select bar */}
       <div className="flex items-center justify-between mb-4 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm">
