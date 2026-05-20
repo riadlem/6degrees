@@ -47,7 +47,7 @@ const SORT_OPTIONS = [
   { value: "company",       label: "Company A–Z" },
   { value: "connected",     label: "Recently connected" },
   { value: "connected_asc", label: "Oldest connection" },
-  { value: "mutual",        label: "Most mutual" },
+  { value: "mutual",        label: "Most connections" },
   { value: "recent",        label: "Recently synced" },
   { value: "location",      label: "Location A–Z" },
   { value: "score",         label: "Interaction score" },

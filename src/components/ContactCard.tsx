@@ -87,10 +87,10 @@ export default function ContactCard({
               <img
                 src={contact.photoUrl}
                 alt={fullName}
-                className="w-11 h-11 rounded-full object-cover border border-gray-100"
+                className="w-14 h-14 rounded-full object-cover border border-gray-100"
               />
             ) : (
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-semibold">
+              <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-semibold">
                 {inits}
               </div>
             )}

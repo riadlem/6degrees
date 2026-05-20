@@ -49,9 +49,9 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       <div className="shrink-0">
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={contact.photoUrl} alt={fullName} className="w-8 h-8 rounded-full object-cover" />
+          <img src={contact.photoUrl} alt={fullName} className="w-10 h-10 rounded-full object-cover" />
         ) : (
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold shrink-0">
             {inits}
           </div>
         )}
