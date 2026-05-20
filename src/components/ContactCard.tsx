@@ -18,6 +18,7 @@ export type ContactSummary = {
   commonConnections: number | null
   connectedOn: string | null
   outreachStatus: string | null
+  coworkEnrichedAt: string | null
   notes: { id: string }[]
   listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]

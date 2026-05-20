@@ -87,11 +87,10 @@ export async function POST(req: Request) {
     }
     if (row.linkedin_url)  data.profileUrl = row.linkedin_url
     if (row.photoData)     { data.photoUrl = row.photoData; photos++ }
+    data.coworkEnrichedAt = new Date()
 
-    if (Object.keys(data).length > 0) {
-      await prisma.contact.updateMany({ where: { id: contact.id, userId }, data })
-      updated++
-    }
+    await prisma.contact.updateMany({ where: { id: contact.id, userId }, data })
+    updated++
   }
 
   return Response.json({ total: rows.length, matched, updated, photos, notFound })

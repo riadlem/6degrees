@@ -1,6 +1,6 @@
 "use client"
 
-import { StickyNote, Plus, Mail } from "lucide-react"
+import { StickyNote, Plus, Mail, Sparkles } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
@@ -101,6 +101,11 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
             {contact.listMembers.length === 1
               ? contact.listMembers[0].list.name
               : `${contact.listMembers.length} lists`}
+          </span>
+        )}
+        {contact.coworkEnrichedAt && (
+          <span title={`Cowork enriched ${formatDate(contact.coworkEnrichedAt)}`} className="text-xs text-purple-500 bg-purple-50 rounded-full px-1.5 py-0.5 shrink-0">
+            <Sparkles size={10} className="inline" />
           </span>
         )}
         {contact.notes.length > 0 && (

@@ -605,7 +605,13 @@ function SettingsPageInner() {
               let mime = "image/jpeg"
               if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
               else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
-              const b64 = btoa(String.fromCharCode(...u8))
+              // Chunk to avoid "Maximum call stack size exceeded" on large arrays
+              let binary = ""
+              const CHUNK = 8192
+              for (let j = 0; j < u8.length; j += CHUNK) {
+                binary += String.fromCharCode(...u8.subarray(j, j + CHUNK))
+              }
+              const b64 = btoa(binary)
               photoMap.set(filename, `data:${mime};base64,${b64}`)
             })
           )
