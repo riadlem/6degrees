@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
@@ -11,6 +12,7 @@ import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
 import ManageLabelsModal from "@/components/ManageLabelsModal"
+import SegmentBuilder from "@/components/SegmentBuilder"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
@@ -45,6 +47,7 @@ function ContactsContent() {
   const [view, setView] = useState<"grid" | "list">("grid")
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [segmentOpen, setSegmentOpen] = useState(false)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
@@ -302,6 +305,20 @@ function ContactsContent() {
             </>
           )}
 
+          <button
+            onClick={() => setSegmentOpen((o) => !o)}
+            title="Build a dynamic segment"
+            className={cn(
+              "flex items-center gap-1.5 text-sm border px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium",
+              segmentOpen
+                ? "bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                : "text-gray-700 border-gray-200 bg-white hover:bg-gray-50"
+            )}
+          >
+            <Wand2 size={14} />
+            <span className="hidden sm:inline">Segment</span>
+          </button>
+
           <a
             href="/enrich"
             title="Enrich contacts"
@@ -442,6 +459,19 @@ function ContactsContent() {
               />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Segment builder */}
+      {segmentOpen && (
+        <div className="mb-4">
+          <SegmentBuilder
+            onSelect={(ids) => {
+              setSelectedIds(new Set(ids))
+              setSegmentOpen(false)
+            }}
+            onClose={() => setSegmentOpen(false)}
+          />
         </div>
       )}
 
