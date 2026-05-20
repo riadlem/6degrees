@@ -16,9 +16,23 @@ export async function POST(
   })
   if (!contact) return new Response("Not found", { status: 404 })
 
-  const body = await req.json() as { url?: string }
+  const body = await req.json() as { url?: string; data?: string }
+
+  // Accept a pre-built data URI directly (used by bulk import)
+  if (body.data) {
+    const data = body.data.trim()
+    if (!data.startsWith("data:image/")) {
+      return Response.json({ error: "data must be a data:image/… URI" }, { status: 400 })
+    }
+    await prisma.contact.update({
+      where: { id: params.id },
+      data: { photoUrl: data, coworkEnrichedAt: new Date() },
+    })
+    return Response.json({ ok: true })
+  }
+
   const url = body.url?.trim()
-  if (!url) return Response.json({ error: "url is required" }, { status: 400 })
+  if (!url) return Response.json({ error: "url or data is required" }, { status: 400 })
 
   // Validate it looks like a URL before fetching
   let parsedUrl: URL

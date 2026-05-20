@@ -8,10 +8,8 @@ type CoworkRow = {
   country?: string
   shared_contacts?: string
   title?: string
-  company?: string
   linkedin_url?: string
   photo_filename?: string
-  photoData?: string   // base64 data-URI, pre-processed client-side
 }
 
 function linkedinSlug(url: string): string | null {
@@ -30,14 +28,13 @@ export async function POST(req: Request) {
 
   let matched = 0
   let updated = 0
-  let photos = 0
   const notFound: string[] = []
+  const matches: { contactId: string; photoFilename: string }[] = []
 
   for (const row of rows) {
     const slug = linkedinSlug(row.linkedin_url ?? "")
 
     let contact: { id: string } | null = null
-
     if (slug) {
       contact = await prisma.contact.findFirst({
         where: { userId, linkedinKey: { contains: slug, mode: "insensitive" } },
@@ -50,7 +47,6 @@ export async function POST(req: Request) {
         })
       }
     }
-
     if (!contact && row.name) {
       const parts = row.name.trim().split(" ")
       const firstName = parts[0]
@@ -74,24 +70,21 @@ export async function POST(req: Request) {
 
     matched++
 
-    const data: Record<string, unknown> = {}
-    if (row.city)          data.city = row.city
-    if (row.country)       data.country = row.country
-    if (row.shared_contacts) {
-      const n = parseInt(row.shared_contacts, 10)
-      if (!isNaN(n)) data.commonConnections = n
-    }
-    if (row.title) {
-      data.headline = row.title
-      if (row.title.length <= 80) data.position = row.title
-    }
-    if (row.linkedin_url)  data.profileUrl = row.linkedin_url
-    if (row.photoData)     { data.photoUrl = row.photoData; photos++ }
-    data.coworkEnrichedAt = new Date()
+    const data: Record<string, unknown> = { coworkEnrichedAt: new Date() }
+    if (row.city)            data.city = row.city
+    if (row.country)         data.country = row.country
+    if (row.shared_contacts) { const n = parseInt(row.shared_contacts, 10); if (!isNaN(n)) data.commonConnections = n }
+    if (row.title)           { data.headline = row.title; if (row.title.length <= 80) data.position = row.title }
+    if (row.linkedin_url)    data.profileUrl = row.linkedin_url
 
     await prisma.contact.updateMany({ where: { id: contact.id, userId }, data })
     updated++
+
+    // Return photo pairing so client can upload each photo individually
+    if (row.photo_filename) {
+      matches.push({ contactId: contact.id, photoFilename: row.photo_filename })
+    }
   }
 
-  return Response.json({ total: rows.length, matched, updated, photos, notFound })
+  return Response.json({ total: rows.length, matched, updated, notFound, matches })
 }

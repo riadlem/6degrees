@@ -567,7 +567,7 @@ function SettingsPageInner() {
     setCoworkResult(null)
     setCoworkError(null)
     try {
-      // Parse CSV in browser
+      // ── Step 1: parse CSV in browser ──────────────────────────────────────
       const csvText = await csvFile.text()
       const lines = csvText.split(/\r?\n/).filter((l) => l.trim())
       if (lines.length < 2) { setCoworkError("CSV has no data rows"); return }
@@ -591,52 +591,51 @@ function SettingsPageInner() {
         return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? ""])) as Record<string, string>
       })
 
-      // Extract photos from ZIP in browser
-      const photoMap = new Map<string, string>() // filename → data-URI
-      if (photosFile) {
-        const JSZip = (await import("jszip")).default
-        const zip = await JSZip.loadAsync(await photosFile.arrayBuffer())
-        const loads: Promise<void>[] = []
-        zip.forEach((path, entry) => {
-          if (entry.dir) return
-          const filename = path.split("/").pop()!
-          loads.push(
-            entry.async("uint8array").then((u8) => {
-              let mime = "image/jpeg"
-              if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
-              else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
-              // Chunk to avoid "Maximum call stack size exceeded" on large arrays
-              let binary = ""
-              const CHUNK = 8192
-              for (let j = 0; j < u8.length; j += CHUNK) {
-                binary += String.fromCharCode(...u8.subarray(j, j + CHUNK))
-              }
-              const b64 = btoa(binary)
-              photoMap.set(filename, `data:${mime};base64,${b64}`)
-            })
-          )
-        })
-        await Promise.all(loads)
-      }
-
-      // Attach photoData to each row
-      const enrichedRows = rows.map((row) => ({
-        ...row,
-        photoData: row.photo_filename ? photoMap.get(row.photo_filename) : undefined,
-      }))
-
+      // ── Step 2: POST metadata only (no photos) → get matched contact IDs ─
       const res = await fetch("/api/contacts/cowork-import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: enrichedRows }),
+        body: JSON.stringify({ rows }),
       })
-      let data: Record<string, unknown>
+      let data: { total: number; matched: number; updated: number; notFound: string[]; matches: { contactId: string; photoFilename: string }[] }
       try { data = await res.json() } catch {
-        setCoworkError(`Server error (HTTP ${res.status})`)
-        return
+        setCoworkError(`Server error (HTTP ${res.status})`); return
       }
-      if (!res.ok) { setCoworkError((data.error as string) ?? "Import failed"); return }
-      setCoworkResult(data as Parameters<typeof setCoworkResult>[0])
+      if (!res.ok) { setCoworkError((data as unknown as { error: string }).error ?? "Import failed"); return }
+
+      // ── Step 3: upload each photo individually (~50–200 KB each) ─────────
+      let photos = 0
+      if (photosFile && data.matches.length > 0) {
+        const JSZip = (await import("jszip")).default
+        const zip = await JSZip.loadAsync(await photosFile.arrayBuffer())
+
+        for (const { contactId, photoFilename } of data.matches) {
+          const entry = zip.file(photoFilename) ??
+            zip.file([...Object.keys(zip.files)].find((p) => p.endsWith(photoFilename) || p.split("/").pop() === photoFilename) ?? "")
+          if (!entry) continue
+
+          const u8 = await entry.async("uint8array")
+          let mime = "image/jpeg"
+          if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
+          else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
+
+          let binary = ""
+          const CHUNK = 8192
+          for (let j = 0; j < u8.length; j += CHUNK) {
+            binary += String.fromCharCode(...u8.subarray(j, j + CHUNK))
+          }
+          const dataUri = `data:${mime};base64,${btoa(binary)}`
+
+          const photoRes = await fetch(`/api/contacts/${contactId}/photo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: dataUri }),
+          })
+          if (photoRes.ok) photos++
+        }
+      }
+
+      setCoworkResult({ total: data.total, matched: data.matched, updated: data.updated, photos, notFound: data.notFound })
     } catch (err) {
       setCoworkError(err instanceof Error ? err.message : "Import failed")
     } finally {
