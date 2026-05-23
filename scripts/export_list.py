@@ -19,7 +19,7 @@ Output:
     output/<listId>/contacts.csv
     output/<listId>/photos/NNN_FirstLast.jpg
 
-CSV columns: name, city, country, shared_contacts, title, company, linkedin_url, photo_filename
+CSV columns: name, city, country, shared_contacts, title, company, linkedin_url, photo_filename, enriched_at
 
 Data coverage note (662-contact list measured):
   - profileUrl (LinkedIn URL): 662/662 ← free from API
@@ -32,6 +32,7 @@ import argparse
 import asyncio
 import base64
 import csv
+import datetime
 import os
 import re
 import sys
@@ -42,7 +43,7 @@ from playwright.async_api import async_playwright, Page
 
 # ── Constants ────────────────────────────────────────────────────────────────
 BASE_URL = "https://6degrees.aequus.money"
-CSV_FIELDS = ["name", "city", "country", "shared_contacts", "title", "company", "linkedin_url", "photo_filename"]
+CSV_FIELDS = ["name", "city", "country", "shared_contacts", "title", "company", "linkedin_url", "photo_filename", "enriched_at"]
 
 # Delay between LinkedIn page visits (seconds) — be respectful, avoid bans
 LI_DELAY_MIN = 3.5
@@ -94,20 +95,26 @@ def parse_location(raw: str) -> tuple[str, str]:
 
     Examples handled:
       "Paris, Île-de-France, France"        → ("Paris", "France")
-      "Paris et périphérie"                 → ("Paris", "France")
+      "Paris et périphérie"                 → ("Paris", "")   ← country unknown
+      "Genève et périphérie"                → ("Genève", "")  ← NOT France!
       "Greater Paris Metropolitan Region"   → ("Paris", "")
       "London, England, United Kingdom"     → ("London", "United Kingdom")
       "New York, New York, United States"   → ("New York", "United States")
       "Dubai, United Arab Emirates"         → ("Dubai", "United Arab Emirates")
+
+    Note: "X et périphérie" is French LinkedIn UI for "X Area" and appears for
+    cities in any country (Genève, Liverpool, Munich, Vancouver…). We extract
+    the city but leave country blank rather than defaulting to France.
     """
     raw = (raw or "").strip()
     if not raw:
         return ("", "")
 
-    # "X et périphérie" / "X et environs" (French LinkedIn)
+    # "X et périphérie" / "X et environs" (French LinkedIn localisation)
+    # Country is intentionally left blank — the phrase reveals no country information.
     m = re.match(r"^(.+?)\s+et\s+(?:périphérie|environs|alentours)$", raw, re.IGNORECASE)
     if m:
-        return (m.group(1).strip(), "France")
+        return (m.group(1).strip(), "")
 
     # "Greater X Area / Metropolitan Region"
     m = re.match(r"^Greater\s+(.+?)\s+(?:Area|Metropolitan\s+Region|Region)$", raw, re.IGNORECASE)
@@ -143,8 +150,13 @@ def decode_base64_photo(data_uri: str, out_path: Path) -> str:
 
 
 def is_row_complete(row: dict) -> bool:
-    """A row is enrichment-complete when it has city + country."""
-    return bool(row.get("city")) and bool(row.get("country"))
+    """
+    A row is enrichment-complete when it has been *visited* by Phase 2,
+    regardless of what was found.  We use an explicit enriched_at timestamp
+    rather than checking for city/country presence — profiles that show only
+    a country, or no location at all, would otherwise loop forever.
+    """
+    return bool(row.get("enriched_at"))
 
 
 # ── Phase 1: API fetch ────────────────────────────────────────────────────────
@@ -365,28 +377,28 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
                 if any(kw in photo_url for kw in ("banner", "company-logo", "organization")):
                     continue
 
-                # Download photo from within the browser (inherits session cookies)
-                photo_bytes_js = await page.evaluate(
-                    """async (url) => {
-                        try {
-                            const r = await fetch(url, {credentials: 'include'});
-                            if (!r.ok) return null;
-                            const buf = await r.arrayBuffer();
-                            return Array.from(new Uint8Array(buf));
-                        } catch { return null; }
-                    }""",
-                    photo_url,
-                )
-
-                if photo_bytes_js:
-                    ext = "jpg"
-                    if ".png" in photo_url:
-                        ext = "png"
-                    photo_filename = f"{idx}_{fname}.{ext}"
-                    photo_path = photo_dir / photo_filename
-                    if not photo_path.exists():
-                        photo_path.write_bytes(bytes(photo_bytes_js))
-                    result["photo_filename"] = photo_filename
+                # Download via page.request — runs outside the page JS context
+                # so it bypasses LinkedIn's fetch wrapper (which raises TypeError:
+                # Failed to fetch) and any CSP/XHR 403 on resized variants.
+                # page.request inherits the browser's session cookies automatically.
+                try:
+                    resp = await page.request.get(
+                        photo_url,
+                        headers={"Referer": "https://www.linkedin.com/"},
+                    )
+                    if resp.ok:
+                        body = await resp.body()
+                        if body and len(body) > 1_000:  # real photo > 1 KB
+                            ext = "png" if ".png" in photo_url else "jpg"
+                            photo_filename = f"{idx}_{fname}.{ext}"
+                            photo_path = photo_dir / photo_filename
+                            if not photo_path.exists():
+                                photo_path.write_bytes(body)
+                            result["photo_filename"] = photo_filename
+                    else:
+                        print(f"      ⚠️  Photo HTTP {resp.status} for {photo_url[:60]}", file=sys.stderr)
+                except Exception as dl_exc:
+                    print(f"      ⚠️  Photo download: {dl_exc}", file=sys.stderr)
                 break
 
             except Exception as exc:
@@ -465,6 +477,11 @@ async def phase2(rows: list[dict], photo_dir: Path, profile_dir: Path, headless:
                 if val and not row.get(key):
                     row[key] = val
 
+            # Mark as visited regardless of what was found — this is what makes
+            # resumability reliable.  Profiles with no location or no photo will
+            # never satisfy a "city AND country" check, so we use this instead.
+            row["enriched_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
             city    = row.get("city", "")
             country = row.get("country", "")
             shared  = row.get("shared_contacts", "")
@@ -482,8 +499,13 @@ async def phase2(rows: list[dict], photo_dir: Path, profile_dir: Path, headless:
 
         await browser.close()
 
-    complete = sum(1 for r in rows if is_row_complete(r))
-    print(f"\n  ✓ LinkedIn pass done — {complete}/{len(rows)} rows now complete")
+    attempted     = sum(1 for r in rows if r.get("enriched_at"))
+    with_location = sum(1 for r in rows if r.get("city") or r.get("country"))
+    with_photo    = sum(1 for r in rows if r.get("photo_filename"))
+    print(f"\n  ✓ LinkedIn pass done")
+    print(f"    visited      : {attempted}/{len(rows)}")
+    print(f"    has location : {with_location}")
+    print(f"    has photo    : {with_photo}")
     return rows
 
 
@@ -553,16 +575,20 @@ async def main() -> None:
         print(f"  Saved → {csv_path}")
 
     # ── Summary ───────────────────────────────────────────────────────────────
-    complete   = sum(1 for r in rows if is_row_complete(r))
-    with_li    = sum(1 for r in rows if r.get("linkedin_url"))
-    with_photo = sum(1 for r in rows if r.get("photo_filename"))
+    with_li       = sum(1 for r in rows if r.get("linkedin_url"))
+    with_city     = sum(1 for r in rows if r.get("city"))
+    with_country  = sum(1 for r in rows if r.get("country"))
+    with_photo    = sum(1 for r in rows if r.get("photo_filename"))
+    li_visited    = sum(1 for r in rows if r.get("enriched_at"))
     print(f"\n{'='*60}")
     print(f"Done!  {len(rows)} contacts")
-    print(f"  LinkedIn URL : {with_li}")
-    print(f"  city+country : {complete}")
-    print(f"  photo        : {with_photo}")
-    print(f"  CSV          : {csv_path.resolve()}")
-    print(f"  Photos       : {photo_dir.resolve()}/")
+    print(f"  LinkedIn URL   : {with_li}")
+    print(f"  LI visited     : {li_visited}")
+    print(f"  city set       : {with_city}")
+    print(f"  country set    : {with_country}")
+    print(f"  photo          : {with_photo}")
+    print(f"  CSV            : {csv_path.resolve()}")
+    print(f"  Photos         : {photo_dir.resolve()}/")
     print(f"{'='*60}")
 
 

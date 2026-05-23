@@ -61,6 +61,7 @@ output/
 | `company` | API | |
 | `linkedin_url` | API | 662/662 available |
 | `photo_filename` | API + LinkedIn | `photos/NNN_Name.jpg` |
+| `enriched_at` | Phase 2 | UTC timestamp of LinkedIn visit; the resumability marker |
 
 ## LinkedIn enrichment (Phase 2)
 
@@ -69,7 +70,9 @@ output/
 - Subsequent runs reuse the saved session (no re-login needed)
 - Delay: 3.5–6s between profiles; 30s break every 50 profiles
 - Use `--headless` only after confirming the session is saved
-- **Resumable**: rows that already have `city + country` are skipped
+- **Resumable**: rows with `enriched_at` set are skipped (visited = done, even if no location was found)
+- Photos downloaded via `page.request.get()` (outside page JS context, inherits browser cookies — bypasses LinkedIn's fetch wrapper)
+- `"X et périphérie"` → city extracted, country left blank (not assumed France — appears for Geneva, Liverpool, Munich, Vancouver…)
 
 ## Data coverage (662-contact list)
 
