@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
@@ -558,7 +558,7 @@ function CompanyRow({
   )
 }
 
-export default function CompaniesPage() {
+function CompaniesContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
@@ -587,6 +587,39 @@ export default function CompaniesPage() {
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
+
+  const searchParams = useSearchParams()
+
+  // Restore open contact from URL on mount
+  useEffect(() => {
+    const contactId = searchParams.get("contact")
+    if (contactId) setActiveContactId(contactId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back/forward button: sync activeContactId with ?contact= param
+  useEffect(() => {
+    function handlePopState() {
+      const params = new URLSearchParams(window.location.search)
+      setActiveContactId(params.get("contact"))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  function openContact(id: string) {
+    setActiveContactId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("contact", id)
+    window.history.pushState({ contactId: id }, "", url.toString())
+  }
+
+  function closeContact() {
+    setActiveContactId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("contact")
+    window.history.replaceState({}, "", url.toString())
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -857,7 +890,7 @@ export default function CompaniesPage() {
         onSetIndustry={setIndustry}
         onDismissSuggestion={dismissSuggestion}
         onRename={renameCompany}
-        onContactClick={setActiveContactId}
+        onContactClick={openContact}
         onAddToList={setAddToListContacts}
       />
     )
@@ -1181,7 +1214,7 @@ export default function CompaniesPage() {
         </div>
       )}
 
-      <ContactDetail contactId={activeContactId} onClose={() => setActiveContactId(null)} />
+      <ContactDetail contactId={activeContactId} onClose={closeContact} />
       {addToListContacts && (
         <AddToListModal
           contactIds={addToListContacts.map((c) => c.id)}
@@ -1202,4 +1235,12 @@ function sortCompanies(list: Company[]): Company[] {
     if (aScore !== bScore) return bScore - aScore
     return b.count - a.count
   })
+}
+
+export default function CompaniesPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <CompaniesContent />
+    </Suspense>
+  )
 }
