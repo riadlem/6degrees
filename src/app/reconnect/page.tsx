@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
@@ -46,7 +46,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   deprioritized: { label: "Deprioritized",       className: "bg-gray-100 text-gray-400" },
 }
 
-export default function ReconnectPage() {
+function ReconnectContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
@@ -63,6 +63,39 @@ export default function ReconnectPage() {
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
+
+  const searchParams = useSearchParams()
+
+  // Restore open contact from URL on mount
+  useEffect(() => {
+    const contactId = searchParams.get("contact")
+    if (contactId) setSelectedContactId(contactId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back/forward button
+  useEffect(() => {
+    function handlePopState() {
+      const params = new URLSearchParams(window.location.search)
+      setSelectedContactId(params.get("contact"))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  function openContact(id: string) {
+    setSelectedContactId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("contact", id)
+    window.history.pushState({ contactId: id }, "", url.toString())
+  }
+
+  function closeContact() {
+    setSelectedContactId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("contact")
+    window.history.replaceState({}, "", url.toString())
+  }
 
   const fetchContacts = useCallback(async () => {
     setLoading(true)
@@ -238,7 +271,7 @@ export default function ReconnectPage() {
               >
                 {/* Avatar */}
                 <button
-                  onClick={() => setSelectedContactId(contact.id)}
+                  onClick={() => openContact(contact.id)}
                   className="shrink-0"
                 >
                   {contact.photoUrl ? (
@@ -254,7 +287,7 @@ export default function ReconnectPage() {
                 {/* Info */}
                 <button
                   className="flex-1 min-w-0 text-left"
-                  onClick={() => setSelectedContactId(contact.id)}
+                  onClick={() => openContact(contact.id)}
                 >
                   <p className="font-medium text-gray-900 truncate">
                     {contact.firstName} {contact.lastName}
@@ -402,7 +435,7 @@ export default function ReconnectPage() {
       {/* Contact detail panel */}
       <ContactDetail
         contactId={selectedContactId}
-        onClose={() => setSelectedContactId(null)}
+        onClose={closeContact}
       />
 
       {/* Draft modal */}
@@ -418,5 +451,13 @@ export default function ReconnectPage() {
       )}
       </>)}
     </div>
+  )
+}
+
+export default function ReconnectPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <ReconnectContent />
+    </Suspense>
   )
 }
