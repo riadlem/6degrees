@@ -10,31 +10,32 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-## Get your session cookie
-
-1. Open https://6degrees.aequus.money in Chrome
-2. DevTools → Application → Cookies → `https://6degrees.aequus.money`
-3. Copy the value of `next-auth.session-token`
-
-```bash
-export SIXDEGREES_COOKIE="next-auth.session-token=<value>"
-```
-
 ## Run
 
 ```bash
 # Full export: API fetch + LinkedIn enrichment
-SIXDEGREES_COOKIE="..." python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6
+python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6
 
 # API only (fast, no LinkedIn login needed)
-SIXDEGREES_COOKIE="..." python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6 --no-linkedin
+python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6 --no-linkedin
 
 # Re-run LinkedIn enrichment on existing CSV (resumable)
 python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6 --linkedin-only
 
 # Quick test on first 10 contacts
-SIXDEGREES_COOKIE="..." python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6 --limit 10
+python scripts/export_list.py cmpiwh0to0002h2gv60vzjks6 --limit 10
 ```
+
+No cookie or API token needed — the script uses a persistent browser profile
+(`output/.li_profile/`) that stores your 6Degrees and LinkedIn sessions.
+
+## First run (login)
+
+On first run the script opens a browser window.  Log in to 6Degrees when prompted
+(`--no-linkedin` only needs 6Degrees; a full run will also prompt for LinkedIn),
+then press Enter in the terminal.  Subsequent runs reuse the saved session.
+
+Use `--headless` only after confirming the session is saved from a headed run.
 
 ## Output
 
@@ -46,7 +47,7 @@ output/
       001_Jane_Doe.jpg
       002_John_Smith.jpg
       ...
-  .li_profile/            ← Playwright persists LinkedIn session here
+  .li_profile/            ← Playwright persists 6Degrees + LinkedIn sessions here
 ```
 
 ## CSV columns
