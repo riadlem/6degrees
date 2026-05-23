@@ -444,68 +444,63 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
         except Exception:
             pass
 
-        # ── Profile photo ─────────────────────────────────────────────────────
-        photo_selectors = [
-            "img[src*='profile-displayphoto']",
-            "img[srcset*='profile-displayphoto']",
-            ".pv-top-card-profile-picture__image",
-            ".presence-entity__image",
-            "section.artdeco-card img[src*='licdn.com/dms']",
-        ]
-        for sel in photo_selectors:
+        # ── Profile photo (top-card headshot only) ───────────────────────────
+        # Pick the photo URL in one page evaluation, with three guards:
+        #  • scope to <main>      → never the logged-in user's nav "Me" avatar (you)
+        #  • require 'profile-displayphoto' and reject 'displaybackgroundimage'
+        #                          → never the cover banner
+        #  • take the largest srcset variant
+        #                          → never the 100px thumbnail
+        # The top-card image is the first such <img> in DOM order (the feed /
+        # "people you may know" photos come later), and we prefer the dedicated
+        # class when LinkedIn renders it.
+        photo_url = await page.evaluate(
+            """
+            () => {
+              const imgs = [...document.querySelectorAll('main img')].filter(i => {
+                const s = (i.currentSrc || i.src || '') + ' ' + (i.srcset || '');
+                return /profile-displayphoto/.test(s) && !/displaybackgroundimage/.test(s);
+              });
+              if (!imgs.length) return '';
+              const img = document.querySelector('main .pv-top-card-profile-picture__image') || imgs[0];
+              const ss = img.srcset || '';
+              if (ss) {
+                const best = ss.split(',')
+                  .map(p => p.trim().split(/\\s+/))
+                  .map(([u, w]) => ({ u, w: parseInt((w || '0').replace(/\\D/g, '')) }))
+                  .sort((a, b) => b.w - a.w)[0];
+                if (best && best.u) return best.u;
+              }
+              return img.currentSrc || img.src || '';
+            }
+            """
+        )
+
+        if (
+            photo_url
+            and photo_url.startswith("http")
+            and not any(kw in photo_url for kw in
+                        ("displaybackgroundimage", "company-logo", "organization", "banner"))
+        ):
             try:
-                el = page.locator(sel).first
-                if await el.count() == 0:
-                    continue
-
-                src    = await el.get_attribute("src") or ""
-                srcset = await el.get_attribute("srcset") or ""
-
-                # Only proceed if this looks like a profile photo (not banner/feed)
-                combined = src + srcset
-                if "profile-displayphoto" not in combined and "dms/image" not in combined:
-                    continue
-
-                # Pick the largest image from srcset
-                photo_url = src
-                if srcset:
-                    candidates = re.findall(r"(https?://[^\s,]+)\s+(\d+)w", srcset)
-                    if candidates:
-                        photo_url = max(candidates, key=lambda x: int(x[1]))[0]
-
-                if not photo_url or not photo_url.startswith("http"):
-                    continue
-
-                # Skip banner/company images
-                if any(kw in photo_url for kw in ("banner", "company-logo", "organization")):
-                    continue
-
-                # Download via page.request — runs outside the page JS context
-                # so it bypasses LinkedIn's fetch wrapper (which raises TypeError:
-                # Failed to fetch) and any CSP/XHR 403 on resized variants.
-                # page.request inherits the browser's session cookies automatically.
-                try:
-                    resp = await page.request.get(
-                        photo_url,
-                        headers={"Referer": "https://www.linkedin.com/"},
-                    )
-                    if resp.ok:
-                        body = await resp.body()
-                        if body and len(body) > 1_000:  # real photo > 1 KB
-                            ext = "png" if ".png" in photo_url else "jpg"
-                            photo_filename = f"{idx}_{fname}.{ext}"
-                            photo_path = photo_dir / photo_filename
-                            if not photo_path.exists():
-                                photo_path.write_bytes(body)
-                            result["photo_filename"] = photo_filename
+                resp = await page.request.get(
+                    photo_url, headers={"Referer": "https://www.linkedin.com/"}
+                )
+                if resp.ok:
+                    body = await resp.body()
+                    is_jpg = body[:3] == b"\xff\xd8\xff"
+                    is_png = body[:8] == b"\x89PNG\r\n\x1a\n"
+                    if body and len(body) > 1_000 and (is_jpg or is_png):
+                        ext = "png" if is_png else "jpg"
+                        photo_filename = f"{idx}_{fname}.{ext}"
+                        (photo_dir / photo_filename).write_bytes(body)  # overwrite ok
+                        result["photo_filename"] = photo_filename
                     else:
-                        print(f"      ⚠️  Photo HTTP {resp.status} for {photo_url[:60]}", file=sys.stderr)
-                except Exception as dl_exc:
-                    print(f"      ⚠️  Photo download: {dl_exc}", file=sys.stderr)
-                break
-
-            except Exception as exc:
-                print(f"      ⚠️  Photo ({sel}): {exc}", file=sys.stderr)
+                        print(f"    ⚠️  photo not a valid image ({len(body)}b)", file=sys.stderr)
+                else:
+                    print(f"    ⚠️  photo HTTP {resp.status}", file=sys.stderr)
+            except Exception as dl_exc:
+                print(f"    ⚠️  photo download: {dl_exc}", file=sys.stderr)
 
     except Exception as exc:
         print(f"    ⚠️  Scrape error: {exc}", file=sys.stderr)
