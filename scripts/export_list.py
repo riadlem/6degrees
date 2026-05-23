@@ -3,17 +3,22 @@
 Export a 6Degrees list to CSV + photos with optional LinkedIn enrichment.
 
 Usage:
-    # Phase 1 only (API fetch):
-    SIXDEGREES_COOKIE="next-auth.session-token=..." python scripts/export_list.py <listId>
+    # Full export (API fetch + LinkedIn enrichment):
+    python scripts/export_list.py <listId>
 
-    # Phase 1 + LinkedIn enrichment:
-    SIXDEGREES_COOKIE="..." python scripts/export_list.py <listId>
+    # API only (fast, no LinkedIn login needed):
+    python scripts/export_list.py <listId> --no-linkedin
 
-    # Re-run LinkedIn only (skip API fetch, enrich existing CSV):
+    # Re-run LinkedIn enrichment on existing CSV (resumable):
     python scripts/export_list.py <listId> --linkedin-only
 
-    # API only, no LinkedIn:
-    SIXDEGREES_COOKIE="..." python scripts/export_list.py <listId> --no-linkedin
+    # Quick test on first 10 contacts:
+    python scripts/export_list.py <listId> --limit 10
+
+No SIXDEGREES_COOKIE needed.  The script reuses a persistent browser profile
+(output/.li_profile/) so authentication is shared across 6Degrees and LinkedIn.
+On first run a browser window opens — log in to each site as prompted, then
+press Enter.  Subsequent runs reuse the saved session with no manual step.
 
 Output:
     output/<listId>/contacts.csv
@@ -33,12 +38,11 @@ import asyncio
 import base64
 import csv
 import datetime
-import os
+import random
 import re
 import sys
 from pathlib import Path
 
-import httpx
 from playwright.async_api import async_playwright, Page
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -92,20 +96,64 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# ── Auth ──────────────────────────────────────────────────────────────────────
-def get_cookie() -> str:
-    cookie = os.environ.get("SIXDEGREES_COOKIE", "").strip()
-    if not cookie:
-        print("⚠️  SIXDEGREES_COOKIE not set. Set it to your next-auth.session-token cookie.", file=sys.stderr)
-    return cookie
+# ── Login helpers ─────────────────────────────────────────────────────────────
+async def ensure_sixdegrees_login(page: Page, headless: bool) -> None:
+    """
+    Verify the browser is logged in to 6Degrees.
+    Uses a lightweight API probe — no page navigation needed if already logged in.
+    Prompts for interactive login if the session cookie is missing.
+    """
+    resp = await page.request.get(f"{BASE_URL}/api/contacts?limit=1")
+    if resp.ok:
+        return  # session cookie present and valid
+
+    if headless:
+        print(
+            "  ✗ Not logged in to 6Degrees and running headless — cannot prompt.\n"
+            "  Run once without --headless to save the session, then use --headless.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"\n  ⚠️  Not logged in to 6Degrees.")
+    print(f"  Opening {BASE_URL} — please log in, then press Enter here...")
+    await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+    input("  [press Enter once logged in to 6Degrees] ")
+
+    # Re-verify
+    resp = await page.request.get(f"{BASE_URL}/api/contacts?limit=1")
+    if not resp.ok:
+        print("  ✗ Still not logged in (API returned HTTP {resp.status}) — exiting.", file=sys.stderr)
+        sys.exit(1)
+
+    print("  ✓ 6Degrees session confirmed")
 
 
-def api_headers(cookie: str) -> dict:
-    return {
-        "Cookie": cookie,
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-    }
+async def ensure_linkedin_login(page: Page, headless: bool) -> None:
+    """
+    Verify the browser is logged in to LinkedIn.
+    Navigates to /feed and checks the resulting URL for auth redirects.
+    Prompts for interactive login if needed.
+    """
+    await page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded", timeout=30_000)
+    await asyncio.sleep(1.5)
+
+    if "login" not in page.url and "authwall" not in page.url and "checkpoint" not in page.url:
+        print("  ✓ LinkedIn session confirmed")
+        return  # already logged in
+
+    if headless:
+        print(
+            "  ⚠️  Not logged in to LinkedIn and running headless — cannot prompt.\n"
+            "  Run once without --headless to save the LinkedIn session, then use --headless.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print("\n  ⚠️  Not logged in to LinkedIn!")
+    print("  Please log in in the browser window, then press Enter here...")
+    input("  [press Enter once logged in to LinkedIn] ")
+    print("  ✓ LinkedIn session saved")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -192,7 +240,12 @@ def is_row_complete(row: dict) -> bool:
 
 
 # ── Phase 1: API fetch ────────────────────────────────────────────────────────
-async def phase1(list_id: str, photo_dir: Path, cookie: str, limit: int) -> list[dict]:
+async def phase1(page: Page, list_id: str, photo_dir: Path, limit: int) -> list[dict]:
+    """
+    Fetch the list from 6Degrees API via the browser's session cookies.
+    Uses page.request.get() — runs outside the page JS context, inherits the
+    browser's cookie jar, no separate SIXDEGREES_COOKIE needed.
+    """
     print(f"\n{'='*60}")
     print(f"Phase 1 — 6Degrees API fetch")
     print(f"{'='*60}")
@@ -200,16 +253,18 @@ async def phase1(list_id: str, photo_dir: Path, cookie: str, limit: int) -> list
     url = f"{BASE_URL}/api/lists/{list_id}"
     print(f"  GET {url}")
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.get(url, headers=api_headers(cookie))
-        if resp.status_code == 401:
-            print("  ✗ 401 Unauthorized — check SIXDEGREES_COOKIE", file=sys.stderr)
-            sys.exit(1)
-        if resp.status_code == 404:
-            print(f"  ✗ 404 — list {list_id} not found", file=sys.stderr)
-            sys.exit(1)
-        resp.raise_for_status()
-        data = resp.json()
+    resp = await page.request.get(url)
+    if resp.status == 401:
+        print("  ✗ 401 Unauthorized — run ensure_sixdegrees_login first", file=sys.stderr)
+        sys.exit(1)
+    if resp.status == 404:
+        print(f"  ✗ 404 — list {list_id} not found", file=sys.stderr)
+        sys.exit(1)
+    if not resp.ok:
+        print(f"  ✗ HTTP {resp.status} from API", file=sys.stderr)
+        sys.exit(1)
+
+    data = await resp.json()
 
     list_name = data.get("name", list_id)
     members = data.get("members", [])
@@ -254,7 +309,7 @@ async def phase1(list_id: str, photo_dir: Path, cookie: str, limit: int) -> list
                     photo_count += 1
 
             elif photo_url.startswith("http"):
-                # External URL — download directly
+                # Check if already downloaded from a previous run
                 for ext in ("jpg", "jpeg", "png", "webp"):
                     candidate = photo_dir / f"{idx}_{fname}.{ext}"
                     if candidate.exists():
@@ -262,16 +317,19 @@ async def phase1(list_id: str, photo_dir: Path, cookie: str, limit: int) -> list
                         photo_count += 1
                         break
                 else:
+                    # Download via page.request — inherits session cookies, no
+                    # separate auth header needed even for gated CDN assets.
                     try:
-                        async with httpx.AsyncClient(timeout=20.0) as dl:
-                            r = await dl.get(photo_url, follow_redirects=True)
-                        if r.status_code == 200:
-                            ct = r.headers.get("content-type", "image/jpeg")
-                            ext = "jpg" if "jpeg" in ct or "jpg" in ct else ct.split("/")[-1].split(";")[0]
-                            photo_path = photo_dir / f"{idx}_{fname}.{ext}"
-                            photo_path.write_bytes(r.content)
-                            photo_filename = photo_path.name
-                            photo_count += 1
+                        dl = await page.request.get(photo_url)
+                        if dl.ok:
+                            body = await dl.body()
+                            if body and len(body) > 1_000:
+                                ct = dl.headers.get("content-type", "image/jpeg")
+                                ext = "jpg" if "jpeg" in ct or "jpg" in ct else ct.split("/")[-1].split(";")[0]
+                                photo_path = photo_dir / f"{idx}_{fname}.{ext}"
+                                photo_path.write_bytes(body)
+                                photo_filename = photo_path.name
+                                photo_count += 1
                     except Exception as exc:
                         print(f"    ⚠️  Photo download failed for {name}: {exc}", file=sys.stderr)
 
@@ -461,11 +519,18 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
     return result
 
 
-async def phase2(rows: list[dict], photo_dir: Path, profile_dir: Path, headless: bool) -> list[dict]:
+async def phase2(page: Page, rows: list[dict], photo_dir: Path) -> list[dict]:
+    """
+    LinkedIn enrichment pass — scrape location, mutual connections, and profile
+    photo for every row that hasn't been visited yet.
+
+    Receives the already-open `page` from main() so both phases share the same
+    persistent browser context (one login, one window).
+    """
     needs = [r for r in rows if not is_row_complete(r) and r.get("linkedin_url")]
 
     if not needs:
-        print("\n✓ All rows already have city + country — skipping LinkedIn pass")
+        print("\n✓ All rows already enriched — skipping LinkedIn pass")
         return rows
 
     total = len(needs)
@@ -473,82 +538,42 @@ async def phase2(rows: list[dict], photo_dir: Path, profile_dir: Path, headless:
     print(f"\n{'='*60}")
     print(f"Phase 2 — LinkedIn enrichment ({total}/{len(rows)} rows need it)")
     print(f"{'='*60}")
-    print(f"  Persistent profile: {profile_dir}")
 
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(profile_dir),
-            headless=headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-            ],
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 900},
-        )
+    for i, row in enumerate(needs, 1):
+        url   = row["linkedin_url"]
+        name  = row["name"]
+        fname = safe_filename(name)
+        # Find this row's index in the master list for photo naming
+        idx   = str(rows.index(row) + 1).zfill(len(str(len(rows))))
 
-        page = await browser.new_page()
+        print(f"  [{i:>{pad}}/{total}] {name}")
 
-        # Stealth: remove navigator.webdriver fingerprint
-        await page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        enriched = await scrape_linkedin_profile(page, url, photo_dir, idx, fname)
 
-        # Check login
-        await page.goto("https://www.linkedin.com/feed", wait_until="domcontentloaded", timeout=30_000)
-        await asyncio.sleep(1.5)
-        if "login" in page.url or "authwall" in page.url or "checkpoint" in page.url:
-            print("\n  ⚠️  Not logged in to LinkedIn!")
-            if headless:
-                print("  Run without --headless to log in interactively.")
-                await browser.close()
-                return rows
-            print("  Please log in in the browser window, then press Enter here...")
-            input("  [press Enter once logged in] ")
+        # Merge enriched fields into row (don't overwrite existing values)
+        for key, val in enriched.items():
+            if val and not row.get(key):
+                row[key] = val
 
-        import random
+        # Mark as visited regardless of what was found — this is what makes
+        # resumability reliable.  Profiles with no location or no photo will
+        # never satisfy a "city AND country" check, so we use this instead.
+        row["enriched_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        for i, row in enumerate(needs, 1):
-            url   = row["linkedin_url"]
-            name  = row["name"]
-            fname = safe_filename(name)
-            # Find this row's index in the master list for photo naming
-            idx   = str(rows.index(row) + 1).zfill(len(str(len(rows))))
+        city    = row.get("city", "")
+        country = row.get("country", "")
+        shared  = row.get("shared_contacts", "")
+        photo   = row.get("photo_filename", "")
+        print(f"           city={city or '—'}  country={country or '—'}  shared={shared or '—'}  photo={'✓' if photo else '—'}")
 
-            print(f"  [{i:>{pad}}/{total}] {name}")
-
-            enriched = await scrape_linkedin_profile(page, url, photo_dir, idx, fname)
-
-            # Merge enriched fields into row (don't overwrite existing values)
-            for key, val in enriched.items():
-                if val and not row.get(key):
-                    row[key] = val
-
-            # Mark as visited regardless of what was found — this is what makes
-            # resumability reliable.  Profiles with no location or no photo will
-            # never satisfy a "city AND country" check, so we use this instead.
-            row["enriched_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-
-            city    = row.get("city", "")
-            country = row.get("country", "")
-            shared  = row.get("shared_contacts", "")
-            photo   = row.get("photo_filename", "")
-            print(f"           city={city or '—'}  country={country or '—'}  shared={shared or '—'}  photo={'✓' if photo else '—'}")
-
-            # Polite delay with jitter — avoid detection
-            if i < total:
-                delay = LI_DELAY_MIN + random.random() * (LI_DELAY_MAX - LI_DELAY_MIN)
-                # Every 50 profiles, take a longer break
-                if i % 50 == 0:
-                    delay += random.uniform(15, 30)
-                    print(f"  ⏸  Break ({delay:.0f}s)…")
-                await asyncio.sleep(delay)
-
-        await browser.close()
+        # Polite delay with jitter — avoid detection
+        if i < total:
+            delay = LI_DELAY_MIN + random.random() * (LI_DELAY_MAX - LI_DELAY_MIN)
+            # Every 50 profiles, take a longer break
+            if i % 50 == 0:
+                delay += random.uniform(15, 30)
+                print(f"  ⏸  Break ({delay:.0f}s)…")
+            await asyncio.sleep(delay)
 
     attempted     = sum(1 for r in rows if r.get("enriched_at"))
     with_location = sum(1 for r in rows if r.get("city") or r.get("country"))
@@ -591,39 +616,68 @@ def merge_with_existing(new_rows: list[dict], existing: list[dict]) -> list[dict
 async def main() -> None:
     args = parse_args()
     list_id = args.list_id
-    cookie  = get_cookie()
 
     out_dir      = Path("output") / list_id
     photo_dir    = out_dir / "photos"
     csv_path     = out_dir / "contacts.csv"
-    profile_dir  = Path("output") / ".li_profile"   # persistent Playwright profile
+    profile_dir  = Path("output") / ".li_profile"   # persistent browser profile (shared)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     photo_dir.mkdir(exist_ok=True)
     profile_dir.mkdir(exist_ok=True)
 
     print(f"Output → {out_dir.resolve()}")
+    print(f"Profile → {profile_dir.resolve()}")
 
     existing = load_csv(csv_path)
 
-    # ── Phase 1 ──────────────────────────────────────────────────────────────
-    if args.linkedin_only:
-        if not existing:
-            print(f"✗ No existing CSV at {csv_path}. Run without --linkedin-only first.", file=sys.stderr)
-            sys.exit(1)
-        rows = existing
-        print(f"Loaded {len(rows)} rows from {csv_path}")
-    else:
-        rows = await phase1(list_id, photo_dir, cookie, args.limit)
-        rows = merge_with_existing(rows, existing)
-        save_csv(csv_path, rows)
-        print(f"  Saved → {csv_path}")
+    # One browser, one profile — shared across 6Degrees and LinkedIn.
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch_persistent_context(
+            user_data_dir=str(profile_dir),
+            headless=args.headless,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+            ],
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 900},
+        )
 
-    # ── Phase 2 ──────────────────────────────────────────────────────────────
-    if not args.no_linkedin:
-        rows = await phase2(rows, photo_dir, profile_dir, args.headless)
-        save_csv(csv_path, rows)
-        print(f"  Saved → {csv_path}")
+        page = await browser.new_page()
+
+        # Stealth: remove navigator.webdriver fingerprint
+        await page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+
+        # ── Phase 1 ──────────────────────────────────────────────────────────
+        if args.linkedin_only:
+            if not existing:
+                print(f"✗ No existing CSV at {csv_path}. Run without --linkedin-only first.", file=sys.stderr)
+                await browser.close()
+                sys.exit(1)
+            rows = existing
+            print(f"Loaded {len(rows)} rows from {csv_path}")
+        else:
+            await ensure_sixdegrees_login(page, args.headless)
+            rows = await phase1(page, list_id, photo_dir, args.limit)
+            rows = merge_with_existing(rows, existing)
+            save_csv(csv_path, rows)
+            print(f"  Saved → {csv_path}")
+
+        # ── Phase 2 ──────────────────────────────────────────────────────────
+        if not args.no_linkedin:
+            await ensure_linkedin_login(page, args.headless)
+            rows = await phase2(page, rows, photo_dir)
+            save_csv(csv_path, rows)
+            print(f"  Saved → {csv_path}")
+
+        await browser.close()
 
     # ── Summary ───────────────────────────────────────────────────────────────
     with_li       = sum(1 for r in rows if r.get("linkedin_url"))
