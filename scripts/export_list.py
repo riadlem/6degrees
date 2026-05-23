@@ -45,6 +45,33 @@ from playwright.async_api import async_playwright, Page
 BASE_URL = "https://6degrees.aequus.money"
 CSV_FIELDS = ["name", "city", "country", "shared_contacts", "title", "company", "linkedin_url", "photo_filename", "enriched_at"]
 
+# French (and a few other) country names → English. LinkedIn's UI is localised,
+# so the country segment often comes back in French.
+COUNTRY_MAP = {
+    "Espagne": "Spain", "Suisse": "Switzerland", "Italie": "Italy",
+    "France": "France", "Royaume-Uni": "United Kingdom", "Irlande": "Ireland",
+    "Allemagne": "Germany", "États-Unis": "United States", "Etats-Unis": "United States",
+    "Pays-Bas": "Netherlands", "Belgique": "Belgium", "Portugal": "Portugal",
+    "Autriche": "Austria", "Suède": "Sweden", "Norvège": "Norway",
+    "Danemark": "Denmark", "Finlande": "Finland", "Pologne": "Poland",
+    "Argentine": "Argentina", "Brésil": "Brazil", "Mexique": "Mexico",
+    "Canada": "Canada", "Australie": "Australia", "Inde": "India",
+    "Chine": "China", "Japon": "Japan", "Singapour": "Singapore",
+    "Israël": "Israel", "Émirats arabes unis": "United Arab Emirates",
+    "Maroc": "Morocco", "Tunisie": "Tunisia", "Algérie": "Algeria",
+    "Afrique du Sud": "South Africa", "Turquie": "Turkey", "Grèce": "Greece",
+    "Luxembourg": "Luxembourg", "Malte": "Malta", "Chypre": "Cyprus",
+    "Liban": "Lebanon", "Egypte": "Egypt", "Russie": "Russia", "Ukraine": "Ukraine",
+    "République tchèque": "Czech Republic", "Hongrie": "Hungary",
+    "Roumanie": "Romania", "Bulgarie": "Bulgaria",
+    # English passthroughs so the country-only check below also recognises them
+    "United States": "United States", "United Kingdom": "United Kingdom",
+    "Germany": "Germany", "Spain": "Spain", "Italy": "Italy", "Ireland": "Ireland",
+    "Netherlands": "Netherlands", "Belgium": "Belgium", "Switzerland": "Switzerland",
+    "Canada": "Canada", "Australia": "Australia", "Singapore": "Singapore",
+    "United Arab Emirates": "United Arab Emirates",
+}
+
 # Delay between LinkedIn page visits (seconds) — be respectful, avoid bans
 LI_DELAY_MIN = 3.5
 LI_DELAY_MAX = 6.0
@@ -110,8 +137,7 @@ def parse_location(raw: str) -> tuple[str, str]:
     if not raw:
         return ("", "")
 
-    # "X et périphérie" / "X et environs" (French LinkedIn localisation)
-    # Country is intentionally left blank — the phrase reveals no country information.
+    # "X et périphérie" / "X et environs" — French "X Area"; no country revealed.
     m = re.match(r"^(.+?)\s+et\s+(?:périphérie|environs|alentours)$", raw, re.IGNORECASE)
     if m:
         return (m.group(1).strip(), "")
@@ -121,12 +147,16 @@ def parse_location(raw: str) -> tuple[str, str]:
     if m:
         return (m.group(1).strip(), "")
 
-    # "City, State/Region, Country"  or  "City, Country"
     parts = [p.strip() for p in raw.split(",")]
     if len(parts) >= 2:
-        return (parts[0], parts[-1])
+        # "City, [Region,] Country" — normalise country via map
+        return (parts[0], COUNTRY_MAP.get(parts[-1], parts[-1]))
 
-    return (raw, "")
+    # Single token: a bare country belongs in `country`, not `city`.
+    tok = parts[0]
+    if tok in COUNTRY_MAP:
+        return ("", COUNTRY_MAP[tok])
+    return (tok, "")
 
 
 def decode_base64_photo(data_uri: str, out_path: Path) -> str:
@@ -139,7 +169,9 @@ def decode_base64_photo(data_uri: str, out_path: Path) -> str:
         if not m:
             return ""
         ext = m.group(1).lower().replace("jpeg", "jpg")
-        raw = base64.b64decode(m.group(2) + "==")  # pad for safety
+        b64 = m.group(2)
+        b64 += "=" * (-len(b64) % 4)  # pad to a multiple of 4
+        raw = base64.b64decode(b64)
         final = out_path.with_suffix(f".{ext}")
         if not final.exists():
             final.write_bytes(raw)
@@ -306,11 +338,15 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
                 # near the top of the profile (first 2000 chars usually)
                 head = body[:2000]
                 loc_re = re.compile(
-                    r"\n([A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝ][^\n]{4,70}"
+                    r"\n([A-ZÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝ][^\n]{3,70}"
                     r"(?:France|Kingdom|States|Germany|Spain|Italy|Netherlands|"
                     r"Belgium|Switzerland|Canada|Australia|Singapore|Emirates|"
-                    r"Luxembourg|Sweden|Denmark|Norway|Austria|Portugal|Poland|"
-                    r"Ireland|périphérie|Region|Area))\n",
+                    r"Luxembourg|Sweden|Denmark|Norway|Austria|Portugal|Poland|Ireland"
+                    # French country names — the UI is localised
+                    r"|Espagne|Suisse|Italie|Allemagne|Royaume-Uni|Irlande|Belgique"
+                    r"|Pays-Bas|États-Unis|Émirats|Autriche|Argentine|Br[ée]sil|Mexique"
+                    r"|Singapour|Maroc|Tunisie|Russie|Ukraine|Turquie|Grèce|Inde|Chine"
+                    r"|périphérie|environs|R[ée]gion|Region|Area))\n",
                     re.UNICODE,
                 )
                 m = loc_re.search(head)
@@ -329,15 +365,30 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
         # ── Mutual connections ────────────────────────────────────────────────
         try:
             body = await page.inner_text("main", timeout=5_000)
-            mutual_re = re.compile(
-                r"(\d+)\s*"
-                r"(?:mutual\s+connection|relation\s+en\s+commun|gemeinsame\s+Kontakt"
-                r"|contacto\s+en\s+com[uú]n|contatti\s+in\s+comune)",
-                re.IGNORECASE,
-            )
-            m = mutual_re.search(body)
+            # French renders "Kamel, Samir et 35 autres relations en commun" — the
+            # total is 35 + the named people shown (1 or 2). Try most-specific first.
+            shared = ""
+            m = re.search(r"[^\n,]+,\s*[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun", body, re.IGNORECASE)
             if m:
-                result["shared_contacts"] = m.group(1)
+                shared = str(int(m.group(1)) + 2)
+            if not shared:
+                m = re.search(r"[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun", body, re.IGNORECASE)
+                if m:
+                    shared = str(int(m.group(1)) + 1)
+            if not shared:
+                m = re.search(r"and\s+(\d+)\s+other\s+mutual\s+connections?", body, re.IGNORECASE)
+                if m:
+                    shared = str(int(m.group(1)) + 1)  # approximate: +named shown
+            if not shared:
+                m = re.search(
+                    r"(\d+)\s+(?:mutual\s+connections?|relations?\s+en\s+commun|"
+                    r"gemeinsame\s+Kontakte?|contactos?\s+en\s+com[uú]n|contatti\s+in\s+comune)",
+                    body, re.IGNORECASE,
+                )
+                if m:
+                    shared = m.group(1)
+            if shared:
+                result["shared_contacts"] = shared
         except Exception:
             pass
 
@@ -530,7 +581,7 @@ def merge_with_existing(new_rows: list[dict], existing: list[dict]) -> list[dict
     for row in new_rows:
         prev = by_url.get(row.get("linkedin_url", ""))
         if prev:
-            for field in ("city", "country", "shared_contacts", "photo_filename"):
+            for field in ("city", "country", "shared_contacts", "photo_filename", "enriched_at"):
                 if not row.get(field) and prev.get(field):
                     row[field] = prev[field]
     return new_rows
