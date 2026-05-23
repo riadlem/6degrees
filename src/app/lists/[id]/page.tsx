@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter, useParams } from "next/navigation"
+import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote
@@ -37,7 +37,7 @@ type ListData = {
   _count: { members: number }
 }
 
-export default function ListDetailPage() {
+function ListDetailContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const params = useParams<{ id: string }>()
@@ -54,6 +54,39 @@ export default function ListDetailPage() {
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
+
+  const searchParams = useSearchParams()
+
+  // Restore open contact from URL on mount
+  useEffect(() => {
+    const contactId = searchParams.get("contact")
+    if (contactId) setActiveContactId(contactId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back/forward button
+  useEffect(() => {
+    function handlePopState() {
+      const params = new URLSearchParams(window.location.search)
+      setActiveContactId(params.get("contact"))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  function openContact(id: string) {
+    setActiveContactId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("contact", id)
+    window.history.pushState({ contactId: id }, "", url.toString())
+  }
+
+  function closeContact() {
+    setActiveContactId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("contact")
+    window.history.replaceState({}, "", url.toString())
+  }
 
   const fetchList = useCallback(async () => {
     const res = await fetch(`/api/lists/${id}`)
@@ -212,7 +245,7 @@ export default function ListDetailPage() {
               <div
                 key={memberId}
                 className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors items-center group cursor-pointer"
-                onClick={() => setActiveContactId(contact.id)}
+                onClick={() => openContact(contact.id)}
               >
                 {/* Avatar */}
                 <div className="w-10">
@@ -290,7 +323,7 @@ export default function ListDetailPage() {
       {/* Contact detail panel */}
       <ContactDetail
         contactId={activeContactId}
-        onClose={() => setActiveContactId(null)}
+        onClose={closeContact}
       />
 
       {/* Share modal */}
@@ -307,5 +340,13 @@ export default function ListDetailPage() {
         />
       )}
     </div>
+  )
+}
+
+export default function ListDetailPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <ListDetailContent />
+    </Suspense>
   )
 }

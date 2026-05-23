@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
 import { useSession } from "next-auth/react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
@@ -14,6 +14,8 @@ import { type ContactSummary } from "@/components/ContactCard"
 
 export type CompanySize = "small" | "medium" | "corporate" | "fortune500"
 export type CompanyType = "brand" | "non-brand" | "independent"
+
+type TypeSuggestion = { company: string; type: "brand" | "non-brand"; reason: string; confidence: "high" | "medium"; count: number }
 
 const SIZE_OPTIONS: { value: CompanySize; label: string; short: string }[] = [
   { value: "small",      label: "Small",       short: "S"    },
@@ -556,7 +558,7 @@ function CompanyRow({
   )
 }
 
-export default function CompaniesPage() {
+function CompaniesContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
@@ -576,9 +578,48 @@ export default function CompaniesPage() {
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
   const [suggesting, setSuggesting] = useState(false)
 
+  // type suggestions: list of { company, type, reason, confidence, count }
+  const [typeSuggestions, setTypeSuggestions] = useState<TypeSuggestion[]>([])
+  const [dismissedTypeSuggestions, setDismissedTypeSuggestions] = useState<Set<string>>(new Set())
+  const [suggestingTypes, setSuggestingTypes] = useState(false)
+  const [showTypeSuggestions, setShowTypeSuggestions] = useState(false)
+
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
+
+  const searchParams = useSearchParams()
+
+  // Restore open contact from URL on mount
+  useEffect(() => {
+    const contactId = searchParams.get("contact")
+    if (contactId) setActiveContactId(contactId)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back/forward button: sync activeContactId with ?contact= param
+  useEffect(() => {
+    function handlePopState() {
+      const params = new URLSearchParams(window.location.search)
+      setActiveContactId(params.get("contact"))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [])
+
+  function openContact(id: string) {
+    setActiveContactId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("contact", id)
+    window.history.pushState({ contactId: id }, "", url.toString())
+  }
+
+  function closeContact() {
+    setActiveContactId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("contact")
+    window.history.replaceState({}, "", url.toString())
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -677,6 +718,38 @@ export default function CompaniesPage() {
       setAutoTagging(false)
       setTimeout(() => setAutoTagResult(null), 5000)
     }
+  }
+
+  async function suggestTypes() {
+    setSuggestingTypes(true)
+    try {
+      const res = await fetch("/api/companies/suggest-types")
+      if (res.ok) {
+        const data = await res.json()
+        setTypeSuggestions(data.suggestions as TypeSuggestion[])
+        setDismissedTypeSuggestions(new Set())
+        setShowTypeSuggestions(true)
+      }
+    } finally {
+      setSuggestingTypes(false)
+    }
+  }
+
+  async function acceptTypeSuggestion(company: string, type: CompanyType) {
+    // Optimistically remove from suggestions list, then persist
+    setTypeSuggestions((prev) => prev.filter((s) => s.company !== company))
+    await setType(company, type)
+  }
+
+  async function acceptAllTypeSuggestions() {
+    const pending = typeSuggestions.filter((s) => !dismissedTypeSuggestions.has(s.company))
+    setTypeSuggestions([])
+    setDismissedTypeSuggestions(new Set())
+    await Promise.all(pending.map((s) => setType(s.company, s.type)))
+  }
+
+  function dismissTypeSuggestion(company: string) {
+    setDismissedTypeSuggestions((prev) => new Set([...prev, company]))
   }
 
   async function suggestIndustries() {
@@ -792,6 +865,10 @@ export default function CompaniesPage() {
     ([name]) => !dismissedSuggestions.has(name) && !companies.find((c) => c.name === name)?.industryConfirmed
   ).length
 
+  const pendingTypeSuggestionsCount = typeSuggestions.filter(
+    (s) => !dismissedTypeSuggestions.has(s.company)
+  ).length
+
   if (status === "loading" || loading) {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
   }
@@ -813,7 +890,7 @@ export default function CompaniesPage() {
         onSetIndustry={setIndustry}
         onDismissSuggestion={dismissSuggestion}
         onRename={renameCompany}
-        onContactClick={setActiveContactId}
+        onContactClick={openContact}
         onAddToList={setAddToListContacts}
       />
     )
@@ -830,6 +907,19 @@ export default function CompaniesPage() {
           </p>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          <button
+            onClick={suggestTypes}
+            disabled={suggestingTypes}
+            title="Auto-suggest brand / non-brand from company names and industries"
+            className="flex items-center gap-1.5 text-xs font-medium text-violet-700 border border-violet-200 bg-violet-50 hover:bg-violet-100 px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+          >
+            <Sparkles size={13} />
+            <span className="hidden sm:inline">{suggestingTypes ? "Suggesting…" : "Suggest types"}</span>
+            <span className="sm:hidden">{suggestingTypes ? "…" : "Types"}</span>
+            {pendingTypeSuggestionsCount > 0 && !suggestingTypes && (
+              <span className="ml-0.5 bg-violet-600 text-white rounded-full text-[9px] font-bold px-1.5 py-0.5">{pendingTypeSuggestionsCount}</span>
+            )}
+          </button>
           <button
             onClick={suggestIndustries}
             disabled={suggesting}
@@ -876,6 +966,70 @@ export default function CompaniesPage() {
           </button>
         )}
       </div>
+
+      {/* Type suggestions panel */}
+      {showTypeSuggestions && pendingTypeSuggestionsCount > 0 && (
+        <div className="mb-4 border border-violet-200 bg-violet-50/50 rounded-xl p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
+              <Sparkles size={11} />
+              {pendingTypeSuggestionsCount} type suggestion{pendingTypeSuggestionsCount !== 1 ? "s" : ""}
+              <span className="font-normal text-violet-500">— accept or skip each one</span>
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={acceptAllTypeSuggestions}
+                className="text-xs font-semibold text-violet-700 bg-violet-100 hover:bg-violet-200 border border-violet-200 rounded-lg px-2.5 py-1 transition-colors"
+              >
+                Accept all {pendingTypeSuggestionsCount}
+              </button>
+              <button
+                onClick={() => setShowTypeSuggestions(false)}
+                className="text-gray-400 hover:text-gray-600"
+                title="Close"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+            {typeSuggestions
+              .filter((s) => !dismissedTypeSuggestions.has(s.company))
+              .map((s) => {
+                const typeOpt = TYPE_OPTIONS.find((o) => o.value === s.type)
+                return (
+                  <div key={s.company} className="flex items-center gap-2 py-1.5 px-2.5 bg-white rounded-lg border border-violet-100">
+                    <span className="font-medium text-sm text-gray-900 flex-1 min-w-0 truncate">{s.company}</span>
+                    <span className="text-[10px] text-gray-400 shrink-0 hidden sm:inline">{s.count} contacts</span>
+                    <span className={cn("text-[10px] font-medium rounded-full px-2 py-0.5 border shrink-0", typeOpt?.color ?? "bg-gray-100 text-gray-600 border-gray-300")}>
+                      {typeOpt?.label ?? s.type}
+                    </span>
+                    <span className="text-[10px] text-gray-400 shrink-0 hidden md:inline truncate max-w-[120px]">{s.reason}</span>
+                    {s.confidence === "high" ? (
+                      <span className="text-[9px] font-semibold text-green-600 bg-green-50 rounded px-1 py-0.5 border border-green-200 shrink-0">high</span>
+                    ) : (
+                      <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 rounded px-1 py-0.5 border border-amber-200 shrink-0">med</span>
+                    )}
+                    <button
+                      onClick={() => acceptTypeSuggestion(s.company, s.type as CompanyType)}
+                      className="text-green-500 hover:text-green-600 shrink-0"
+                      title="Accept"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => dismissTypeSuggestion(s.company)}
+                      className="text-gray-300 hover:text-gray-500 shrink-0"
+                      title="Skip"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Filter chips row — wraps on mobile; separators hidden below sm */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
@@ -1060,7 +1214,7 @@ export default function CompaniesPage() {
         </div>
       )}
 
-      <ContactDetail contactId={activeContactId} onClose={() => setActiveContactId(null)} />
+      <ContactDetail contactId={activeContactId} onClose={closeContact} />
       {addToListContacts && (
         <AddToListModal
           contactIds={addToListContacts.map((c) => c.id)}
@@ -1081,4 +1235,12 @@ function sortCompanies(list: Company[]): Company[] {
     if (aScore !== bScore) return bScore - aScore
     return b.count - a.count
   })
+}
+
+export default function CompaniesPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <CompaniesContent />
+    </Suspense>
+  )
 }

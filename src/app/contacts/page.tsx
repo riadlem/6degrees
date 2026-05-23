@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, initials } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
@@ -44,7 +44,7 @@ function ContactsContent() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
-  const [view, setView] = useState<"grid" | "list">("grid")
+  const [view, setView] = useState<"grid" | "list" | "photos">("grid")
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [segmentOpen, setSegmentOpen] = useState(false)
@@ -94,24 +94,59 @@ function ContactsContent() {
   const linkedinConnected = searchParams.get("linkedin_connected") === "1"
   const linkedinError = searchParams.get("linkedin_error")
 
-  // Apply ?company= URL param on first load (e.g. from treemap click-through)
+  // Apply URL params on first load: ?company= (treemap), ?contact= (deep link), ?view= (view mode)
   useEffect(() => {
     const company = searchParams.get("company")
     if (company) setFilters((f) => ({ ...f, company }))
+
+    const contactId = searchParams.get("contact")
+    if (contactId) setActiveContactId(contactId)
+
+    const viewParam = searchParams.get("view") as "grid" | "list" | "photos" | null
+    if (viewParam && ["grid", "list", "photos"].includes(viewParam)) {
+      setView(viewParam)
+    } else {
+      const saved = localStorage.getItem("contactsView") as "grid" | "list" | "photos" | null
+      if (saved) setView(saved)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Back/forward button: sync activeContactId with URL ?contact= param
+  useEffect(() => {
+    function handlePopState() {
+      const params = new URLSearchParams(window.location.search)
+      setActiveContactId(params.get("contact"))
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
   }, [])
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
-  // Persist view preference
-  useEffect(() => {
-    const saved = localStorage.getItem("contactsView") as "grid" | "list" | null
-    if (saved) setView(saved)
-  }, [])
-  function handleViewChange(v: "grid" | "list") {
+  // Open contact — pushes a history entry so the back button closes the drawer
+  function openContact(id: string) {
+    setActiveContactId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("contact", id)
+    window.history.pushState({ contactId: id }, "", url.toString())
+  }
+
+  // Close contact via ✕ or backdrop — replaces history entry (no extra back step)
+  function closeContact() {
+    setActiveContactId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("contact")
+    window.history.replaceState({}, "", url.toString())
+  }
+
+  function handleViewChange(v: "grid" | "list" | "photos") {
     setView(v)
     localStorage.setItem("contactsView", v)
+    const url = new URL(window.location.href)
+    url.searchParams.set("view", v)
+    window.history.replaceState({}, "", url.toString())
   }
 
   useEffect(() => {
@@ -505,33 +540,67 @@ function ContactsContent() {
       {/* Segment active banner */}
       {segmentIds && !segmentOpen && (
         <div className="mb-4 flex items-center justify-between px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-xl text-sm">
-          <span className="text-blue-800 font-medium">
-            Segment active — showing <span className="font-bold">{meta?.total ?? segmentIds.length}</span> of {segmentIds.length} matched contacts
-            {meta && meta.total !== segmentIds.length && (
-              <span className="text-blue-500 font-normal ml-1">(some may have been filtered by sort or deduplication)</span>
-            )}
+          <span className="text-blue-800 font-medium flex items-center gap-2 min-w-0">
+            <span className="shrink-0">Segment:</span>
+            <span className="font-bold shrink-0">{segmentIds.length}</span>
+            <span className="text-blue-600 shrink-0">contacts matched</span>
           </span>
           <button
             onClick={clearSegment}
             className="text-blue-600 hover:text-blue-800 font-semibold text-xs ml-4 shrink-0"
           >
-            Clear segment
+            ✕ Clear
           </button>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="mb-5">
-        <ContactFilters
-          filters={filters}
-          options={meta?.filters ?? { industries: [], companies: [], locations: [], countries: [], labels: [] }}
-          total={meta?.total ?? 0}
-          view={view}
-          onViewChange={handleViewChange}
-          onChange={handleFilterChange}
-          onReset={handleReset}
-        />
-      </div>
+      {/* Filters — hidden in segment mode (filters are inactive there; only sort applies) */}
+      {segmentIds ? (
+        <div className="mb-5 flex items-center gap-3">
+          <span className="text-sm text-gray-500">
+            <span className="font-semibold text-gray-900">{meta?.total ?? segmentIds.length}</span> contact{(meta?.total ?? segmentIds.length) !== 1 ? "s" : ""}
+          </span>
+          <select
+            value={filters.sort}
+            onChange={(e) => handleFilterChange({ sort: e.target.value })}
+            className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-600"
+          >
+            {[
+              { value: "name",          label: "Name A–Z" },
+              { value: "name_desc",     label: "Name Z–A" },
+              { value: "company",       label: "Company A–Z" },
+              { value: "connected",     label: "Recently connected" },
+              { value: "mutual",        label: "Most connections" },
+              { value: "score",         label: "Interaction score" },
+            ].map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button onClick={() => handleViewChange("grid")} className={cn("px-2.5 py-1.5 transition-colors", view === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")} title="Grid">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/><rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/><rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/></svg>
+            </button>
+            <button onClick={() => handleViewChange("list")} className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")} title="List">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="6" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="10" width="12" height="2" rx="1" fill="currentColor"/></svg>
+            </button>
+            <button onClick={() => handleViewChange("photos")} className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")} title="Photos">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="3.5" cy="4" r="2.5" fill="currentColor"/><circle cx="10.5" cy="4" r="2.5" fill="currentColor"/><circle cx="3.5" cy="10" r="2.5" fill="currentColor"/><circle cx="10.5" cy="10" r="2.5" fill="currentColor"/></svg>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-5">
+          <ContactFilters
+            filters={filters}
+            options={meta?.filters ?? { industries: [], companies: [], locations: [], countries: [], labels: [] }}
+            total={meta?.total ?? 0}
+            view={view}
+            onViewChange={handleViewChange}
+            onChange={handleFilterChange}
+            onReset={handleReset}
+          />
+        </div>
+      )}
 
       {/* Bulk select bar */}
       <div className="flex items-center justify-between mb-4 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm">
@@ -561,7 +630,19 @@ function ContactsContent() {
 
       {/* Contact list/grid */}
       {loading ? (
-        view === "grid" ? (
+        view === "photos" ? (
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+            {Array.from({ length: 18 }).map((_, i) => (
+              <div key={i} className="rounded-xl overflow-hidden bg-white">
+                <div className="aspect-square bg-gray-100 animate-pulse" />
+                <div className="px-2 py-1.5 space-y-1">
+                  <div className="h-2.5 bg-gray-100 animate-pulse rounded" />
+                  <div className="h-2 bg-gray-100 animate-pulse rounded w-3/4" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : view === "grid" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             {Array.from({ length: 12 }).map((_, i) => (
               <div key={i} className="h-36 rounded-xl bg-gray-100 animate-pulse" />
@@ -582,6 +663,39 @@ function ContactsContent() {
               : "No contacts yet — sync your LinkedIn network to get started."}
           </p>
         </div>
+      ) : view === "photos" ? (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {allContacts.map((contact) => (
+            <button
+              key={contact.id}
+              onClick={() => openContact(contact.id)}
+              className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all text-left focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+            >
+              <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                {contact.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={contact.photoUrl}
+                    alt={`${contact.firstName} ${contact.lastName}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">
+                    {initials(contact.firstName, contact.lastName)}
+                  </div>
+                )}
+              </div>
+              <div className="px-2 py-1.5">
+                <p className="text-xs font-semibold text-gray-900 truncate leading-tight">
+                  {contact.firstName} {contact.lastName}
+                </p>
+                {contact.company && (
+                  <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{contact.company}</p>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {allContacts.map((contact) => (
@@ -590,7 +704,7 @@ function ContactsContent() {
               contact={contact}
               selected={selectedIds.has(contact.id)}
               onSelect={toggleSelect}
-              onClick={(c) => setActiveContactId(c.id)}
+              onClick={(c) => openContact(c.id)}
               onAddToList={(c) => setAddToListState({ contactIds: [c.id], contacts: [c] })}
             />
           ))}
@@ -617,7 +731,7 @@ function ContactsContent() {
                     contact={contact}
                     selected={selectedIds.has(contact.id)}
                     onSelect={toggleSelect}
-                    onClick={(c) => setActiveContactId(c.id)}
+                    onClick={(c) => openContact(c.id)}
                     onAddToList={(c) => setAddToListState({ contactIds: [c.id], contacts: [c] })}
                   />
                 </div>
@@ -638,7 +752,7 @@ function ContactsContent() {
       {/* Contact detail panel */}
       <ContactDetail
         contactId={activeContactId}
-        onClose={() => setActiveContactId(null)}
+        onClose={closeContact}
       />
 
       {/* Add to list modal */}
