@@ -278,6 +278,11 @@ def parse_args() -> argparse.Namespace:
                    help="Clear enriched_at AND photo_filename for the named contact(s), then exit."
                         " Partial, case-insensitive name match. Re-run with --linkedin-only to"
                         " re-scrape only those rows.  Example: --reset-photo 'Riccardo' 'Marc de Buffevent'")
+    p.add_argument("--reset-missing", metavar="FIELD", nargs="+",
+                   help="Clear enriched_at for every row where ANY of the given CSV fields is blank,"
+                        " then exit. Re-run with --linkedin-only to re-scrape those rows."
+                        " Valid fields: city country shared_contacts photo_filename."
+                        " Example: --reset-missing shared_contacts")
     return p.parse_args()
 
 
@@ -865,6 +870,30 @@ async def main() -> None:
     print(f"Profile → {profile_dir.resolve()}")
 
     existing = load_csv(csv_path)
+
+    # ── --reset-missing: clear enriched_at for rows missing a given field ───────
+    if args.reset_missing:
+        if not existing:
+            print(f"✗ No CSV at {csv_path} — nothing to reset.", file=sys.stderr)
+            sys.exit(1)
+        valid_fields = {"city", "country", "shared_contacts", "photo_filename"}
+        bad = [f for f in args.reset_missing if f not in valid_fields]
+        if bad:
+            print(f"✗ Unknown field(s): {bad}. Valid: {sorted(valid_fields)}", file=sys.stderr)
+            sys.exit(1)
+        reset_count = 0
+        for row in existing:
+            if row.get("enriched_at") and any(not row.get(f) for f in args.reset_missing):
+                row["enriched_at"] = ""
+                reset_count += 1
+        if reset_count == 0:
+            print(f"✓ No rows to reset — all contacts already have {args.reset_missing}.")
+            return
+        save_csv(csv_path, existing)
+        kept = sum(1 for r in existing if r.get("enriched_at"))
+        print(f"✓ Reset {reset_count}/{len(existing)} rows  ({kept} kept as done)")
+        print(f"  Re-run with --linkedin-only to re-scrape the reset rows.")
+        return
 
     # ── --reset-photo: clear enriched_at + photo_filename for named contacts ──
     if args.reset_photo:
