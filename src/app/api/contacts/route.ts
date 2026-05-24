@@ -136,7 +136,7 @@ export async function GET(request: Request) {
     ],
   }
 
-  const orderBy: Prisma.ContactOrderByWithRelationInput =
+  const primaryOrder: Prisma.ContactOrderByWithRelationInput =
     sort === "company"        ? { company: "asc" } :
     sort === "connected"      ? { connectedOn: "desc" } :
     sort === "connected_asc"  ? { connectedOn: "asc" } :
@@ -151,6 +151,13 @@ export async function GET(request: Request) {
     sort === "industry"       ? { industry: "asc" } :
     sort === "industry_desc"  ? { industry: "desc" } :
     { firstName: "asc" }
+  // Deterministic tie-breaker: contacts with identical primary-sort values
+  // keep a stable alphabetical position across pages.
+  const orderBy: Prisma.ContactOrderByWithRelationInput[] = [
+    primaryOrder,
+    { firstName: "asc" },
+    { lastName: "asc" },
+  ]
 
   const [contacts, total] = await Promise.all([
     prisma.contact.findMany({
@@ -235,7 +242,7 @@ export async function POST(request: Request) {
     return Response.json({ contacts: [], total: 0, page: 1, pages: 0, filters: { industries: [], companies: [], locations: [], countries: [], labels: [] } })
   }
 
-  const orderBy: Prisma.ContactOrderByWithRelationInput =
+  const primaryOrder: Prisma.ContactOrderByWithRelationInput =
     sort === "company"        ? { company: "asc" } :
     sort === "connected"      ? { connectedOn: "desc" } :
     sort === "connected_asc"  ? { connectedOn: "asc" } :
@@ -250,6 +257,13 @@ export async function POST(request: Request) {
     sort === "industry"       ? { industry: "asc" } :
     sort === "industry_desc"  ? { industry: "desc" } :
     { firstName: "asc" }
+  // Deterministic tie-breaker: contacts with identical primary-sort values
+  // keep a stable alphabetical position across pages.
+  const orderBy: Prisma.ContactOrderByWithRelationInput[] = [
+    primaryOrder,
+    { firstName: "asc" },
+    { lastName: "asc" },
+  ]
 
   const where: Prisma.ContactWhereInput = {
     userId,
