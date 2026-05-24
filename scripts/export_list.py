@@ -274,6 +274,10 @@ def parse_args() -> argparse.Namespace:
                    help="Clear enriched_at for rows with no data (city/country/photo all blank),"
                         " then exit. Use after a run with widespread page crashes so --linkedin-only"
                         " picks them up on the next run.")
+    p.add_argument("--reset-photo", metavar="NAME", nargs="+",
+                   help="Clear enriched_at AND photo_filename for the named contact(s), then exit."
+                        " Partial, case-insensitive name match. Re-run with --linkedin-only to"
+                        " re-scrape only those rows.  Example: --reset-photo 'Riccardo' 'Marc de Buffevent'")
     return p.parse_args()
 
 
@@ -861,6 +865,27 @@ async def main() -> None:
     print(f"Profile → {profile_dir.resolve()}")
 
     existing = load_csv(csv_path)
+
+    # ── --reset-photo: clear enriched_at + photo_filename for named contacts ──
+    if args.reset_photo:
+        if not existing:
+            print(f"✗ No CSV at {csv_path} — nothing to reset.", file=sys.stderr)
+            sys.exit(1)
+        queries = [q.lower() for q in args.reset_photo]
+        reset_count = 0
+        for row in existing:
+            name_lower = (row.get("name") or "").lower()
+            if any(q in name_lower for q in queries):
+                row["enriched_at"] = ""
+                row["photo_filename"] = ""
+                reset_count += 1
+                print(f"  ↩  reset  {row.get('name')}")
+        if reset_count == 0:
+            print(f"✗ No rows matched: {args.reset_photo}", file=sys.stderr)
+            sys.exit(1)
+        save_csv(csv_path, existing)
+        print(f"\n✓ Reset {reset_count} row(s) — re-run with --linkedin-only to re-scrape.")
+        return
 
     # ── --reset-empty: clear enriched_at for rows with no data ───────────────
     # Use this after a run where widespread page crashes left enriched_at set
