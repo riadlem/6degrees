@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye, Download, Maximize2 } from "lucide-react"
 import { cn, initials } from "@/lib/utils"
 import { labelColors } from "@/lib/label-colors"
+import { usePrivacy } from "@/contexts/PrivacyContext"
 import { isSuspicious } from "@/lib/company-utils"
 import ContactDetail from "@/components/ContactDetail"
 
@@ -287,10 +288,11 @@ function CompanyTreemap({
 
 function ContactAvatar({ contact }: { contact: ContactSnippet }) {
   const inits = initials(contact.firstName, contact.lastName)
+  const { blurred } = usePrivacy()
   if (contact.photoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={contact.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover border border-gray-100 shrink-0" />
+      <img src={contact.photoUrl} alt="" className={cn("w-9 h-9 rounded-full object-cover border border-gray-100 shrink-0", blurred && "blur")} />
     )
   }
   return (
@@ -308,6 +310,7 @@ function CompanyCard({
   onContactClick: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const { blurred } = usePrivacy()
   const size = company.size as CompanySize | null
   const inits = initials(company.name.split(" ")[0] ?? company.name, company.name.split(" ")[1] ?? "")
 
@@ -372,7 +375,7 @@ function CompanyCard({
           >
             <ContactAvatar contact={c} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 truncate">
+              <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>
                 {c.firstName} {c.lastName}
               </p>
               <p className="text-xs text-gray-400 truncate">{c.position ?? c.headline ?? ""}</p>
