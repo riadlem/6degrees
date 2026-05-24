@@ -592,46 +592,74 @@ function SettingsPageInner() {
       })
 
       // ── Step 2: POST metadata only (no photos) → get matched contact IDs ─
-      const res = await fetch("/api/contacts/cowork-import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows }),
-      })
+      let res: Response
+      try {
+        res = await fetch("/api/contacts/cowork-import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows }),
+        })
+      } catch (fetchErr) {
+        setCoworkError(`Network error: ${fetchErr instanceof Error ? fetchErr.message : "could not reach server"}`)
+        return
+      }
       let data: { total: number; matched: number; updated: number; notFound: string[]; matches: { contactId: string; photoFilename: string }[] }
       try { data = await res.json() } catch {
         setCoworkError(`Server error (HTTP ${res.status})`); return
       }
       if (!res.ok) { setCoworkError((data as unknown as { error: string }).error ?? "Import failed"); return }
 
-      // ── Step 3: upload each photo individually (~50–200 KB each) ─────────
+      // ── Step 3: upload each photo individually (resize to ≤400px first) ────
+      // Zip files may contain full-resolution photos (1–5 MB each). We resize
+      // client-side via Canvas to keep each upload well under 100 KB.
       let photos = 0
       if (photosFile && data.matches.length > 0) {
         const JSZip = (await import("jszip")).default
         const zip = await JSZip.loadAsync(await photosFile.arrayBuffer())
+
+        // Resize a raw image blob to ≤maxPx on its longest side, returns a JPEG data URI
+        async function resizeImage(blob: Blob, maxPx = 400): Promise<string> {
+          return new Promise((resolve, reject) => {
+            const img = new Image()
+            const url = URL.createObjectURL(blob)
+            img.onload = () => {
+              URL.revokeObjectURL(url)
+              const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+              const w = Math.round(img.width * scale)
+              const h = Math.round(img.height * scale)
+              const canvas = document.createElement("canvas")
+              canvas.width = w; canvas.height = h
+              canvas.getContext("2d")!.drawImage(img, 0, 0, w, h)
+              resolve(canvas.toDataURL("image/jpeg", 0.75))
+            }
+            img.onerror = reject
+            img.src = url
+          })
+        }
 
         for (const { contactId, photoFilename } of data.matches) {
           const entry = zip.file(photoFilename) ??
             zip.file([...Object.keys(zip.files)].find((p) => p.endsWith(photoFilename) || p.split("/").pop() === photoFilename) ?? "")
           if (!entry) continue
 
-          const u8 = await entry.async("uint8array")
-          let mime = "image/jpeg"
-          if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
-          else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
+          try {
+            const u8 = await entry.async("uint8array")
+            let mime = "image/jpeg"
+            if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
+            else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
 
-          let binary = ""
-          const CHUNK = 8192
-          for (let j = 0; j < u8.length; j += CHUNK) {
-            binary += String.fromCharCode(...u8.subarray(j, j + CHUNK))
+            const blob = new Blob([u8.buffer as ArrayBuffer], { type: mime })
+            const dataUri = await resizeImage(blob)
+
+            const photoRes = await fetch(`/api/contacts/${contactId}/photo`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ data: dataUri }),
+            })
+            if (photoRes.ok) photos++
+          } catch {
+            // Skip photos that fail to resize or upload — don't abort the whole import
           }
-          const dataUri = `data:${mime};base64,${btoa(binary)}`
-
-          const photoRes = await fetch(`/api/contacts/${contactId}/photo`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: dataUri }),
-          })
-          if (photoRes.ok) photos++
         }
       }
 
