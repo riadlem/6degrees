@@ -609,30 +609,61 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
                 result["country"] = country
 
         # ── Mutual connections ────────────────────────────────────────────────
+        # The mutual-connections element loads lazily — scroll first so the
+        # browser renders it, then try a direct DOM query before falling back
+        # to text-based regex.
         try:
-            body = main_txt  # already fetched for location above
-            # French renders "Kamel, Samir et 35 autres relations en commun" — the
-            # total is 35 + the named people shown (1 or 2). Try most-specific first.
-            shared = ""
-            m = re.search(r"[^\n,]+,\s*[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun", body, re.IGNORECASE)
-            if m:
-                shared = str(int(m.group(1)) + 2)
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(0.8)
+
+            # DOM-first: find any element whose text contains a number followed
+            # by a connection keyword (any locale).  LinkedIn renders this as a
+            # <button> or <a> link in the top card or "Highlights" section.
+            shared = await page.evaluate(r"""
+              () => {
+                const KW = /mutual\s+connection|relation[s]?\s+en\s+commun|gemeinsame\s+Kontakt|contatto\s+in\s+comune|contacto[s]?\s+en\s+com[uú]n/i;
+                const candidates = [
+                  ...document.querySelectorAll('a, button, span, div')
+                ].filter(el => el.children.length < 4);   // skip big containers
+                for (const el of candidates) {
+                  const t = (el.textContent || '').trim();
+                  if (!KW.test(t)) continue;
+                  // "42 mutual connections"
+                  let m = t.match(/(\d[\d\s]*)\s+(?:mutual|relation|gemeinsam|contatto|contacto)/i);
+                  if (m) return m[1].replace(/\s/g, '');
+                  // "Kamel, Samir et 35 autres relations en commun" → 35 + named count
+                  m = t.match(/,\s*[^,]+\s+et\s+(\d+)\s+autres/i);
+                  if (m) return String(parseInt(m[1]) + 2);
+                  m = t.match(/[^\s,]+\s+et\s+(\d+)\s+autres/i);
+                  if (m) return String(parseInt(m[1]) + 1);
+                  // "John and 5 others" (English)
+                  m = t.match(/and\s+(\d+)\s+other/i);
+                  if (m) return String(parseInt(m[1]) + 1);
+                }
+                return '';
+              }
+            """)
             if not shared:
-                m = re.search(r"[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun", body, re.IGNORECASE)
-                if m:
-                    shared = str(int(m.group(1)) + 1)
-            if not shared:
-                m = re.search(r"and\s+(\d+)\s+other\s+mutual\s+connections?", body, re.IGNORECASE)
-                if m:
-                    shared = str(int(m.group(1)) + 1)  # approximate: +named shown
-            if not shared:
-                m = re.search(
-                    r"(\d+)\s+(?:mutual\s+connections?|relations?\s+en\s+commun|"
-                    r"gemeinsame\s+Kontakte?|contactos?\s+en\s+com[uú]n|contatti\s+in\s+comune)",
-                    body, re.IGNORECASE,
-                )
-                if m:
-                    shared = m.group(1)
+                # Text fallback on full page text (already fetched above)
+                body = main_txt
+                patterns = [
+                    # FR "Name1, Name2 et N autres relations en commun"
+                    (r"[^\n,]+,\s*[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun", lambda m: str(int(m.group(1)) + 2)),
+                    (r"[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun",           lambda m: str(int(m.group(1)) + 1)),
+                    # FR "Vous avez N relations en commun"
+                    (r"(?:vous avez|avez)\s+(\d+)\s+relations?\s+en\s+commun",                lambda m: m.group(1)),
+                    # EN "Name and N other mutual connections"
+                    (r"and\s+(\d+)\s+other\s+mutual\s+connections?",                          lambda m: str(int(m.group(1)) + 1)),
+                    # Generic "N mutual connections / relations en commun / …"
+                    (r"(\d+)\s+(?:mutual\s+connections?|relations?\s+en\s+commun"
+                     r"|gemeinsame\s+Kontakte?|contactos?\s+en\s+com[uú]n"
+                     r"|contatti\s+in\s+comune)",                                             lambda m: m.group(1)),
+                ]
+                for pat, extract in patterns:
+                    m = re.search(pat, body, re.IGNORECASE)
+                    if m:
+                        shared = extract(m)
+                        break
             if shared:
                 result["shared_contacts"] = shared
         except Exception:
