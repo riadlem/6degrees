@@ -571,6 +571,7 @@ function ContactsContent() {
               { value: "company",       label: "Company A–Z" },
               { value: "connected",     label: "Recently connected" },
               { value: "mutual",        label: "Most connections" },
+              { value: "mutual_asc",    label: "Fewest connections" },
               { value: "score",         label: "Interaction score" },
             ].map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>

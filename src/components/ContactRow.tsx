@@ -1,6 +1,6 @@
 "use client"
 
-import { StickyNote, Plus, Mail, Sparkles } from "lucide-react"
+import { StickyNote, Plus, Mail, Sparkles, Users } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
@@ -92,6 +92,16 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       {/* Location */}
       <div className="w-32 shrink-0 hidden lg:block">
         <p className="text-xs text-gray-400 truncate">{contact.location ?? ""}</p>
+      </div>
+
+      {/* Shared connections */}
+      <div className="w-16 shrink-0 hidden lg:flex items-center justify-end">
+        {contact.commonConnections != null && contact.commonConnections > 0 && (
+          <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
+            <Users size={9} />
+            {contact.commonConnections}
+          </span>
+        )}
       </div>
 
       {/* Status + labels + lists + notes */}

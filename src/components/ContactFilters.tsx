@@ -48,6 +48,7 @@ const SORT_OPTIONS = [
   { value: "connected",     label: "Recently connected" },
   { value: "connected_asc", label: "Oldest connection" },
   { value: "mutual",        label: "Most connections" },
+  { value: "mutual_asc",    label: "Fewest connections" },
   { value: "recent",        label: "Recently synced" },
   { value: "location",      label: "Location A–Z" },
   { value: "score",         label: "Interaction score" },
