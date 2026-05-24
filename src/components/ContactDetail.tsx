@@ -83,7 +83,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [linkingEmail, setLinkingEmail] = useState(false)
   const [linkEmailLoading, setLinkEmailLoading] = useState(false)
   const [emailSearchQ, setEmailSearchQ] = useState("")
-  const [emailSearchResults, setEmailSearchResults] = useState<{ fromEmail: string; fromName: string | null; messageCount: number }[]>([])
+  const [emailSearchResults, setEmailSearchResults] = useState<{ fromEmail: string; fromName: string | null; messageCount: number; alreadyLinked?: boolean; linkedContactId?: string | null; linkedContactName?: string | null }[]>([])
   const [emailSearchLoading, setEmailSearchLoading] = useState(false)
   const [photoUrlInput, setPhotoUrlInput] = useState("")
   const [photoUrlOpen, setPhotoUrlOpen] = useState(false)
@@ -132,7 +132,7 @@ export default function ContactDetail({ contactId, onClose }: Props) {
     const timer = setTimeout(async () => {
       setEmailSearchLoading(true)
       try {
-        const res = await fetch(`/api/gmail/unmatched?q=${encodeURIComponent(emailSearchQ)}`)
+        const res = await fetch(`/api/gmail/senders?q=${encodeURIComponent(emailSearchQ)}`)
         if (res.ok) {
           const d = await res.json()
           setEmailSearchResults(d.senders?.slice(0, 6) ?? [])
@@ -560,13 +560,19 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                               {linkEmailLoading ? <Loader2 size={10} className="animate-spin text-blue-500 shrink-0" /> : null}
                               <span className={cn("font-medium text-gray-800 truncate", blurred && !r.fromName && "blur-sm select-none")}>{r.fromName ?? r.fromEmail}</span>
                               {r.fromName && <span className={cn("text-gray-400 truncate", blurred && "blur-sm select-none")}>{r.fromEmail}</span>}
-                              <span className="text-gray-300 ml-auto shrink-0">{r.messageCount}msg</span>
+                              {r.alreadyLinked && r.linkedContactName && r.linkedContactId !== contact?.id && (
+                                <span className="text-orange-400 text-[10px] shrink-0 ml-auto">→ {r.linkedContactName}</span>
+                              )}
+                              {r.alreadyLinked && (!r.linkedContactName || r.linkedContactId === contact?.id) && (
+                                <span className="text-green-500 text-[10px] shrink-0 ml-auto">✓ linked</span>
+                              )}
+                              {!r.alreadyLinked && <span className="text-gray-300 ml-auto shrink-0">{r.messageCount}msg</span>}
                             </button>
                           ))}
                         </div>
                       )}
                       {emailSearchQ.trim() && !emailSearchLoading && emailSearchResults.length === 0 && (
-                        <p className="text-xs text-gray-400">No unmatched senders found</p>
+                        <p className="text-xs text-gray-400">No senders found matching &ldquo;{emailSearchQ}&rdquo;</p>
                       )}
                     </div>
                   ) : (
