@@ -760,17 +760,15 @@ export default function CompanyDetailPage() {
                   <div className="flex-1 min-w-0">
                     <p className={cn("font-medium text-gray-900 text-sm truncate", blurred && "blur-sm select-none")}>{c.firstName} {c.lastName}</p>
                     {c.position && <p className="text-xs text-gray-500 truncate">{c.position}</p>}
-                    {(c.country || c.industry || (c.commonConnections != null && c.commonConnections > 0)) && (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        {c.country && <span className="text-[9px] bg-gray-100 text-gray-500 rounded px-1 py-0.5">{c.country}</span>}
-                        {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
-                        {c.commonConnections != null && c.commonConnections > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[9px] text-blue-600 bg-blue-50 rounded px-1 py-0.5">
-                            <Users size={8} />{c.commonConnections}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                      {c.country && <span className="text-[9px] bg-gray-100 text-gray-500 rounded px-1 py-0.5">{c.country}</span>}
+                      {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
+                      {c.commonConnections != null && c.commonConnections > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-2 py-0.5 shadow-sm">
+                          <Users size={10} />{c.commonConnections} shared
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       <div className="w-16 h-1 bg-gray-100 rounded-full overflow-hidden">
                         <div className="h-full bg-blue-400 rounded-full" style={{ width: `${scoreWidth}%` }} />
