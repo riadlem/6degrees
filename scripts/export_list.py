@@ -93,6 +93,10 @@ def parse_args() -> argparse.Namespace:
                    help="Run Playwright in headless mode (risky with LinkedIn)")
     p.add_argument("--limit", type=int, default=0,
                    help="Process only first N contacts (for testing)")
+    p.add_argument("--reset-empty", action="store_true",
+                   help="Clear enriched_at for rows with no data (city/country/photo all blank),"
+                        " then exit. Use after a run with widespread page crashes so --linkedin-only"
+                        " picks them up on the next run.")
     return p.parse_args()
 
 
@@ -504,17 +508,33 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
 
     except Exception as exc:
         print(f"    ⚠️  Scrape error: {exc}", file=sys.stderr)
+        # Return None (not {}) to signal a hard error — caller will not set enriched_at
+        # so the row stays eligible for retry on the next run.
+        return None
 
     return result
 
 
-async def phase2(page: Page, rows: list[dict], photo_dir: Path) -> list[dict]:
+async def make_page(browser) -> Page:
+    """Open a new stealth page from the persistent browser context."""
+    page = await browser.new_page()
+    await page.add_init_script(
+        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    )
+    return page
+
+
+async def phase2(browser, page: Page, rows: list[dict], photo_dir: Path, csv_path: Path) -> list[dict]:
     """
     LinkedIn enrichment pass — scrape location, mutual connections, and profile
     photo for every row that hasn't been visited yet.
 
-    Receives the already-open `page` from main() so both phases share the same
-    persistent browser context (one login, one window).
+    Accepts the browser context so it can recreate the page after a crash.
+    Saves CSV every 10 rows so progress survives an interrupted run.
+
+    scrape_linkedin_profile() returns:
+      dict  — page visited (even if nothing found); set enriched_at → done
+      None  — hard error (page crash / timeout); don't set enriched_at → retry
     """
     needs = [r for r in rows if not is_row_complete(r) and r.get("linkedin_url")]
 
@@ -539,14 +559,30 @@ async def phase2(page: Page, rows: list[dict], photo_dir: Path) -> list[dict]:
 
         enriched = await scrape_linkedin_profile(page, url, photo_dir, idx, fname)
 
+        if enriched is None:
+            # Hard error (page crash, timeout) — the page object may be in a
+            # broken state.  Recreate it so the next profile has a clean page.
+            # Do NOT set enriched_at — this row stays eligible for retry.
+            print(f"           ↩  not marked done — will retry on next run")
+            try:
+                await page.close()
+            except Exception:
+                pass
+            page = await make_page(browser)
+            # Short pause before continuing so LinkedIn doesn't see a burst
+            await asyncio.sleep(random.uniform(4, 8))
+            # Periodic save so progress to this point is not lost
+            save_csv(csv_path, rows)
+            continue
+
         # Merge enriched fields into row (don't overwrite existing values)
         for key, val in enriched.items():
             if val and not row.get(key):
                 row[key] = val
 
-        # Mark as visited regardless of what was found — this is what makes
-        # resumability reliable.  Profiles with no location or no photo will
-        # never satisfy a "city AND country" check, so we use this instead.
+        # Mark as visited — this is what makes resumability reliable.
+        # Profiles with no location or no photo will never satisfy a content
+        # check, so we use an explicit timestamp instead.
         row["enriched_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
         city    = row.get("city", "")
@@ -554,6 +590,10 @@ async def phase2(page: Page, rows: list[dict], photo_dir: Path) -> list[dict]:
         shared  = row.get("shared_contacts", "")
         photo   = row.get("photo_filename", "")
         print(f"           city={city or '—'}  country={country or '—'}  shared={shared or '—'}  photo={'✓' if photo else '—'}")
+
+        # Save every 10 rows so a crash or Ctrl-C doesn't lose a whole session
+        if i % 10 == 0:
+            save_csv(csv_path, rows)
 
         # Polite delay with jitter — avoid detection
         if i < total:
@@ -567,10 +607,13 @@ async def phase2(page: Page, rows: list[dict], photo_dir: Path) -> list[dict]:
     attempted     = sum(1 for r in rows if r.get("enriched_at"))
     with_location = sum(1 for r in rows if r.get("city") or r.get("country"))
     with_photo    = sum(1 for r in rows if r.get("photo_filename"))
+    crashed       = sum(1 for r in rows if not r.get("enriched_at") and r.get("linkedin_url"))
     print(f"\n  ✓ LinkedIn pass done")
     print(f"    visited      : {attempted}/{len(rows)}")
     print(f"    has location : {with_location}")
     print(f"    has photo    : {with_photo}")
+    if crashed:
+        print(f"    not done yet : {crashed}  ← re-run with --linkedin-only")
     return rows
 
 
@@ -620,6 +663,28 @@ async def main() -> None:
 
     existing = load_csv(csv_path)
 
+    # ── --reset-empty: clear enriched_at for rows with no data ───────────────
+    # Use this after a run where widespread page crashes left enriched_at set
+    # on rows that have no city, country, or photo.  Then re-run with
+    # --linkedin-only to process only those rows.
+    if args.reset_empty:
+        if not existing:
+            print(f"✗ No CSV at {csv_path} — nothing to reset.", file=sys.stderr)
+            sys.exit(1)
+        reset_count = 0
+        for row in existing:
+            if (row.get("enriched_at")
+                    and not row.get("city")
+                    and not row.get("country")
+                    and not row.get("photo_filename")):
+                row["enriched_at"] = ""
+                reset_count += 1
+        save_csv(csv_path, existing)
+        kept = sum(1 for r in existing if r.get("enriched_at"))
+        print(f"✓ Reset {reset_count}/{len(existing)} rows  ({kept} kept as done)")
+        print(f"  Re-run with --linkedin-only to enrich the reset rows.")
+        return
+
     # One browser, one profile — shared across 6Degrees and LinkedIn.
     async with async_playwright() as pw:
         browser = await pw.chromium.launch_persistent_context(
@@ -637,12 +702,7 @@ async def main() -> None:
             viewport={"width": 1280, "height": 900},
         )
 
-        page = await browser.new_page()
-
-        # Stealth: remove navigator.webdriver fingerprint
-        await page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-        )
+        page = await make_page(browser)
 
         # ── Phase 1 ──────────────────────────────────────────────────────────
         if args.linkedin_only:
@@ -662,7 +722,7 @@ async def main() -> None:
         # ── Phase 2 ──────────────────────────────────────────────────────────
         if not args.no_linkedin:
             await ensure_linkedin_login(page, args.headless)
-            rows = await phase2(page, rows, photo_dir)
+            rows = await phase2(browser, page, rows, photo_dir, csv_path)
             save_csv(csv_path, rows)
             print(f"  Saved → {csv_path}")
 
