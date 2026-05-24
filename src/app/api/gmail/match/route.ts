@@ -38,6 +38,58 @@ export async function POST(req: Request) {
     data: { contactId },
   })
 
+  // ── Propagate to other unmatched emails from senders with the same display name ──
+  // e.g. "Bassem Tawfeeq" <bassem@gmail.com> manually linked → also auto-link
+  // "Bassem Tawfeeq" <bassem@work.com> so it stops appearing in the unmatched panel.
+  const fromNames = await prisma.emailMessage.findMany({
+    where: { userId, fromEmail: normalized, isOutbound: false },
+    select: { fromName: true },
+    distinct: ["fromName"],
+    take: 3,
+  })
+
+  for (const { fromName } of fromNames) {
+    if (!fromName?.trim()) continue
+
+    // Only propagate when the display name unambiguously matches the contact
+    // (both first + last present in the name, case-insensitive)
+    const firstLower = contact.firstName.toLowerCase()
+    const lastLower = (contact.lastName ?? "").toLowerCase()
+    const nameLower = fromName.toLowerCase()
+    const nameMatches = lastLower
+      ? nameLower.includes(firstLower) && nameLower.includes(lastLower)
+      : nameLower.includes(firstLower)
+
+    if (!nameMatches) continue
+
+    // Find other unmatched inbound emails from senders with this exact display name
+    const otherEmails = await prisma.emailMessage.findMany({
+      where: {
+        userId,
+        contactId: null,
+        isOutbound: false,
+        fromName: { equals: fromName, mode: "insensitive" },
+        NOT: { fromEmail: normalized },
+      },
+      select: { fromEmail: true },
+      distinct: ["fromEmail"],
+    })
+
+    for (const { fromEmail: otherEmail } of otherEmails) {
+      // Register the new email address on the contact
+      await prisma.contactEmailAddress.upsert({
+        where: { contactId_email: { contactId, email: otherEmail } },
+        update: {},
+        create: { contactId, email: otherEmail, source: "manual", isPrimary: false },
+      })
+      // Link all unmatched messages from that sender
+      await prisma.emailMessage.updateMany({
+        where: { userId, contactId: null, fromEmail: otherEmail },
+        data: { contactId },
+      })
+    }
+  }
+
   await recomputeScores(userId)
 
   return Response.json({ ok: true })
