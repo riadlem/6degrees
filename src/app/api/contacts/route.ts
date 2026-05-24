@@ -143,6 +143,7 @@ export async function GET(request: Request) {
     sort === "recent"         ? { syncedAt: "desc" } :
     sort === "location"       ? { location: "asc" } :
     sort === "mutual"         ? { commonConnections: "desc" } :
+    sort === "mutual_asc"     ? { commonConnections: "asc" } :
     sort === "name_desc"      ? { lastName: "desc" } :
     sort === "score"          ? { interactionScore: "desc" } :
     sort === "country"        ? { country: "asc" } :
@@ -241,6 +242,7 @@ export async function POST(request: Request) {
     sort === "recent"         ? { syncedAt: "desc" } :
     sort === "location"       ? { location: "asc" } :
     sort === "mutual"         ? { commonConnections: "desc" } :
+    sort === "mutual_asc"     ? { commonConnections: "asc" } :
     sort === "name_desc"      ? { lastName: "desc" } :
     sort === "score"          ? { interactionScore: "desc" } :
     sort === "country"        ? { country: "asc" } :

@@ -57,6 +57,7 @@ type ContactRow = {
   profileUrl: string | null
   country: string | null
   industry: string | null
+  commonConnections: number | null
   labels: { label: { id: string; name: string; color: string } }[]
 }
 
@@ -302,6 +303,8 @@ export default function CompanyDetailPage() {
       if (contactSort === "country") return (a.country ?? "").localeCompare(b.country ?? "")
       if (contactSort === "industry") return (a.industry ?? "").localeCompare(b.industry ?? "")
       if (contactSort === "position") return (a.position ?? "").localeCompare(b.position ?? "")
+      if (contactSort === "mutual") return (b.commonConnections ?? 0) - (a.commonConnections ?? 0)
+      if (contactSort === "mutual_asc") return (a.commonConnections ?? 0) - (b.commonConnections ?? 0)
       // default: score desc
       return (b.interactionScore ?? 0) - (a.interactionScore ?? 0)
     })
@@ -669,6 +672,8 @@ export default function CompanyDetailPage() {
                 className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="score">By score</option>
+                <option value="mutual">Most connections</option>
+                <option value="mutual_asc">Fewest connections</option>
                 <option value="name">Name A–Z</option>
                 <option value="name_desc">Name Z–A</option>
                 <option value="country">Country A–Z</option>
@@ -755,10 +760,15 @@ export default function CompanyDetailPage() {
                   <div className="flex-1 min-w-0">
                     <p className={cn("font-medium text-gray-900 text-sm truncate", blurred && "blur-sm select-none")}>{c.firstName} {c.lastName}</p>
                     {c.position && <p className="text-xs text-gray-500 truncate">{c.position}</p>}
-                    {(c.country || c.industry) && (
+                    {(c.country || c.industry || (c.commonConnections != null && c.commonConnections > 0)) && (
                       <div className="flex items-center gap-1 mt-0.5">
                         {c.country && <span className="text-[9px] bg-gray-100 text-gray-500 rounded px-1 py-0.5">{c.country}</span>}
                         {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
+                        {c.commonConnections != null && c.commonConnections > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] text-blue-600 bg-blue-50 rounded px-1 py-0.5">
+                            <Users size={8} />{c.commonConnections}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className="flex items-center gap-2 mt-1">
