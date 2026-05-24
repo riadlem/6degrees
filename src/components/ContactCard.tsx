@@ -120,7 +120,7 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
           <div className="mt-2 flex justify-center">
             <span className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-700 bg-blue-100 rounded-full px-3 py-1 shadow-sm">
               <Users size={13} />
-              {contact.commonConnections} shared
+              {contact.commonConnections}
             </span>
           </div>
         )}

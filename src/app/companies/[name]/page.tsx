@@ -765,7 +765,7 @@ export default function CompanyDetailPage() {
                       {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
                       {c.commonConnections != null && c.commonConnections > 0 && (
                         <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-2 py-0.5 shadow-sm">
-                          <Users size={10} />{c.commonConnections} shared
+                          <Users size={10} />{c.commonConnections}
                         </span>
                       )}
                     </div>
