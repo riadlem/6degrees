@@ -236,9 +236,12 @@ function SettingsPageInner() {
         body: JSON.stringify({ email: fromEmail, contactId }),
       })
       if (res.ok) {
+        const { propagatedEmails = [] } = await res.json()
+        // Remove the matched email + any auto-propagated same-name emails in one shot
+        const removed = new Set([fromEmail, ...propagatedEmails])
         sessionStorage.removeItem("unmatchedSenders_cache")
-        setUnmatchedSenders((prev) => prev.filter((s) => s.fromEmail !== fromEmail))
-        setUnmatchedTotal((n) => n - 1)
+        setUnmatchedSenders((prev) => prev.filter((s) => !removed.has(s.fromEmail)))
+        setUnmatchedTotal((n) => Math.max(0, n - removed.size))
         setAssigningFor(null)
         setSearchQuery("")
         setSearchResults([])

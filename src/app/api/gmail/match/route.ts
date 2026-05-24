@@ -41,6 +41,8 @@ export async function POST(req: Request) {
   // ── Propagate to other unmatched emails from senders with the same display name ──
   // e.g. "Bassem Tawfeeq" <bassem@gmail.com> manually linked → also auto-link
   // "Bassem Tawfeeq" <bassem@work.com> so it stops appearing in the unmatched panel.
+  const propagatedEmails: string[] = []
+
   const fromNames = await prisma.emailMessage.findMany({
     where: { userId, fromEmail: normalized, isOutbound: false },
     select: { fromName: true },
@@ -87,10 +89,12 @@ export async function POST(req: Request) {
         where: { userId, contactId: null, fromEmail: otherEmail },
         data: { contactId },
       })
+      propagatedEmails.push(otherEmail)
     }
   }
 
   await recomputeScores(userId)
 
-  return Response.json({ ok: true })
+  // Return propagatedEmails so the UI can immediately remove them from the list
+  return Response.json({ ok: true, propagatedEmails })
 }
