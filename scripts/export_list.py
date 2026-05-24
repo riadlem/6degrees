@@ -642,21 +642,39 @@ async def scrape_linkedin_profile(page: Page, profile_url: str, photo_dir: Path,
         photo_url = await page.evaluate(
             """
             () => {
+              // Collect all profile-displayphoto images inside <main>,
+              // excluding cover banners.
               const imgs = [...document.querySelectorAll('main img')].filter(i => {
                 const s = (i.currentSrc || i.src || '') + ' ' + (i.srcset || '');
                 return /profile-displayphoto/.test(s) && !/displaybackgroundimage/.test(s);
               });
               if (!imgs.length) return '';
-              const img = document.querySelector('main .pv-top-card-profile-picture__image') || imgs[0];
-              const ss = img.srcset || '';
-              if (ss) {
-                const best = ss.split(',')
-                  .map(p => p.trim().split(/\\s+/))
-                  .map(([u, w]) => ({ u, w: parseInt((w || '0').replace(/\\D/g, '')) }))
-                  .sort((a, b) => b.w - a.w)[0];
-                if (best && best.u) return best.u;
+
+              // The main headshot has srcset variants up to 400-800 px; mutual-
+              // connection / "People you may know" thumbnails only go to 50-100 px.
+              // Pick the URL whose largest srcset width wins — this reliably
+              // selects the top-card headshot over any sidebar thumbnail.
+              let bestUrl = '', bestW = 0;
+              for (const img of imgs) {
+                const ss = img.srcset || '';
+                if (ss) {
+                  for (const part of ss.split(',')) {
+                    const [u, w] = part.trim().split(/\\s+/);
+                    const width = parseInt((w || '0').replace(/\\D/g, ''));
+                    if (width > bestW) { bestW = width; bestUrl = u; }
+                  }
+                }
               }
-              return img.currentSrc || img.src || '';
+              // Require at least 200 px — anything smaller is a thumbnail, not
+              // a headshot.  Return '' so the caller skips the download rather
+              // than saving a tiny / wrong photo.
+              if (bestW >= 200 && bestUrl) return bestUrl;
+
+              // If srcset is missing (rare), fall back to the dedicated class,
+              // then to currentSrc of the first filtered img.
+              const tc = document.querySelector('main .pv-top-card-profile-picture__image');
+              if (tc) return tc.currentSrc || tc.src || '';
+              return imgs[0].currentSrc || imgs[0].src || '';
             }
             """
         )
