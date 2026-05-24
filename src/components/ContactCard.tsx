@@ -4,6 +4,8 @@ import { Users, Building2, MapPin, StickyNote, Plus, Mail, Sparkles } from "luci
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
+import { usePrivacy } from "@/contexts/PrivacyContext"
+import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 
 export type ContactSummary = {
   id: string
@@ -35,6 +37,8 @@ interface Props {
 export default function ContactCard({ contact, selected, onSelect, onClick, onAddToList }: Props) {
   const fullName = `${contact.firstName} ${contact.lastName}`
   const inits = initials(contact.firstName, contact.lastName)
+  const { blurred } = usePrivacy()
+  const emailKind = classifyEmail(contact.emailAddress, contact.company)
 
   return (
     <div
@@ -82,26 +86,30 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
             <img
               src={contact.photoUrl}
               alt={fullName}
-              className="w-[100px] h-[100px] rounded-full object-cover border-2 border-gray-100 shadow-sm"
+              className={cn("w-[100px] h-[100px] rounded-full object-cover border-2 border-gray-100 shadow-sm", blurred && "blur")}
             />
           ) : (
+            // Initials fallback — never blurred (2 letters, not sensitive)
             <div className="w-[100px] h-[100px] rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-2xl font-bold shadow-sm">
               {inits}
             </div>
           )}
-          {contact.emailAddress && (
+          {emailKind && (
             <span
-              className="absolute bottom-1 right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center border-2 border-white shadow-sm"
-              title={contact.emailAddress}
+              className={cn(
+                "absolute bottom-1 right-1 w-5 h-5 rounded-full bg-white flex items-center justify-center border-2 border-white shadow-sm",
+                EMAIL_KIND_COLOR[emailKind]
+              )}
+              title={EMAIL_KIND_TITLE[emailKind] + (blurred ? "" : `: ${contact.emailAddress}`)}
             >
-              <Mail size={10} className="text-green-500" />
+              <Mail size={10} />
             </span>
           )}
         </div>
 
         {/* Name + position */}
         <div className="mt-3 text-center min-w-0 w-full">
-          <p className="font-semibold text-gray-900 text-sm leading-tight truncate">{fullName}</p>
+          <p className={cn("font-semibold text-gray-900 text-sm leading-tight truncate", blurred && "blur-sm select-none")}>{fullName}</p>
           {contact.position && (
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{contact.position}</p>
           )}
