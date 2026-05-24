@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight } from "lucide-react"
+import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight, LayoutGrid } from "lucide-react"
+import CompanyTreemap from "@/components/CompanyTreemap"
 import { cn, initials } from "@/lib/utils"
 import { isSuspicious } from "@/lib/company-utils"
 import ContactRow from "@/components/ContactRow"
@@ -49,6 +50,7 @@ export type Company = {
   parentCompany: string | null
   industry: string | null
   industryConfirmed: boolean
+  country: string | null
   photos: string[]
 }
 
@@ -564,6 +566,7 @@ function CompaniesContent() {
 
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<"list" | "treemap">("list")
   const [q, setQ] = useState("")
   const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set())
@@ -907,6 +910,30 @@ function CompaniesContent() {
           </p>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          {/* View toggle */}
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setView("list")}
+              title="List view"
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors",
+                view === "list" ? "bg-gray-100 text-gray-900" : "bg-white text-gray-400 hover:bg-gray-50"
+              )}
+            >
+              <Users size={12} /> List
+            </button>
+            <button
+              onClick={() => setView("treemap")}
+              title="Treemap by country"
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors border-l border-gray-200",
+                view === "treemap" ? "bg-gray-100 text-gray-900" : "bg-white text-gray-400 hover:bg-gray-50"
+              )}
+            >
+              <LayoutGrid size={12} /> Map
+            </button>
+          </div>
+
           <button
             onClick={suggestTypes}
             disabled={suggestingTypes}
@@ -1144,7 +1171,16 @@ function CompaniesContent() {
         )}
       </div>
 
-      {companies.length === 0 ? (
+      {/* Treemap view */}
+      {view === "treemap" && companies.length > 0 && (
+        <CompanyTreemap
+          companies={companies.filter(c => !c.ignored && allFilters(c))}
+          onCompanyClick={(name) => { setView("list"); setQ(name) }}
+        />
+      )}
+
+      {/* List view */}
+      {view === "list" && (companies.length === 0 ? (
         <div className="text-center py-20 text-gray-400 text-sm">
           No companies yet — sync your LinkedIn contacts first.
         </div>
@@ -1212,7 +1248,7 @@ function CompaniesContent() {
             </div>
           )}
         </div>
-      )}
+      ))}
 
       <ContactDetail contactId={activeContactId} onClose={closeContact} />
       {addToListContacts && (
