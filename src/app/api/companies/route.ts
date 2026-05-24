@@ -35,7 +35,7 @@ export async function GET() {
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
   const companyNames = rows.map((r) => r.company as string)
 
-  const [samples, industries] = await Promise.all([
+  const [samples, industries, locationRows] = await Promise.all([
     prisma.contact.findMany({
       where: { userId, company: { in: companyNames }, photoUrl: { not: null } },
       select: { company: true, photoUrl: true, id: true },
@@ -46,6 +46,12 @@ export async function GET() {
       where: { userId, company: { in: companyNames }, industry: { not: null } },
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
+    }),
+    // Derive dominant country per company from contact location strings
+    // ("Paris, Île-de-France, France" → last comma-segment → "France")
+    prisma.contact.findMany({
+      where: { userId, company: { in: companyNames }, location: { not: null } },
+      select: { company: true, location: true },
     }),
   ])
 
@@ -64,6 +70,27 @@ export async function GET() {
     }
   }
 
+  // Derive dominant country per company: last comma-segment of location string,
+  // e.g. "Paris, Île-de-France, France" → "France"; "London, United Kingdom" → "United Kingdom"
+  const countryCounts = new Map<string, Map<string, number>>()
+  for (const r of locationRows) {
+    if (!r.company || !r.location) continue
+    const parts = r.location.split(",")
+    const country = parts[parts.length - 1].trim()
+    if (country.length < 2) continue
+    if (!countryCounts.has(r.company)) countryCounts.set(r.company, new Map())
+    const m = countryCounts.get(r.company)!
+    m.set(country, (m.get(country) ?? 0) + 1)
+  }
+  const countryByCompany = new Map<string, string>()
+  for (const [company, m] of countryCounts) {
+    let max = 0, best = ""
+    for (const [country, cnt] of m) {
+      if (cnt > max) { max = cnt; best = country }
+    }
+    if (best) countryByCompany.set(company, best)
+  }
+
   const companies = rows
     .filter((r) => r.company)
     .map((r) => {
@@ -79,6 +106,7 @@ export async function GET() {
         parentCompany: pref?.parentCompany ?? null,
         industry:      pref?.industry ?? industryByCompany.get(r.company as string) ?? null,
         industryConfirmed: !!pref?.industry,
+        country:       countryByCompany.get(r.company as string) ?? null,
         photos:        photosByCompany.get(r.company as string) ?? [],
       }
     })

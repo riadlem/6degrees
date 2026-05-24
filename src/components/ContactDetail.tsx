@@ -7,6 +7,8 @@ import {
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
+import { usePrivacy } from "@/contexts/PrivacyContext"
+import { classifyEmail, EMAIL_KIND_BG, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 
 type Note = { id: string; content: string; createdAt: string }
 type ListMembership = { listId: string; list: { id: string; name: string } }
@@ -62,6 +64,7 @@ interface Props {
 }
 
 export default function ContactDetail({ contactId, onClose }: Props) {
+  const { blurred } = usePrivacy()
   const [contact, setContact] = useState<Contact | null>(null)
   const [loading, setLoading] = useState(false)
   const [noteText, setNoteText] = useState("")
@@ -502,18 +505,25 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                 <div className="flex-1 min-w-0">
                   {contact.emailAddresses.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-1.5">
-                      {contact.emailAddresses.map((ea) => (
-                        <span key={ea.email} className="group/email flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded-full px-2.5 py-0.5 text-gray-700">
-                          {ea.email}
-                          <button
-                            title="Unlink this email address"
-                            onClick={() => unlinkEmail(ea.email)}
-                            className="text-gray-300 hover:text-red-500 md:opacity-0 md:group-hover/email:opacity-100 transition-opacity ml-0.5"
-                          >
-                            <Link2Off size={10} />
-                          </button>
-                        </span>
-                      ))}
+                      {contact.emailAddresses.map((ea) => {
+                        const kind = classifyEmail(ea.email, contact.company)
+                        return (
+                          <span key={ea.email} className={cn(
+                            "group/email flex items-center gap-1 text-xs rounded-full px-2.5 py-0.5 border",
+                            kind ? EMAIL_KIND_BG[kind] : "bg-gray-50 border-gray-200 text-gray-700"
+                          )}
+                          title={kind ? EMAIL_KIND_TITLE[kind] : undefined}>
+                            <span className={cn(blurred && "blur-sm select-none")}>{ea.email}</span>
+                            <button
+                              title="Unlink this email address"
+                              onClick={() => unlinkEmail(ea.email)}
+                              className="text-gray-400 hover:text-red-500 md:opacity-0 md:group-hover/email:opacity-100 transition-opacity ml-0.5"
+                            >
+                              <Link2Off size={10} />
+                            </button>
+                          </span>
+                        )
+                      })}
                     </div>
                   )}
                   {linkingEmail ? (
@@ -548,8 +558,8 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                               className="w-full text-left flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-100 bg-white disabled:opacity-50"
                             >
                               {linkEmailLoading ? <Loader2 size={10} className="animate-spin text-blue-500 shrink-0" /> : null}
-                              <span className="font-medium text-gray-800 truncate">{r.fromName ?? r.fromEmail}</span>
-                              {r.fromName && <span className="text-gray-400 truncate">{r.fromEmail}</span>}
+                              <span className={cn("font-medium text-gray-800 truncate", blurred && !r.fromName && "blur-sm select-none")}>{r.fromName ?? r.fromEmail}</span>
+                              {r.fromName && <span className={cn("text-gray-400 truncate", blurred && "blur-sm select-none")}>{r.fromEmail}</span>}
                               <span className="text-gray-300 ml-auto shrink-0">{r.messageCount}msg</span>
                             </button>
                           ))}
@@ -716,10 +726,10 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                         <ArrowDownLeft size={12} className="text-green-400 shrink-0 mt-0.5" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-gray-700 truncate">
+                        <p className={cn("text-xs text-gray-700 truncate", blurred && "blur-sm select-none")}>
                           {email.subject ?? "(no subject)"}
                         </p>
-                        <p className="text-xs text-gray-400">{formatDate(email.sentAt)}</p>
+                        <p className={cn("text-xs text-gray-400", blurred && "blur-sm select-none")}>{formatDate(email.sentAt)}</p>
                       </div>
                     </div>
                   ))}

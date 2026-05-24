@@ -76,6 +76,183 @@ COUNTRY_MAP = {
     "United Arab Emirates": "United Arab Emirates",
 }
 
+# ── City → country inference ─────────────────────────────────────────────────
+# Applies when parse_location() extracts a city with no country component.
+# Cities are included only when practically unambiguous in a French-rooted
+# professional network.  "Paris, Texas" has a comma so it is already handled
+# by the multi-part branch; bare "Paris" → France.
+CITY_COUNTRY: dict[str, str] = {
+    # France
+    "Paris": "France", "Lyon": "France", "Marseille": "France",
+    "Toulouse": "France", "Bordeaux": "France", "Nice": "France",
+    "Nantes": "France", "Strasbourg": "France", "Lille": "France",
+    "Rennes": "France", "Grenoble": "France", "Montpellier": "France",
+    "Saint-Étienne": "France", "Saint-Etienne": "France",
+    "Toulon": "France", "Le Havre": "France", "Reims": "France",
+    "Dijon": "France", "Angers": "France", "Nîmes": "France", "Nimes": "France",
+    "Aix-en-Provence": "France", "Aix en Provence": "France",
+    "Brest": "France", "Limoges": "France", "Caen": "France",
+    "Amiens": "France", "Perpignan": "France", "Clermont-Ferrand": "France",
+    "Nancy": "France", "Metz": "France", "Pau": "France",
+    "Avignon": "France", "Besançon": "France", "Besancon": "France",
+    "Orléans": "France", "Orleans": "France", "Poitiers": "France",
+    "Mulhouse": "France", "Rouen": "France", "Dunkerque": "France", "Dunkirk": "France",
+    "Versailles": "France", "Montrouge": "France", "Créteil": "France",
+    "Boulogne-Billancourt": "France", "Argenteuil": "France",
+    "Montreuil": "France", "Roubaix": "France", "Tourcoing": "France",
+    "Nanterre": "France", "Saint-Denis": "France", "Courbevoie": "France",
+    "Levallois": "France", "Puteaux": "France",
+    "Neuilly-sur-Seine": "France", "Neuilly": "France",
+    "Vannes": "France", "Lorient": "France", "Quimper": "France",
+    "Annecy": "France", "Chambéry": "France", "Valence": "France",
+    "Bayonne": "France", "La Rochelle": "France", "Biarritz": "France",
+    "Colmar": "France", "Valenciennes": "France", "Lens": "France",
+    "Chartres": "France", "Évry": "France", "Evry": "France",
+    "Cergy": "France", "Agen": "France", "Montauban": "France",
+    "Troyes": "France", "Niort": "France", "Tarbes": "France",
+    # Belgium
+    "Brussels": "Belgium", "Bruxelles": "Belgium", "Brüssel": "Belgium",
+    "Antwerp": "Belgium", "Anvers": "Belgium",
+    "Ghent": "Belgium", "Gent": "Belgium", "Bruges": "Belgium",
+    "Liège": "Belgium", "Liege": "Belgium", "Namur": "Belgium",
+    # Switzerland
+    "Zurich": "Switzerland", "Zürich": "Switzerland",
+    "Geneva": "Switzerland", "Genève": "Switzerland", "Geneve": "Switzerland",
+    "Basel": "Switzerland", "Bâle": "Switzerland",
+    "Lausanne": "Switzerland", "Bern": "Switzerland", "Berne": "Switzerland",
+    "Lugano": "Switzerland", "Lucerne": "Switzerland", "Luzern": "Switzerland",
+    # Luxembourg
+    "Luxembourg": "Luxembourg", "Luxembourg City": "Luxembourg",
+    # Germany
+    "Berlin": "Germany", "Munich": "Germany", "München": "Germany",
+    "Hamburg": "Germany", "Frankfurt": "Germany", "Cologne": "Germany",
+    "Köln": "Germany", "Stuttgart": "Germany", "Düsseldorf": "Germany",
+    "Dusseldorf": "Germany", "Dortmund": "Germany", "Essen": "Germany",
+    "Leipzig": "Germany", "Bremen": "Germany", "Dresden": "Germany",
+    "Hanover": "Germany", "Hannover": "Germany", "Nuremberg": "Germany",
+    "Nürnberg": "Germany", "Duisburg": "Germany", "Bonn": "Germany",
+    "Mannheim": "Germany", "Karlsruhe": "Germany", "Augsburg": "Germany",
+    "Wiesbaden": "Germany", "Freiburg": "Germany", "Mainz": "Germany",
+    # United Kingdom
+    "London": "United Kingdom", "Manchester": "United Kingdom",
+    "Birmingham": "United Kingdom", "Glasgow": "United Kingdom",
+    "Liverpool": "United Kingdom", "Edinburgh": "United Kingdom",
+    "Leeds": "United Kingdom", "Sheffield": "United Kingdom",
+    "Bristol": "United Kingdom", "Newcastle": "United Kingdom",
+    "Leicester": "United Kingdom", "Coventry": "United Kingdom",
+    "Nottingham": "United Kingdom", "Cardiff": "United Kingdom",
+    "Belfast": "United Kingdom", "Oxford": "United Kingdom",
+    "Cambridge": "United Kingdom", "Brighton": "United Kingdom",
+    "Southampton": "United Kingdom", "Aberdeen": "United Kingdom",
+    # Netherlands
+    "Amsterdam": "Netherlands", "Rotterdam": "Netherlands",
+    "The Hague": "Netherlands", "Utrecht": "Netherlands",
+    "Eindhoven": "Netherlands",
+    # Spain
+    "Madrid": "Spain", "Barcelona": "Spain", "Valencia": "Spain",
+    "Seville": "Spain", "Sevilla": "Spain", "Bilbao": "Spain",
+    "Málaga": "Spain", "Malaga": "Spain", "Zaragoza": "Spain",
+    # Italy
+    "Rome": "Italy", "Roma": "Italy", "Milan": "Italy", "Milano": "Italy",
+    "Naples": "Italy", "Napoli": "Italy", "Turin": "Italy", "Torino": "Italy",
+    "Palermo": "Italy", "Genoa": "Italy", "Genova": "Italy",
+    "Bologna": "Italy", "Florence": "Italy", "Firenze": "Italy",
+    "Venice": "Italy", "Venezia": "Italy",
+    # Portugal
+    "Lisbon": "Portugal", "Lisboa": "Portugal", "Porto": "Portugal",
+    # Austria
+    "Vienna": "Austria", "Wien": "Austria", "Graz": "Austria",
+    "Salzburg": "Austria", "Linz": "Austria",
+    # Scandinavia
+    "Copenhagen": "Denmark", "København": "Denmark",
+    "Stockholm": "Sweden", "Gothenburg": "Sweden", "Göteborg": "Sweden",
+    "Oslo": "Norway", "Bergen": "Norway",
+    "Helsinki": "Finland",
+    "Reykjavik": "Iceland",
+    # Eastern Europe
+    "Warsaw": "Poland", "Varsovie": "Poland",
+    "Kraków": "Poland", "Krakow": "Poland",
+    "Wrocław": "Poland", "Wroclaw": "Poland",
+    "Prague": "Czech Republic", "Praha": "Czech Republic",
+    "Budapest": "Hungary",
+    "Bucharest": "Romania", "București": "Romania",
+    "Sofia": "Bulgaria", "Zagreb": "Croatia", "Bratislava": "Slovakia",
+    "Tallinn": "Estonia", "Riga": "Latvia", "Vilnius": "Lithuania",
+    "Kyiv": "Ukraine", "Kiev": "Ukraine",
+    # Middle East
+    "Dubai": "United Arab Emirates", "Abu Dhabi": "United Arab Emirates",
+    "Doha": "Qatar", "Riyadh": "Saudi Arabia", "Jeddah": "Saudi Arabia",
+    "Tel Aviv": "Israel", "Jerusalem": "Israel",
+    "Beirut": "Lebanon", "Amman": "Jordan",
+    "Kuwait City": "Kuwait", "Manama": "Bahrain", "Muscat": "Oman",
+    # Africa
+    "Cairo": "Egypt", "Le Caire": "Egypt", "Alexandria": "Egypt",
+    "Casablanca": "Morocco", "Rabat": "Morocco", "Marrakech": "Morocco",
+    "Algiers": "Algeria", "Alger": "Algeria", "Oran": "Algeria",
+    "Tunis": "Tunisia", "Dakar": "Senegal", "Abidjan": "Ivory Coast",
+    "Accra": "Ghana", "Lagos": "Nigeria", "Nairobi": "Kenya",
+    "Johannesburg": "South Africa", "Cape Town": "South Africa",
+    # Asia
+    "Tokyo": "Japan", "Osaka": "Japan", "Kyoto": "Japan",
+    "Beijing": "China", "Shanghai": "China", "Shenzhen": "China",
+    "Guangzhou": "China", "Chengdu": "China", "Hangzhou": "China",
+    "Hong Kong": "Hong Kong",
+    "Seoul": "South Korea", "Busan": "South Korea",
+    "Singapore": "Singapore",
+    "Bangkok": "Thailand", "Kuala Lumpur": "Malaysia",
+    "Jakarta": "Indonesia", "Manila": "Philippines", "Taipei": "Taiwan",
+    "Mumbai": "India", "Delhi": "India", "New Delhi": "India",
+    "Bangalore": "India", "Bengaluru": "India",
+    "Hyderabad": "India", "Chennai": "India", "Pune": "India",
+    "Karachi": "Pakistan", "Dhaka": "Bangladesh",
+    # Americas — United States
+    "New York": "United States", "New York City": "United States",
+    "Los Angeles": "United States", "Chicago": "United States",
+    "Houston": "United States", "Phoenix": "United States",
+    "Philadelphia": "United States", "San Diego": "United States",
+    "Dallas": "United States", "San Francisco": "United States",
+    "Austin": "United States", "Charlotte": "United States",
+    "San Jose": "United States", "Seattle": "United States",
+    "Denver": "United States", "Boston": "United States",
+    "Nashville": "United States", "Portland": "United States",
+    "Las Vegas": "United States", "Atlanta": "United States",
+    "Miami": "United States", "Minneapolis": "United States",
+    "Pittsburgh": "United States", "Baltimore": "United States",
+    "Detroit": "United States", "Palo Alto": "United States",
+    "Menlo Park": "United States", "Mountain View": "United States",
+    "San Mateo": "United States", "New Orleans": "United States",
+    "Orlando": "United States", "Tampa": "United States",
+    "Sacramento": "United States",
+    # Americas — Canada
+    "Toronto": "Canada", "Montreal": "Canada", "Montréal": "Canada",
+    "Vancouver": "Canada", "Calgary": "Canada", "Ottawa": "Canada",
+    "Edmonton": "Canada", "Winnipeg": "Canada",
+    # Americas — Latin America
+    "São Paulo": "Brazil", "Sao Paulo": "Brazil",
+    "Rio de Janeiro": "Brazil", "Brasília": "Brazil",
+    "Buenos Aires": "Argentina",
+    "Lima": "Peru", "Bogotá": "Colombia", "Bogota": "Colombia",
+    "Santiago": "Chile", "Mexico City": "Mexico",
+    "Guadalajara": "Mexico", "Monterrey": "Mexico",
+    # Australia / NZ
+    "Sydney": "Australia", "Melbourne": "Australia", "Brisbane": "Australia",
+    "Perth": "Australia", "Adelaide": "Australia",
+    "Auckland": "New Zealand", "Wellington": "New Zealand",
+    # Russia / Turkey
+    "Moscow": "Russia", "Moscou": "Russia",
+    "Saint Petersburg": "Russia", "St. Petersburg": "Russia",
+    "Istanbul": "Turkey", "Ankara": "Turkey",
+}
+
+# Build a lowercased lookup for case-insensitive matching
+_CITY_COUNTRY_LOWER: dict[str, str] = {k.lower(): v for k, v in CITY_COUNTRY.items()}
+
+
+def infer_country(city: str) -> str:
+    """Return the most likely country for a well-known city, or '' if unknown."""
+    return _CITY_COUNTRY_LOWER.get(city.strip().lower(), "")
+
+
 # Delay between LinkedIn page visits (seconds) — be respectful, avoid bans
 LI_DELAY_MIN = 3.5
 LI_DELAY_MAX = 6.0
@@ -189,26 +366,30 @@ def parse_location(raw: str) -> tuple[str, str]:
     if not raw:
         return ("", "")
 
-    # "X et périphérie" / "X et environs" — French "X Area"; no country revealed.
+    # "X et périphérie" / "X et environs" — French "X Area"; city is known, country is not,
+    # but we can often infer it from the city name.
     m = re.match(r"^(.+?)\s+et\s+(?:périphérie|environs|alentours)$", raw, re.IGNORECASE)
     if m:
-        return (m.group(1).strip(), "")
+        city = m.group(1).strip()
+        return (city, infer_country(city))
 
     # "Greater X Area / Metropolitan Region"
     m = re.match(r"^Greater\s+(.+?)\s+(?:Area|Metropolitan\s+Region|Region)$", raw, re.IGNORECASE)
     if m:
-        return (m.group(1).strip(), "")
+        city = m.group(1).strip()
+        return (city, infer_country(city))
 
     parts = [p.strip() for p in raw.split(",")]
     if len(parts) >= 2:
         # "City, [Region,] Country" — normalise country via map
         return (parts[0], COUNTRY_MAP.get(parts[-1], parts[-1]))
 
-    # Single token: a bare country belongs in `country`, not `city`.
+    # Single token: could be a bare country name or a bare city name.
     tok = parts[0]
     if tok in COUNTRY_MAP:
         return ("", COUNTRY_MAP[tok])
-    return (tok, "")
+    # Bare city with no region/country qualifier → infer country from city table.
+    return (tok, infer_country(tok))
 
 
 def decode_base64_photo(data_uri: str, out_path: Path) -> str:

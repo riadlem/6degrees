@@ -10,6 +10,7 @@ import {
 import { cn, initials, formatDate } from "@/lib/utils"
 import ShareModal from "@/components/ShareModal"
 import ContactDetail from "@/components/ContactDetail"
+import { usePrivacy } from "@/contexts/PrivacyContext"
 
 type Contact = {
   id: string
@@ -43,6 +44,7 @@ function ListDetailContent() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
   const id = params.id
+  const { blurred } = usePrivacy()
 
   const [list, setList] = useState<ListData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -259,7 +261,7 @@ function ListDetailContent() {
                 <div className="w-10">
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={contact.photoUrl} alt={fullName} className="w-9 h-9 rounded-full object-cover border border-gray-100" />
+                    <img src={contact.photoUrl} alt={fullName} className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">
                       {inits}
@@ -270,7 +272,7 @@ function ListDetailContent() {
                 {/* Name + title + LinkedIn + ID */}
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{fullName}</p>
+                    <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
                     {contact.profileUrl && (
                       <a
                         href={contact.profileUrl}

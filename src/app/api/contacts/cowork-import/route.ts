@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { inferCountry } from "@/lib/location-infer"
 
 type CoworkRow = {
   name?: string
@@ -116,6 +117,7 @@ export async function POST(req: Request) {
       const data: Record<string, unknown> = { coworkEnrichedAt: now }
       if (row.city)            data.city = row.city
       if (row.country)         data.country = row.country
+      else if (row.city)       { const inf = inferCountry(row.city); if (inf) data.country = inf }
       if (row.shared_contacts) { const n = parseInt(row.shared_contacts, 10); if (!isNaN(n)) data.commonConnections = n }
       if (row.title)           { data.headline = row.title; if (row.title.length <= 80) data.position = row.title }
       if (row.linkedin_url)    data.profileUrl = row.linkedin_url

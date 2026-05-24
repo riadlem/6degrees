@@ -5,6 +5,8 @@ import { cn, initials, formatDate } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
+import { usePrivacy } from "@/contexts/PrivacyContext"
+import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 
 interface Props {
   contact: ContactSummary
@@ -17,6 +19,8 @@ interface Props {
 export default function ContactRow({ contact, selected, onSelect, onClick, onAddToList }: Props) {
   const fullName = `${contact.firstName} ${contact.lastName}`
   const inits = initials(contact.firstName, contact.lastName)
+  const { blurred } = usePrivacy()
+  const emailKind = classifyEmail(contact.emailAddress, contact.company)
 
   return (
     <div
@@ -46,12 +50,13 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       )}
 
       {/* Avatar */}
-      <div className="shrink-0">
+      <div className="shrink-0 w-10 h-10 rounded-full overflow-hidden">
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={contact.photoUrl} alt={fullName} className="w-10 h-10 rounded-full object-cover" />
+          <img src={contact.photoUrl} alt={fullName} className={cn("w-10 h-10 rounded-full object-cover", blurred && "blur")} />
         ) : (
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold shrink-0">
+          // Initials fallback — never blurred
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
             {inits}
           </div>
         )}
@@ -59,12 +64,18 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
 
       {/* Name + optional email */}
       <div className="w-40 shrink-0">
-        <p className="text-sm font-semibold text-gray-900 truncate">{fullName}</p>
-        {contact.emailAddress && (
-          <p className="text-[10px] text-green-600 truncate flex items-center gap-0.5">
+        <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
+        {emailKind && (
+          <div className={cn("text-[10px] flex items-center gap-0.5", EMAIL_KIND_COLOR[emailKind])}
+               title={EMAIL_KIND_TITLE[emailKind]}>
             <Mail size={8} className="shrink-0" />
-            {contact.emailAddress}
-          </p>
+            {/* Mismatch: icon only (stale indicator). Personal/match: show address text (blurred if privacy on) */}
+            {emailKind !== "mismatch" && (
+              <span className={cn("truncate", blurred && "blur-sm select-none")}>
+                {contact.emailAddress}
+              </span>
+            )}
+          </div>
         )}
       </div>
 

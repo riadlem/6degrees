@@ -10,6 +10,7 @@ import {
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
+import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 
@@ -231,6 +232,7 @@ export default function CompanyDetailPage() {
   const router = useRouter()
   const params = useParams()
   const companyName = decodeURIComponent(params.name as string)
+  const { blurred } = usePrivacy()
 
   const [company, setCompany] = useState<CompanyData | null>(null)
   const [contacts, setContacts] = useState<ContactRow[]>([])
@@ -742,7 +744,7 @@ export default function CompanyDetailPage() {
                   {/* Avatar */}
                   {c.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.photoUrl} alt="" className="w-9 h-9 rounded-xl object-cover shrink-0" />
+                    <img src={c.photoUrl} alt="" className={cn("w-9 h-9 rounded-xl object-cover shrink-0", blurred && "blur")} />
                   ) : (
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
                       {inits}
@@ -751,7 +753,7 @@ export default function CompanyDetailPage() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{c.firstName} {c.lastName}</p>
+                    <p className={cn("font-medium text-gray-900 text-sm truncate", blurred && "blur-sm select-none")}>{c.firstName} {c.lastName}</p>
                     {c.position && <p className="text-xs text-gray-500 truncate">{c.position}</p>}
                     {(c.country || c.industry) && (
                       <div className="flex items-center gap-1 mt-0.5">
@@ -912,7 +914,7 @@ export default function CompanyDetailPage() {
                                 className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 hover:text-blue-700 flex items-center justify-between disabled:opacity-50"
                               >
                                 {assigningEmail === sender.fromEmail ? <Loader2 size={12} className="animate-spin mr-1.5 text-blue-500" /> : null}
-                                <span>{c.firstName} {c.lastName}</span>
+                                <span className={cn(blurred && "blur-sm select-none")}>{c.firstName} {c.lastName}</span>
                                 {c.company && <span className="text-xs text-gray-400 truncate ml-2">{c.company}</span>}
                               </button>
                             ))}

@@ -8,6 +8,7 @@ import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
 import EnrichContent from "@/components/EnrichContent"
+import { usePrivacy } from "@/contexts/PrivacyContext"
 
 type ReconnectContact = {
   id: string
@@ -49,6 +50,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 function ReconnectContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const { blurred } = usePrivacy()
 
   const [activeTab, setActiveTab] = useState<"reconnect" | "enrich">("reconnect")
   const [contacts, setContacts] = useState<ReconnectContact[]>([])
@@ -276,7 +278,7 @@ function ReconnectContent() {
                 >
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={contact.photoUrl} alt="" className="w-10 h-10 rounded-xl object-cover" />
+                    <img src={contact.photoUrl} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
                   ) : (
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-bold">
                       {inits}
@@ -289,7 +291,7 @@ function ReconnectContent() {
                   className="flex-1 min-w-0 text-left"
                   onClick={() => openContact(contact.id)}
                 >
-                  <p className="font-medium text-gray-900 truncate">
+                  <p className={cn("font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>
                     {contact.firstName} {contact.lastName}
                   </p>
                   <p className="text-xs text-gray-500 truncate">

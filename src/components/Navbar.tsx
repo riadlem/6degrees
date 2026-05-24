@@ -3,10 +3,11 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles, Building2, LayoutDashboard, RefreshCcw } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Sparkles, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
+import { usePrivacy } from "@/contexts/PrivacyContext"
 
 const navLinks = [
   { href: "/dashboard",  label: "Dashboard",  icon: LayoutDashboard },
@@ -38,6 +39,7 @@ export default function Navbar() {
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
   const { syncState } = useSyncContext()
+  const { blurred, toggle: toggleBlur } = usePrivacy()
 
   if (!session) return null
 
@@ -118,6 +120,21 @@ export default function Navbar() {
             }
           </div>
         )}
+
+        {/* Privacy blur toggle */}
+        <button
+          onClick={toggleBlur}
+          title={blurred ? "Privacy mode ON — names, photos and emails are blurred. Click to show." : "Privacy mode OFF — click to blur names, photos and emails."}
+          className={cn(
+            "flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors shrink-0",
+            blurred
+              ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
+              : "bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          )}
+        >
+          {blurred ? <EyeOff size={14} /> : <Eye size={14} />}
+          <span className="hidden sm:inline">{blurred ? "Blurred" : "Privacy"}</span>
+        </button>
 
         {/* User menu */}
         <div className="relative">
