@@ -406,14 +406,81 @@ function SettingsPageInner() {
 
   async function importWhatsAppDB(file: File) {
     setWaImporting(true)
-    setWaProgress("Uploading database…")
+    setWaProgress("Initializing SQLite reader…")
     setWaResult(null)
 
-    const formData = new FormData()
-    formData.append("file", file)
-
     try {
-      const res = await fetch("/api/whatsapp/import-db", { method: "POST", body: formData })
+      // Parse the SQLite file entirely in the browser — the raw file can be
+      // 100–500 MB which far exceeds Vercel's 4.5 MB request body limit.
+      // sql.js (SQLite compiled to WASM) lets us query it locally and send
+      // only the extracted message rows (~few hundred KB) to the server.
+      const initSqlJs = (await import("sql.js")).default
+      const SQL = await initSqlJs({ locateFile: () => "/sql-wasm.wasm" })
+
+      setWaProgress("Reading database…")
+      const buf = await file.arrayBuffer()
+      let db: InstanceType<typeof SQL.Database>
+      try {
+        db = new SQL.Database(new Uint8Array(buf))
+      } catch {
+        setWaProgress("Error: could not open database. Make sure you uploaded ChatStorage.sqlite.")
+        return
+      }
+
+      setWaProgress("Extracting chats…")
+      const APPLE_EPOCH = 978307200  // secs between 1970-01-01 and 2001-01-01
+      // Keep last 2 years; older messages have negligible scoring weight
+      const cutoff = Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 3600 - APPLE_EPOCH
+
+      // 1:1 sessions only (group JIDs end with @g.us)
+      const sessions = db.exec(`
+        SELECT Z_PK, ZPARTNERNAME FROM ZWACHATSESSION
+        WHERE ZPARTNERNAME IS NOT NULL
+          AND (ZCONTACTJID IS NULL OR ZCONTACTJID NOT LIKE '%@g.us')
+      `)[0]
+
+      if (!sessions?.values?.length) {
+        setWaProgress("No chats found. Make sure you uploaded ChatStorage.sqlite (not a backup copy).")
+        db.close()
+        return
+      }
+
+      // Build compact chat payload: { chatName, messages: [[sentAtMs, isOutbound], …] }
+      // Capped at 500 most-recent messages per chat (enough for scoring).
+      type ChatPayload = { chatName: string; messages: [number, number][] }
+      const chats: ChatPayload[] = []
+
+      for (const [pk, chatName] of sessions.values) {
+        const msgs = db.exec(`
+          SELECT ZMESSAGEDATE, ZISFROMME FROM ZWAMESSAGE
+          WHERE ZCHATSESSION = ${pk}
+            AND ZMESSAGETYPE != 6
+            AND ZMESSAGEDATE > ${cutoff}
+          ORDER BY ZMESSAGEDATE DESC
+          LIMIT 500
+        `)[0]
+        if (!msgs?.values?.length) continue
+        chats.push({
+          chatName: String(chatName),
+          messages: msgs.values.map(([d, f]) => [
+            Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
+            Number(f) === 1 ? 1 : 0,
+          ]),
+        })
+      }
+      db.close()
+
+      if (chats.length === 0) {
+        setWaProgress("No recent messages found (last 2 years). Try --reset-missing or re-export.")
+        return
+      }
+
+      setWaProgress(`Uploading ${chats.length} chats…`)
+      const res = await fetch("/api/whatsapp/import-db", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chats }),
+      })
       if (!res.ok || !res.body) { setWaProgress("Import failed"); return }
 
       const reader = res.body.getReader()
@@ -443,9 +510,11 @@ function SettingsPageInner() {
             } else if (event.type === "error") {
               setWaProgress(`Error: ${event.message}`)
             }
-          } catch { /* skip */ }
+          } catch { /* skip malformed SSE */ }
         }
       }
+    } catch (err) {
+      setWaProgress(`Error: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setWaImporting(false)
       if (waDbRef.current) waDbRef.current.value = ""
