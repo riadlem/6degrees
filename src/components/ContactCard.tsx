@@ -114,6 +114,16 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
             <p className="text-xs text-gray-500 mt-0.5 line-clamp-2 leading-snug">{contact.position}</p>
           )}
         </div>
+
+        {/* Shared connections — prominent pill right below name */}
+        {contact.commonConnections != null && contact.commonConnections > 0 && (
+          <div className="mt-2 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-700 bg-blue-100 rounded-full px-3 py-1 shadow-sm">
+              <Users size={13} />
+              {contact.commonConnections} shared
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Details */}
@@ -137,12 +147,6 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
         {contact.outreachStatus && STATUS_BADGE[contact.outreachStatus] && (
           <span className={cn("inline-flex items-center text-xs rounded-full px-2 py-0.5 border font-medium", STATUS_BADGE[contact.outreachStatus].className)}>
             {STATUS_BADGE[contact.outreachStatus].label}
-          </span>
-        )}
-        {contact.commonConnections != null && contact.commonConnections > 0 && (
-          <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 rounded-full px-2 py-0.5">
-            <Users size={9} />
-            {contact.commonConnections}
           </span>
         )}
         {contact.industry && (
