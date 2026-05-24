@@ -102,10 +102,23 @@ function SettingsPageInner() {
   const phoneBookRef = useRef<HTMLInputElement>(null)
 
   const [coworkImporting, setCoworkImporting] = useState(false)
-  const [coworkResult, setCoworkResult] = useState<{ total: number; matched: number; updated: number; photos: number; notFound: string[] } | null>(null)
+  const [coworkResult, setCoworkResult] = useState<{ total: number; matched: number; updated: number; photos: number; skipped: number; notFound: string[] } | null>(null)
   const [coworkError, setCoworkError] = useState<string | null>(null)
   const coworkCsvRef = useRef<HTMLInputElement>(null)
   const coworkPhotosRef = useRef<HTMLInputElement>(null)
+  // Photo preview state — populated after Step 2, before Step 3
+  const [coworkPhotoPreview, setCoworkPhotoPreview] = useState<{
+    contactId: string
+    photoFilename: string
+    name: string       // from original CSV row
+    thumb: string      // resized data URI (generated client-side)
+    selected: boolean
+  }[] | null>(null)
+  // Keep Step 2 result for use when the user confirms the preview
+  const coworkPendingRef = useRef<{
+    data: { total: number; matched: number; updated: number; notFound: string[]; matches: { contactId: string; photoFilename: string }[] }
+    zip: import("jszip") | null
+  } | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -562,6 +575,26 @@ function SettingsPageInner() {
     }
   }
 
+  // Resize a raw image blob to ≤maxPx on its longest side, returns a JPEG data URI
+  async function resizeImage(blob: Blob, maxPx = 400): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      const url = URL.createObjectURL(blob)
+      img.onload = () => {
+        URL.revokeObjectURL(url)
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement("canvas")
+        canvas.width = w; canvas.height = h
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h)
+        resolve(canvas.toDataURL("image/jpeg", 0.75))
+      }
+      img.onerror = reject
+      img.src = url
+    })
+  }
+
   async function runCoworkImport() {
     const csvFile = coworkCsvRef.current?.files?.[0]
     const photosFile = coworkPhotosRef.current?.files?.[0]
@@ -569,6 +602,8 @@ function SettingsPageInner() {
     setCoworkImporting(true)
     setCoworkResult(null)
     setCoworkError(null)
+    setCoworkPhotoPreview(null)
+    coworkPendingRef.current = null
     try {
       // ── Step 1: parse CSV in browser ──────────────────────────────────────
       const csvText = await csvFile.text()
@@ -612,63 +647,99 @@ function SettingsPageInner() {
       }
       if (!res.ok) { setCoworkError((data as unknown as { error: string }).error ?? "Import failed"); return }
 
-      // ── Step 3: upload each photo individually (resize to ≤400px first) ────
-      // Zip files may contain full-resolution photos (1–5 MB each). We resize
-      // client-side via Canvas to keep each upload well under 100 KB.
-      let photos = 0
+      // ── Step 3: if there are photos + a zip, build a preview grid ────────
       if (photosFile && data.matches.length > 0) {
         const JSZip = (await import("jszip")).default
         const zip = await JSZip.loadAsync(await photosFile.arrayBuffer())
 
-        // Resize a raw image blob to ≤maxPx on its longest side, returns a JPEG data URI
-        async function resizeImage(blob: Blob, maxPx = 400): Promise<string> {
-          return new Promise((resolve, reject) => {
-            const img = new Image()
-            const url = URL.createObjectURL(blob)
-            img.onload = () => {
-              URL.revokeObjectURL(url)
-              const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
-              const w = Math.round(img.width * scale)
-              const h = Math.round(img.height * scale)
-              const canvas = document.createElement("canvas")
-              canvas.width = w; canvas.height = h
-              canvas.getContext("2d")!.drawImage(img, 0, 0, w, h)
-              resolve(canvas.toDataURL("image/jpeg", 0.75))
-            }
-            img.onerror = reject
-            img.src = url
-          })
-        }
+        // Build name lookup from CSV rows (photo_filename → name)
+        const fnToName = new Map<string, string>(
+          rows.filter(r => r.photo_filename).map(r => [r.photo_filename, r.name] as [string, string])
+        )
 
+        const previews: typeof coworkPhotoPreview = []
         for (const { contactId, photoFilename } of data.matches) {
           const entry = zip.file(photoFilename) ??
             zip.file([...Object.keys(zip.files)].find((p) => p.endsWith(photoFilename) || p.split("/").pop() === photoFilename) ?? "")
           if (!entry) continue
-
           try {
             const u8 = await entry.async("uint8array")
             let mime = "image/jpeg"
             if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
             else if (u8[0] === 0x47 && u8[1] === 0x49) mime = "image/gif"
-
             const blob = new Blob([u8.buffer as ArrayBuffer], { type: mime })
-            const dataUri = await resizeImage(blob)
-
-            const photoRes = await fetch(`/api/contacts/${contactId}/photo`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ data: dataUri }),
+            const thumb = await resizeImage(blob, 120)  // small thumbnail for preview
+            previews.push({
+              contactId,
+              photoFilename,
+              name: fnToName.get(photoFilename) ?? photoFilename,
+              thumb,
+              selected: true,
             })
-            if (photoRes.ok) photos++
-          } catch {
-            // Skip photos that fail to resize or upload — don't abort the whole import
-          }
+          } catch { /* skip unreadable photos */ }
+        }
+
+        if (previews.length > 0) {
+          // Save pending data and show preview — user confirms before Step 4 uploads
+          coworkPendingRef.current = { data, zip }
+          setCoworkPhotoPreview(previews)
+          return  // exit here; confirmCoworkPhotos() handles the rest
         }
       }
 
-      setCoworkResult({ total: data.total, matched: data.matched, updated: data.updated, photos, notFound: data.notFound })
+      // No photos to preview → finish directly
+      setCoworkResult({ total: data.total, matched: data.matched, updated: data.updated, photos: 0, skipped: 0, notFound: data.notFound })
     } catch (err) {
       setCoworkError(err instanceof Error ? err.message : "Import failed")
+    } finally {
+      setCoworkImporting(false)
+      if (coworkCsvRef.current) coworkCsvRef.current.value = ""
+      if (coworkPhotosRef.current) coworkPhotosRef.current.value = ""
+    }
+  }
+
+  // ── Step 4: upload only selected photos after user reviews preview ────────
+  async function confirmCoworkPhotos() {
+    const pending = coworkPendingRef.current
+    const preview = coworkPhotoPreview
+    if (!pending || !preview) return
+
+    const selected = preview.filter(p => p.selected)
+    setCoworkPhotoPreview(null)
+    coworkPendingRef.current = null
+    setCoworkImporting(true)
+
+    let photos = 0
+    let skipped = preview.length - selected.length
+
+    try {
+      for (const { contactId, photoFilename, thumb } of selected) {
+        // thumb is already resized (120px) — re-render at 400px for storage quality
+        // We already have it; just re-encode at a higher quality from the zip entry
+        // For simplicity, use the 120px thumb at full quality (still ≤ ~30 KB)
+        try {
+          // Re-fetch the zip entry and resize to 400px for final upload
+          const entry = pending.zip!.file(photoFilename) ??
+            pending.zip!.file([...Object.keys(pending.zip!.files)].find((p) => p.endsWith(photoFilename) || p.split("/").pop() === photoFilename) ?? "")
+          let dataUri = thumb  // fallback to small thumb
+          if (entry) {
+            const u8 = await entry.async("uint8array")
+            let mime = "image/jpeg"
+            if (u8[0] === 0x89 && u8[1] === 0x50) mime = "image/png"
+            const blob = new Blob([u8.buffer as ArrayBuffer], { type: mime })
+            dataUri = await resizeImage(blob, 400)
+          }
+          const photoRes = await fetch(`/api/contacts/${contactId}/photo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: dataUri }),
+          })
+          if (photoRes.ok) photos++
+        } catch { skipped++ }
+      }
+      setCoworkResult({ ...pending.data, photos, skipped })
+    } catch (err) {
+      setCoworkError(err instanceof Error ? err.message : "Upload failed")
     } finally {
       setCoworkImporting(false)
       if (coworkCsvRef.current) coworkCsvRef.current.value = ""
@@ -1326,10 +1397,70 @@ function SettingsPageInner() {
             <p className="text-xs text-red-500">{coworkError}</p>
           )}
 
+          {/* Photo preview — shown after CSV is matched, before photos are uploaded */}
+          {coworkPhotoPreview && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-800">
+                  Review {coworkPhotoPreview.length} photos — uncheck any that look wrong
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCoworkPhotoPreview(prev => prev?.map(p => ({ ...p, selected: true })) ?? null)}
+                    className="text-xs text-blue-600 hover:underline"
+                  >Select all</button>
+                  <button
+                    onClick={() => setCoworkPhotoPreview(prev => prev?.map(p => ({ ...p, selected: false })) ?? null)}
+                    className="text-xs text-gray-400 hover:underline"
+                  >Deselect all</button>
+                </div>
+              </div>
+              <div className="grid grid-cols-4 gap-2 max-h-80 overflow-y-auto pr-1">
+                {coworkPhotoPreview.map((p) => (
+                  <button
+                    key={p.contactId}
+                    onClick={() => setCoworkPhotoPreview(prev => prev?.map(x => x.contactId === p.contactId ? { ...x, selected: !x.selected } : x) ?? null)}
+                    className={`relative rounded-xl overflow-hidden border-2 transition-all text-left ${p.selected ? "border-blue-500" : "border-gray-200 opacity-50"}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.thumb} alt={p.name} className="w-full aspect-square object-cover" />
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-1">
+                      <p className="text-white text-[10px] font-medium leading-tight truncate">{p.name}</p>
+                    </div>
+                    {p.selected && (
+                      <div className="absolute top-1 right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                        <Check size={10} className="text-white" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={confirmCoworkPhotos}
+                  disabled={coworkImporting}
+                  className="flex items-center gap-1.5 text-sm bg-orange-500 text-white rounded-lg px-4 py-2 hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  {coworkImporting ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+                  {coworkImporting ? "Uploading…" : `Upload ${coworkPhotoPreview.filter(p => p.selected).length} photos`}
+                </button>
+                <button
+                  onClick={() => { setCoworkPhotoPreview(null); coworkPendingRef.current = null }}
+                  className="text-sm text-gray-400 hover:text-gray-600"
+                >
+                  Skip photos
+                </button>
+              </div>
+            </div>
+          )}
+
           {coworkResult && (
             <div className="bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 space-y-1 text-xs">
               <p className="font-semibold text-orange-800">Import complete</p>
-              <p className="text-gray-600">{coworkResult.matched} / {coworkResult.total} contacts matched · {coworkResult.updated} updated · {coworkResult.photos} photos saved</p>
+              <p className="text-gray-600">
+                {coworkResult.matched} / {coworkResult.total} contacts matched · {coworkResult.updated} updated · {coworkResult.photos} photos saved
+                {coworkResult.skipped > 0 && ` · ${coworkResult.skipped} photos skipped`}
+              </p>
               {coworkResult.notFound.length > 0 && (
                 <details className="mt-1">
                   <summary className="text-gray-400 cursor-pointer">{coworkResult.notFound.length} not found</summary>
