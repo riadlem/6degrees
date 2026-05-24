@@ -43,6 +43,13 @@ type UnmatchedSender = {
 }
 
 type ContactResult = { id: string; firstName: string; lastName: string; company: string | null }
+type UnmatchedWAChat = {
+  chatName: string
+  messageCount: number
+  firstAt: string | null
+  lastAt: string | null
+  suggestions: { contactId: string; name: string; company: string | null }[]
+}
 type LkdPendingContact = { id: string; firstName: string; lastName: string; emailAddress: string | null; company: string | null; outreachUpdatedAt: string | null }
 
 function SettingsPageInner() {
@@ -80,6 +87,16 @@ function SettingsPageInner() {
   const [lkdQueue, setLkdQueue] = useState<LkdPendingContact[]>([])
   const [lkdQueueLoading, setLkdQueueLoading] = useState(false)
   const [markingDone, setMarkingDone] = useState<string | null>(null)
+
+  const [waUnmatchedOpen, setWaUnmatchedOpen] = useState(false)
+  const [waUnmatched, setWaUnmatched] = useState<UnmatchedWAChat[]>([])
+  const [waUnmatchedTotal, setWaUnmatchedTotal] = useState(0)
+  const [waUnmatchedPage, setWaUnmatchedPage] = useState(0)
+  const [waUnmatchedLoading, setWaUnmatchedLoading] = useState(false)
+  const [waAssigningFor, setWaAssigningFor] = useState<string | null>(null)
+  const [waSearchQuery, setWaSearchQuery] = useState("")
+  const [waSearchResults, setWaSearchResults] = useState<ContactResult[]>([])
+  const [waAssigning, setWaAssigning] = useState<string | null>(null)
 
   const [waImporting, setWaImporting] = useState(false)
   const [waProgress, setWaProgress] = useState<string | null>(null)
@@ -392,6 +409,7 @@ function SettingsPageInner() {
                 totalMessages: (prev?.totalMessages ?? 0) + event.synced,
                 totalChats: (prev?.totalChats ?? 0) + event.chats,
               }))
+              loadWAUnmatched(0)
             } else if (event.type === "error") {
               setWaProgress(`Error: ${event.message}`)
             }
@@ -401,6 +419,49 @@ function SettingsPageInner() {
     } finally {
       setWaImporting(false)
       if (waFileRef.current) waFileRef.current.value = ""
+    }
+  }
+
+  async function loadWAUnmatched(page = 0) {
+    setWaUnmatchedLoading(true)
+    try {
+      const res = await fetch(`/api/whatsapp/unmatched?page=${page}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setWaUnmatched((prev) => page === 0 ? data.chats : [...prev, ...data.chats])
+      setWaUnmatchedTotal(data.total)
+      setWaUnmatchedPage(page)
+    } finally {
+      setWaUnmatchedLoading(false)
+    }
+  }
+
+  async function searchWAContacts(q: string) {
+    setWaSearchQuery(q)
+    if (!q.trim()) { setWaSearchResults([]); return }
+    const res = await fetch(`/api/contacts?q=${encodeURIComponent(q)}&limit=6`)
+    if (!res.ok) return
+    const data = await res.json()
+    setWaSearchResults(data.contacts ?? [])
+  }
+
+  async function assignWAMatch(chatName: string, contactId: string) {
+    setWaAssigning(chatName)
+    try {
+      const res = await fetch("/api/whatsapp/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatName, contactId }),
+      })
+      if (!res.ok) return
+      // Remove matched chat from list
+      setWaUnmatched((prev) => prev.filter((c) => c.chatName !== chatName))
+      setWaUnmatchedTotal((t) => t - 1)
+      setWaAssigningFor(null)
+      setWaSearchQuery("")
+      setWaSearchResults([])
+    } finally {
+      setWaAssigning(null)
     }
   }
 
@@ -507,6 +568,7 @@ function SettingsPageInner() {
                 totalMessages: (prev?.totalMessages ?? 0) + event.synced,
                 totalChats: (prev?.totalChats ?? 0) + event.chats,
               }))
+              loadWAUnmatched(0)
             } else if (event.type === "error") {
               setWaProgress(`Error: ${event.message}`)
             }
@@ -1634,6 +1696,135 @@ function SettingsPageInner() {
           <p className="text-xs text-gray-400">
             Only contact names and timestamps are stored. Message content is never imported.
           </p>
+
+          {/* Unmatched WhatsApp chats */}
+          {waStatus?.importedAt && (
+            <div className="border border-gray-100 rounded-xl overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                onClick={() => {
+                  const next = !waUnmatchedOpen
+                  setWaUnmatchedOpen(next)
+                  if (next && waUnmatched.length === 0) loadWAUnmatched(0)
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <UserCheck size={14} className="text-gray-500" />
+                  <span className="text-xs font-medium text-gray-700">
+                    Review unmatched chats
+                    {waUnmatchedTotal > 0 && (
+                      <span className="ml-2 bg-amber-100 text-amber-700 text-xs rounded-full px-2 py-0.5">{waUnmatchedTotal}</span>
+                    )}
+                  </span>
+                </div>
+                {waUnmatchedOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              </button>
+
+              {waUnmatchedOpen && (
+                <div className="border-t border-gray-100">
+                  {waUnmatchedLoading && waUnmatched.length === 0 ? (
+                    <div className="flex items-center justify-center py-6">
+                      <Loader2 size={16} className="animate-spin text-gray-400" />
+                    </div>
+                  ) : waUnmatched.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-6">All chats matched ✓</p>
+                  ) : (
+                    <>
+                      <ul className="divide-y divide-gray-50">
+                        {waUnmatched.map((chat) => (
+                          <li key={chat.chatName} className="px-4 py-3 space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-gray-800 truncate">{chat.chatName}</p>
+                                <p className="text-xs text-gray-400">
+                                  {chat.messageCount} message{chat.messageCount !== 1 ? "s" : ""}
+                                  {chat.lastAt ? ` · last ${new Date(chat.lastAt).toLocaleDateString()}` : ""}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Suggestions */}
+                            {chat.suggestions.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {chat.suggestions.map((s) => (
+                                  <button
+                                    key={s.contactId}
+                                    disabled={waAssigning === chat.chatName}
+                                    onClick={() => assignWAMatch(chat.chatName, s.contactId)}
+                                    className="flex items-center gap-1 text-xs bg-green-50 text-green-700 rounded-lg px-2.5 py-1 hover:bg-green-100 disabled:opacity-50 transition-colors"
+                                  >
+                                    {waAssigning === chat.chatName ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                    {s.name}
+                                    {s.company && <span className="text-green-500 ml-0.5">({s.company})</span>}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Manual search */}
+                            {waAssigningFor === chat.chatName ? (
+                              <div className="relative">
+                                <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                                  <Search size={12} className="text-gray-400 shrink-0" />
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={waSearchQuery}
+                                    onChange={(e) => searchWAContacts(e.target.value)}
+                                    placeholder="Search contacts…"
+                                    className="flex-1 text-xs outline-none bg-transparent"
+                                  />
+                                  <button onClick={() => { setWaAssigningFor(null); setWaSearchQuery(""); setWaSearchResults([]) }}>
+                                    <X size={12} className="text-gray-400" />
+                                  </button>
+                                </div>
+                                {waSearchResults.length > 0 && (
+                                  <ul className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                                    {waSearchResults.map((c) => (
+                                      <li key={c.id}>
+                                        <button
+                                          disabled={waAssigning === chat.chatName}
+                                          className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                          onClick={() => assignWAMatch(chat.chatName, c.id)}
+                                        >
+                                          {waAssigning === chat.chatName && <Loader2 size={10} className="animate-spin text-blue-500" />}
+                                          <span className="font-medium">{c.firstName} {c.lastName}</span>
+                                          {c.company && <span className="text-gray-400 ml-1.5">{c.company}</span>}
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setWaAssigningFor(chat.chatName); setWaSearchQuery(""); setWaSearchResults([]) }}
+                                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                              >
+                                + Assign manually
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+
+                      {waUnmatched.length < waUnmatchedTotal && (
+                        <div className="px-4 py-3 border-t border-gray-50">
+                          <button
+                            onClick={() => loadWAUnmatched(waUnmatchedPage + 1)}
+                            disabled={waUnmatchedLoading}
+                            className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                          >
+                            {waUnmatchedLoading ? "Loading…" : `Load more (${waUnmatchedTotal - waUnmatched.length} remaining)`}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

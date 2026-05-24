@@ -10,18 +10,29 @@ export async function GET(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const contact = await prisma.contact.findFirst({
-    where: { id: params.id, userId: session.user.id },
-    include: {
-      notes: { orderBy: { createdAt: "desc" } },
-      listMembers: { include: { list: { select: { id: true, name: true } } } },
-      labels: { include: { label: { select: { id: true, name: true, color: true } } } },
-      emailAddresses: { select: { email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
-    },
-  })
+  const [contact, waAgg] = await Promise.all([
+    prisma.contact.findFirst({
+      where: { id: params.id, userId: session.user.id },
+      include: {
+        notes: { orderBy: { createdAt: "desc" } },
+        listMembers: { include: { list: { select: { id: true, name: true } } } },
+        labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+        emailAddresses: { select: { email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
+      },
+    }),
+    prisma.whatsAppMessage.aggregate({
+      where: { contactId: params.id },
+      _max: { sentAt: true },
+      _count: { _all: true },
+    }).catch(() => null),
+  ])
 
   if (!contact) return new Response("Not found", { status: 404 })
-  return Response.json(contact)
+  return Response.json({
+    ...contact,
+    whatsappLastAt: waAgg?._max.sentAt?.toISOString() ?? null,
+    whatsappMessageCount: waAgg?._count._all ?? 0,
+  })
 }
 
 export async function PATCH(
