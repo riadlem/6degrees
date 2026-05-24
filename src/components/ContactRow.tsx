@@ -99,7 +99,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         {contact.commonConnections != null && contact.commonConnections > 0 && (
           <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-2.5 py-1 shadow-sm">
             <Users size={11} />
-            {contact.commonConnections} shared
+            {contact.commonConnections}
           </span>
         )}
       </div>
