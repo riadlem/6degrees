@@ -1,11 +1,19 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { parseWhatsAppDatabase } from "@/lib/whatsapp-db-parser"
 import { matchChatNameToContact } from "@/lib/whatsapp-match"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
+
+// The client parses ChatStorage.sqlite in the browser using sql.js (WASM)
+// and sends only the extracted message rows as compact JSON.
+// This bypasses the 4.5 MB Vercel body limit — the full DB (100–500 MB)
+// never leaves the browser.
+type ChatPayload = {
+  chatName: string
+  messages: [number, number][]  // [sentAtMs, isOutbound 0|1]
+}
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
@@ -16,15 +24,17 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  let formData: FormData
+  let body: { chats: ChatPayload[] }
   try {
-    formData = await req.formData()
+    body = await req.json()
   } catch {
-    return new Response("Invalid form data", { status: 400 })
+    return new Response("Invalid JSON body", { status: 400 })
   }
 
-  const file = formData.get("file") as File | null
-  if (!file) return new Response("No file provided", { status: 400 })
+  const { chats } = body
+  if (!Array.isArray(chats) || chats.length === 0) {
+    return new Response("chats array is required", { status: 400 })
+  }
 
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
@@ -38,24 +48,7 @@ export async function POST(req: Request) {
       }, 20_000)
 
       try {
-        send({ type: "status", message: "Reading database…" })
-
-        const arrayBuffer = await file.arrayBuffer()
-        const buffer = Buffer.from(arrayBuffer)
-
-        send({ type: "status", message: "Parsing chats…" })
-        let chats: Awaited<ReturnType<typeof parseWhatsAppDatabase>>
-        try {
-          chats = parseWhatsAppDatabase(buffer)
-        } catch (err) {
-          send({
-            type: "error",
-            message: `Could not read database: ${err instanceof Error ? err.message : "unknown error"}. Make sure you uploaded ChatStorage.sqlite.`,
-          })
-          return
-        }
-
-        send({ type: "status", message: `Found ${chats.length} chats — matching contacts…` })
+        send({ type: "status", message: `Matching ${chats.length} chats to contacts…` })
 
         let totalSynced = 0
         let totalMatched = 0
@@ -70,12 +63,12 @@ export async function POST(req: Request) {
           for (let i = 0; i < chat.messages.length; i += CHUNK) {
             const chunk = chat.messages.slice(i, i + CHUNK)
             const result = await prisma.whatsAppMessage.createMany({
-              data: chunk.map((m) => ({
+              data: chunk.map(([sentAtMs, isOut]) => ({
                 userId,
                 contactId: contactId ?? null,
                 chatName: chat.chatName,
-                sentAt: m.sentAt,
-                isOutbound: m.isOutbound,
+                sentAt: new Date(sentAtMs),
+                isOutbound: isOut === 1,
               })),
               skipDuplicates: true,
             })
