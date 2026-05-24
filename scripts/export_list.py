@@ -871,7 +871,10 @@ async def main() -> None:
 
     existing = load_csv(csv_path)
 
-    # ── --reset-missing: clear enriched_at for rows missing a given field ───────
+    # ── --reset-missing: clear all scraped fields for rows missing a given field ─
+    # We clear ALL enrichable fields (not just enriched_at) so the merge logic
+    # ("if val and not row.get(key)") doesn't skip fields already set.  That way
+    # the re-scrape fetches everything fresh: location, shared contacts, and photo.
     if args.reset_missing:
         if not existing:
             print(f"✗ No CSV at {csv_path} — nothing to reset.", file=sys.stderr)
@@ -881,10 +884,12 @@ async def main() -> None:
         if bad:
             print(f"✗ Unknown field(s): {bad}. Valid: {sorted(valid_fields)}", file=sys.stderr)
             sys.exit(1)
+        ALL_SCRAPED = ("city", "country", "shared_contacts", "photo_filename", "enriched_at")
         reset_count = 0
         for row in existing:
             if row.get("enriched_at") and any(not row.get(f) for f in args.reset_missing):
-                row["enriched_at"] = ""
+                for f in ALL_SCRAPED:
+                    row[f] = ""
                 reset_count += 1
         if reset_count == 0:
             print(f"✓ No rows to reset — all contacts already have {args.reset_missing}.")
@@ -892,7 +897,7 @@ async def main() -> None:
         save_csv(csv_path, existing)
         kept = sum(1 for r in existing if r.get("enriched_at"))
         print(f"✓ Reset {reset_count}/{len(existing)} rows  ({kept} kept as done)")
-        print(f"  Re-run with --linkedin-only to re-scrape the reset rows.")
+        print(f"  Re-run with --linkedin-only to re-scrape all fields for those rows.")
         return
 
     # ── --reset-photo: clear enriched_at + photo_filename for named contacts ──
