@@ -1,7 +1,15 @@
 ;(function () {
   "use strict"
 
-  if (!window.location.pathname.startsWith("/in/")) return
+  const path = window.location.pathname
+
+  // ─── Following-page importer ─────────────────────────────────────────────────
+  if (path.startsWith("/mynetwork/network-manager/following")) {
+    initFollowsImporter()
+    return
+  }
+
+  if (!path.startsWith("/in/")) return
 
   // ─── Shadow DOM host ──────────────────────────────────────────────────────────
   // We render the FAB and panel inside a shadow root so:
@@ -723,3 +731,197 @@
 
   init()
 })()
+
+// ─── Following-page importer (runs when initFollowsImporter() is called) ──────
+// Defined outside the main IIFE because the main IIFE returns early for
+// non-profile pages; this function is invoked before that return.
+function initFollowsImporter() {
+  "use strict"
+
+  // Inject a floating banner at the top of the LinkedIn following page.
+  // Uses an inline <style> tag so it works even before shadow root is available.
+  const banner = document.createElement("div")
+  banner.id = "sd-follows-banner"
+  banner.style.cssText = [
+    "position:fixed", "top:0", "left:0", "right:0", "z-index:2147483641",
+    "background:#0A66C2", "color:#fff",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:14px", "font-weight:500",
+    "display:flex", "align-items:center", "gap:12px",
+    "padding:10px 20px", "box-shadow:0 2px 8px rgba(0,0,0,.25)",
+  ].join(";")
+
+  banner.innerHTML = `
+    <span style="flex:1" id="sd-follows-msg">
+      6Degrees · Import people you follow into your contacts
+    </span>
+    <button id="sd-follows-btn" style="
+      background:#fff;color:#0A66C2;border:none;border-radius:8px;
+      padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap
+    ">Import follows</button>
+    <button id="sd-follows-close" style="
+      background:transparent;border:none;color:#fff;font-size:20px;
+      cursor:pointer;line-height:1;padding:0 4px;opacity:.8
+    ">×</button>
+  `
+  document.body.prepend(banner)
+  document.body.style.paddingTop = "44px"
+
+  banner.querySelector("#sd-follows-close").addEventListener("click", () => {
+    banner.remove()
+    document.body.style.paddingTop = ""
+  })
+
+  banner.querySelector("#sd-follows-btn").addEventListener("click", runImport)
+
+  async function runImport() {
+    const btn = document.getElementById("sd-follows-btn")
+    const msg = document.getElementById("sd-follows-msg")
+    if (!btn || !msg) return
+    btn.disabled = true
+    btn.textContent = "Scrolling…"
+
+    // ── Step 1: auto-scroll to load all follows ──────────────────────────────
+    msg.textContent = "Scrolling to load all follows…"
+    await autoScrollFollows(msg)
+
+    // ── Step 2: harvest all /in/ links ──────────────────────────────────────
+    msg.textContent = "Collecting profiles…"
+    const follows = harvestFollows()
+
+    if (follows.length === 0) {
+      msg.textContent = "⚠ No profiles found. Try scrolling manually first, then click again."
+      btn.disabled = false
+      btn.textContent = "Retry"
+      return
+    }
+
+    // ── Step 3: send to 6Degrees API ─────────────────────────────────────────
+    msg.textContent = `Importing ${follows.length} profiles…`
+    btn.textContent = "Importing…"
+
+    try {
+      const { apiUrl, apiToken } = await new Promise((resolve) =>
+        chrome.storage.local.get(["apiUrl", "apiToken"], resolve)
+      )
+      if (!apiUrl || !apiToken) {
+        msg.textContent = "⚠ Not configured — open the 6Degrees extension popup and save your URL + token first."
+        btn.disabled = false
+        btn.textContent = "Retry"
+        return
+      }
+
+      const res = await fetch(`${apiUrl}/api/linkedin/follows`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({ follows }),
+      })
+
+      if (res.status === 401) {
+        msg.textContent = "⚠ Invalid token — regenerate it in 6Degrees Settings."
+        btn.disabled = false; btn.textContent = "Retry"
+        return
+      }
+      if (!res.ok) {
+        msg.textContent = `⚠ Server error (${res.status}) — try again.`
+        btn.disabled = false; btn.textContent = "Retry"
+        return
+      }
+
+      const data = await res.json()
+      msg.textContent = `✓ Done! ${data.created} new contacts, ${data.updated} updated (${follows.length} total)`
+      btn.textContent = "Close"
+      btn.disabled = false
+      btn.addEventListener("click", () => {
+        banner.remove()
+        document.body.style.paddingTop = ""
+      }, { once: true })
+    } catch (err) {
+      msg.textContent = `⚠ Network error — check your 6Degrees URL. (${err.message})`
+      btn.disabled = false
+      btn.textContent = "Retry"
+    }
+  }
+
+  async function autoScrollFollows(msgEl) {
+    return new Promise((resolve) => {
+      let prevHeight = -1
+      let stableRounds = 0
+
+      function tick() {
+        window.scrollTo(0, document.body.scrollHeight)
+        const n = document.querySelectorAll('a[href*="/in/"]').length
+        if (msgEl) msgEl.textContent = `Scrolling to load all follows… (${n} found so far)`
+        const h = document.body.scrollHeight
+        if (h === prevHeight) {
+          stableRounds++
+          if (stableRounds >= 3) { resolve(); return }
+        } else {
+          stableRounds = 0
+        }
+        prevHeight = h
+        setTimeout(tick, 1800)
+      }
+      tick()
+    })
+  }
+
+  function harvestFollows() {
+    const seen = new Set()
+    const follows = []
+
+    for (const a of document.querySelectorAll('a[href*="/in/"]')) {
+      const href = (a.href || "").split("?")[0].split("#")[0]
+      const m = href.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+      if (!m) continue
+      const slug = m[1]
+      if (seen.has(slug)) continue
+
+      // Skip the "Me" nav link (your own profile) and other nav elements
+      if (a.closest("nav, header, #global-nav, .global-nav")) continue
+
+      // Name: LinkedIn consistently puts visible text in span[aria-hidden="true"]
+      const nameEl = a.querySelector("span[aria-hidden='true']") ||
+                     a.querySelector("span:not([class*='visually-hidden'])") ||
+                     a
+      const full = (nameEl.textContent || "").trim().replace(/\s+/g, " ")
+      if (!full || full.length > 80 || full.toLowerCase().includes("linkedin")) continue
+
+      const parts = full.split(/\s+/).filter(Boolean)
+      if (parts.length === 0) continue
+
+      seen.add(slug)
+
+      const profileUrl = `https://www.linkedin.com/in/${slug}/`
+      const firstName = parts[0]
+      const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null
+
+      // Headline: look in the surrounding card for a subtitle line
+      const card = a.closest("li, article, [class*='result'], [class*='card'], [class*='member']")
+      let headline = null
+      if (card) {
+        for (const el of card.querySelectorAll("span[aria-hidden='true'], div, p")) {
+          if (el === nameEl || nameEl.contains(el) || a.contains(el)) continue
+          const t = (el.textContent || "").trim().replace(/\s+/g, " ")
+          if (
+            t.length > 5 && t.length < 150 &&
+            !t.toLowerCase().includes("follow") &&
+            !t.toLowerCase().includes("connect") &&
+            !t.toLowerCase().includes("message") &&
+            !t.includes("·")
+          ) {
+            headline = t
+            break
+          }
+        }
+      }
+
+      follows.push({ profileUrl, firstName, lastName, headline })
+    }
+
+    return follows
+  }
+}

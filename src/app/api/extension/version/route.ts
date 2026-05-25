@@ -16,20 +16,17 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.2.5",
-  reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.2.5",
+  latest:                "1.3.0",
+  reinstallRequiredBelow: "1.3.0" as string | null,
+  reloadRequiredBelow:   null as string | null,
   notes: [
-    "v1.2.5: Port proven photo + location logic from export_list.py script.",
-    "        Photo: positive 'profile-displayphoto' URL filter + largest srcset",
-    "        width ≥ 200px — same algorithm that worked for 1500+ profiles.",
-    "        Location: text-based scan of main.innerText anchored on 'Contact info'",
-    "        marker (any locale) — immune to CSS class churn.",
+    "v1.3.0: Import LinkedIn follows — visit linkedin.com/mynetwork/network-manager/following/",
+    "        A banner appears; click 'Import follows' to auto-scroll + import all",
+    "        people you follow as contacts in 6Degrees.",
+    "        ⚠ Reinstall required (new content-script match pattern added).",
+    "v1.2.5: Port proven photo + location logic from export_list.py.",
     "v1.2.4: Banner exclusion by aspect ratio + 'background' URL check.",
     "v1.2.3: Photo quality upgrade — 400px CDN URL rewriting.",
-    "v1.2.2: Improve photo scraping with 5 ordered strategies.",
-    "v1.2.1: Fix token verification in popup.",
-    "v1.2.0: Fix photo picking logged-in user's nav avatar.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────
