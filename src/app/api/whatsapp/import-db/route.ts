@@ -48,45 +48,64 @@ export async function POST(req: Request) {
       }, 20_000)
 
       try {
-        send({ type: "status", message: `Matching ${chats.length} chats to contacts…` })
+        send({ type: "status", message: `Processing ${chats.length} chats…` })
 
-        let totalSynced = 0
-        let totalMatched = 0
+        // ── Phase 1: pre-load existing matches in one query each ────────────
+        // Re-imports skip the expensive per-chat matching pipeline entirely.
+        const [existingMappings, unmatchedRows] = await Promise.all([
+          prisma.whatsAppMessage.findMany({
+            where: { userId, contactId: { not: null } },
+            select: { chatName: true, contactId: true },
+            distinct: ["chatName"],
+          }),
+          prisma.whatsAppMessage.findMany({
+            where: { userId, contactId: null },
+            select: { chatName: true },
+            distinct: ["chatName"],
+          }),
+        ])
 
-        // Pre-load already-matched chats in one query so re-imports don't
-        // re-run the expensive per-chat matching (4–5 DB queries each).
-        const existingMappings = await prisma.whatsAppMessage.findMany({
-          where: { userId, contactId: { not: null } },
-          select: { chatName: true, contactId: true },
-          distinct: ["chatName"],
-        })
         const chatContactCache = new Map(
           existingMappings.map((m) => [m.chatName, m.contactId as string])
         )
+        const unmatchedSet = new Set(unmatchedRows.map((m) => m.chatName))
 
-        // Also pre-load chats that exist but were never matched (contactId = null)
-        // so we don't re-run matching for deliberately-unmatched chats either.
-        const unmatchedChats = await prisma.whatsAppMessage.findMany({
-          where: { userId, contactId: null },
-          select: { chatName: true },
-          distinct: ["chatName"],
-        })
-        const unmatchedSet = new Set(unmatchedChats.map((m) => m.chatName))
+        // ── Phase 2: match NEW chats in parallel batches ─────────────────────
+        // Only chats not yet in the DB need the matching pipeline.
+        // Batch concurrency = 4 keeps DB connection pressure manageable.
+        const newChatNames = chats
+          .map((c) => c.chatName)
+          .filter((name) => !chatContactCache.has(name) && !unmatchedSet.has(name))
+
+        const freshMatches = new Map<string, string | null>()
+
+        if (newChatNames.length > 0) {
+          send({ type: "status", message: `Matching ${newChatNames.length} new contact${newChatNames.length !== 1 ? "s" : ""}…` })
+          const MATCH_CONCURRENCY = 4
+          for (let i = 0; i < newChatNames.length; i += MATCH_CONCURRENCY) {
+            const batch = newChatNames.slice(i, i + MATCH_CONCURRENCY)
+            // Show which names are being processed in this batch
+            send({ type: "status", message: `Matching: ${batch.join(", ")}…` })
+            const results = await Promise.all(
+              batch.map((name) => matchChatNameToContact(userId, name))
+            )
+            batch.forEach((name, j) => freshMatches.set(name, results[j]))
+          }
+        }
+
+        // ── Phase 3: insert messages for each chat ───────────────────────────
+        let totalSynced = 0
+        let totalMatched = 0
 
         for (const chat of chats) {
-          // Use cached match if this chat was already imported; only run the
-          // expensive matching algorithm for genuinely new (never-seen) chats.
           let contactId: string | null
           if (chatContactCache.has(chat.chatName)) {
             contactId = chatContactCache.get(chat.chatName)!
-          } else if (unmatchedSet.has(chat.chatName)) {
-            // Previously imported but unmatched — skip re-matching (user can
-            // use the manual "Re-match" button on the WhatsApp page instead).
-            contactId = null
+          } else if (freshMatches.has(chat.chatName)) {
+            contactId = freshMatches.get(chat.chatName) ?? null
           } else {
-            // New chat: run the full matching pipeline
-            send({ type: "status", message: `Matching ${chat.chatName}…` })
-            contactId = await matchChatNameToContact(userId, chat.chatName)
+            // Previously unmatched — skip re-matching (use Re-match button)
+            contactId = null
           }
           if (contactId) totalMatched++
 
