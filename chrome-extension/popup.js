@@ -92,6 +92,11 @@ saveBtn.addEventListener("click", async () => {
       saveBtn.disabled = false; saveBtn.textContent = "Save settings"
       return
     }
+    if (!res.ok) {
+      showStatus(`Server error (${res.status}) — try again or regenerate token`, "err")
+      saveBtn.disabled = false; saveBtn.textContent = "Save settings"
+      return
+    }
   } catch {
     showStatus("Cannot reach that URL — check it and try again", "err")
     saveBtn.disabled = false; saveBtn.textContent = "Save settings"

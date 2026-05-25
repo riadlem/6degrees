@@ -725,6 +725,11 @@ function SettingsPageInner() {
     setRegenerating(true)
     try {
       const res = await fetch("/api/extension/token", { method: "POST" })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        console.error("Token generation failed:", d)
+        return
+      }
       const d = await res.json()
       setToken(d.token)
     } finally {
@@ -1945,14 +1950,18 @@ function SettingsPageInner() {
 
           {/* Setup instructions */}
           <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 space-y-3">
-            <p className="text-xs font-semibold text-gray-700">Setup instructions</p>
+            <p className="text-xs font-semibold text-gray-700">Setup &amp; update instructions</p>
             <ol className="text-xs text-gray-600 space-y-2 list-decimal list-inside">
-              <li>Download the <code className="bg-gray-200 rounded px-1">chrome-extension/</code> folder from the project</li>
+              <li>Pull the latest code (or download the <code className="bg-gray-200 rounded px-1">chrome-extension/</code> folder)</li>
               <li>Open Chrome → <code className="bg-gray-200 rounded px-1">chrome://extensions</code> → Enable Developer mode</li>
-              <li>Click <strong>Load unpacked</strong> and select the <code className="bg-gray-200 rounded px-1">chrome-extension</code> folder</li>
-              <li>Click the extension icon in your toolbar → paste your URL and token above</li>
-              <li>Visit any LinkedIn profile — click the <strong>Save to 6Degrees</strong> button</li>
+              <li>First time: click <strong>Load unpacked</strong> and select the folder.<br />
+                  Already installed: click the <strong>↺ reload icon</strong> next to 6Degrees to pick up new code.</li>
+              <li>Click the extension icon in your toolbar → paste your URL and token</li>
+              <li>Visit any LinkedIn <code className="bg-gray-200 rounded px-1">/in/</code> profile → click <strong>Save to 6Degrees</strong></li>
             </ol>
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              ⚠ If the extension popup shows a <strong>version mismatch</strong>: go to <code className="bg-amber-100 rounded px-0.5">chrome://extensions</code> and click the <strong>reload ↺</strong> icon — <em>not</em> the Regenerate button here.
+            </p>
           </div>
         </div>
       </div>
