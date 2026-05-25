@@ -104,6 +104,7 @@ model Contact {
   // Email interaction tracking
   emailAddress      String?
   phoneNumber       String?
+  phones            String[]
   lastInteractionAt DateTime?
   interactionScore  Float?
   outreachStatus    String?

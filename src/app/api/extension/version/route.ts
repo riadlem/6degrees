@@ -16,10 +16,11 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.3.2",
+  latest:                "1.3.3",
   reinstallRequiredBelow: "1.3.0" as string | null,
-  reloadRequiredBelow:   "1.3.2" as string | null,
+  reloadRequiredBelow:   "1.3.3" as string | null,
   notes: [
+    "v1.3.3: Download photo as base64 at save time so photos don't expire.",
     "v1.3.2: Fix photo (isValidPhoto too aggressive), add company/title parsing",
     "        from headline ('CEO at Acme' → position=CEO company=Acme), fix mutual",
     "        connections for French LinkedIn, auto-tag saved contacts as 'Followed'.",
