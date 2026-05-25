@@ -70,19 +70,19 @@ function ChatRow({
     : 0
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
+    <div className="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
       {/* Avatar */}
-      <div className="shrink-0 w-10 h-10 rounded-full overflow-hidden">
+      <div className="shrink-0 w-9 h-9 rounded-full overflow-hidden">
         {contact?.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={contact.photoUrl}
             alt={displayName}
-            className={cn("w-10 h-10 rounded-full object-cover", blurred && "blur")}
+            className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")}
           />
         ) : (
           <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-semibold",
+            "w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-semibold",
             contact ? "bg-gradient-to-br from-green-500 to-green-700" : "bg-gradient-to-br from-gray-400 to-gray-600"
           )}>
             {inits}
@@ -90,72 +90,75 @@ function ChatRow({
         )}
       </div>
 
-      {/* Name + company */}
-      <div className="w-48 shrink-0 min-w-0">
+      {/* Name + company — flex-1 on mobile, fixed on sm+ */}
+      <div className="flex-1 min-w-0 sm:w-44 sm:flex-none">
         <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>
           {displayName}
         </p>
-        {contact?.company && (
-          <p className="text-xs text-gray-400 truncate">{contact.company}</p>
-        )}
-        {!contact && (
-          <p className="text-xs text-amber-500 font-medium">Not matched</p>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {contact?.company && (
+            <p className="text-xs text-gray-400 truncate">{contact.company}</p>
+          )}
+          {!contact && (
+            <p className="text-xs text-amber-500 font-medium">Not matched</p>
+          )}
+          {/* Show last date inline on mobile */}
+          {chat.lastAt && (
+            <p className="text-xs text-gray-400 sm:hidden">{formatDate(chat.lastAt)}</p>
+          )}
+        </div>
       </div>
 
       {/* Message count */}
-      <div className="w-24 shrink-0 text-center">
-        <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-50 rounded-full px-2.5 py-1">
-          <WAIcon size={10} />
+      <div className="shrink-0">
+        <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-50 rounded-full px-2 py-0.5">
+          <WAIcon size={9} />
           {chat.messageCount.toLocaleString()}
         </span>
       </div>
 
-      {/* Response rate — how much they replied */}
+      {/* Response rate — md+ only */}
       <div className="w-28 shrink-0 hidden md:block">
         <div className="flex items-center gap-1.5">
           <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-green-400 rounded-full"
-              style={{ width: `${responseRate}%` }}
-            />
+            <div className="h-full bg-green-400 rounded-full" style={{ width: `${responseRate}%` }} />
           </div>
           <span className="text-xs text-gray-400 w-8 text-right">{responseRate}%</span>
         </div>
         <p className="text-[10px] text-gray-400 mt-0.5">
-          {inboundCount} received · {chat.outboundCount} sent
+          {inboundCount} recv · {chat.outboundCount} sent
         </p>
       </div>
 
-      {/* First contact */}
-      <div className="w-24 shrink-0 hidden lg:block">
+      {/* First contact — lg+ only */}
+      <div className="w-20 shrink-0 hidden lg:block">
         <p className="text-xs text-gray-400">{chat.firstAt ? formatDate(chat.firstAt) : "—"}</p>
         <p className="text-[10px] text-gray-300">first</p>
       </div>
 
-      {/* Last message */}
-      <div className="w-28 shrink-0">
+      {/* Last message — hidden on mobile (shown inline above) */}
+      <div className="w-24 shrink-0 hidden sm:block">
         <p className="text-xs font-medium text-gray-700">{chat.lastAt ? formatDate(chat.lastAt) : "—"}</p>
-        <p className="text-[10px] text-gray-400">last message</p>
+        <p className="text-[10px] text-gray-400">last</p>
       </div>
 
       {/* Actions */}
-      <div className="flex-1 flex items-center justify-end gap-2">
+      <div className="shrink-0 flex items-center">
         {contact ? (
           <Link
             href={`/contacts?id=${contact.id}`}
             className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
           >
             <ExternalLink size={12} />
-            View
+            <span className="hidden sm:inline">View</span>
           </Link>
         ) : (
           <button
             onClick={() => onLinkClick(chat)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium"
+            className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
           >
             <UserPlus size={12} />
-            Link contact
+            <span className="hidden sm:inline">Link</span>
           </button>
         )}
       </div>
@@ -321,7 +324,7 @@ export default function WhatsAppPage() {
       </div>
 
       {/* Filters + search */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         {/* Filter tabs */}
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
           {(["all", "matched", "unmatched"] as Filter[]).map((f) => (
@@ -329,7 +332,7 @@ export default function WhatsAppPage() {
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize",
+                "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize whitespace-nowrap",
                 filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}
             >
@@ -341,28 +344,28 @@ export default function WhatsAppPage() {
         </div>
 
         {/* Search */}
-        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 flex-1 min-w-[160px] max-w-xs">
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2 flex-1 min-w-[120px]">
           <Search size={13} className="text-gray-400 shrink-0" />
           <input
             ref={searchRef}
             type="text"
-            placeholder="Search chats…"
+            placeholder="Search…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            className="text-sm outline-none flex-1 bg-transparent"
+            className="text-sm outline-none flex-1 bg-transparent w-0"
           />
         </div>
 
         {/* Sort controls */}
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="flex items-center gap-3">
           <SortButton
-            label="Last message"
+            label="Last msg"
             active={sort === "lastAt"}
             order={order}
             onToggle={() => toggleSort("lastAt")}
           />
           <SortButton
-            label="# messages"
+            label="Count"
             active={sort === "messageCount"}
             order={order}
             onToggle={() => toggleSort("messageCount")}
@@ -372,15 +375,15 @@ export default function WhatsAppPage() {
 
       {/* Chat list */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        {/* Column headers */}
-        <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50 text-xs text-gray-400 font-medium">
-          <div className="w-10 shrink-0" />
-          <div className="w-48 shrink-0">Name</div>
-          <div className="w-24 shrink-0 text-center">Messages</div>
+        {/* Column headers — hidden on mobile, shown sm+ */}
+        <div className="hidden sm:flex items-center gap-3 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs text-gray-400 font-medium">
+          <div className="w-9 shrink-0" />
+          <div className="flex-1 min-w-0 sm:w-44 sm:flex-none">Name</div>
+          <div className="shrink-0 w-16 text-center">Messages</div>
           <div className="w-28 shrink-0 hidden md:block">Response rate</div>
-          <div className="w-24 shrink-0 hidden lg:block">First</div>
-          <div className="w-28 shrink-0">Last message</div>
-          <div className="flex-1" />
+          <div className="w-20 shrink-0 hidden lg:block">First</div>
+          <div className="w-24 shrink-0 hidden sm:block">Last</div>
+          <div className="shrink-0 w-12" />
         </div>
 
         {loading ? (
