@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Download, Puzzle, Chrome, ArrowRight, Check, Globe, Users, BookOpen } from "lucide-react"
+import { Download, Puzzle, Chrome, ArrowRight, Check, Globe, Users, BookOpen, Sparkles } from "lucide-react"
+import EnrichContent from "@/components/EnrichContent"
 
 const STEPS = [
   {
@@ -117,7 +118,7 @@ export default function ExtensionPage() {
       </div>
 
       {/* Get token CTA */}
-      <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-2xl px-6 py-5">
+      <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-2xl px-6 py-5 mb-12">
         <div>
           <p className="font-semibold text-gray-900 text-sm">Need your token?</p>
           <p className="text-xs text-gray-500 mt-0.5">Generate one from your Settings page and paste it into the extension.</p>
@@ -128,6 +129,18 @@ export default function ExtensionPage() {
         >
           Go to Settings <ArrowRight size={14} />
         </a>
+      </div>
+
+      {/* Enrich section */}
+      <div className="border-t border-gray-100 pt-10">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles size={18} className="text-blue-600" />
+          <h2 className="text-xl font-bold text-gray-900">Enrich contacts</h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-6">
+          Contacts that are missing LinkedIn data — visit their profiles with the Chrome extension to fill in the gaps.
+        </p>
+        <EnrichContent />
       </div>
     </div>
   )
