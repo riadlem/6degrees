@@ -1,5 +1,18 @@
 import prisma from "@/lib/prisma"
 
+/**
+ * Normalise a phone number to digits-only with a leading '+' preserved.
+ * "+33 6 12 34 56 78" → "+33612345678"
+ * "06 12 34 56 78"    → "0612345678"
+ * Strips spaces, dashes, dots, parentheses.
+ */
+function normalizePhone(phone: string): string {
+  const trimmed = phone.trim()
+  const sign = trimmed.startsWith("+") ? "+" : ""
+  const digits = trimmed.replace(/\D/g, "")
+  return sign + digits
+}
+
 export async function matchChatNameToContact(
   userId: string,
   chatName: string,
@@ -9,11 +22,11 @@ export async function matchChatNameToContact(
   if (directId) return directId
 
   // Step 2: look up chatName in address book (PhoneContact)
-  let phoneContact: { fullName: string; email: string | null } | null = null
+  let phoneContact: { fullName: string; email: string | null; phone: string | null } | null = null
   try {
     phoneContact = await prisma.phoneContact.findFirst({
       where: { userId, fullName: { equals: chatName, mode: "insensitive" } },
-      select: { fullName: true, email: true },
+      select: { fullName: true, email: true, phone: true },
     })
   } catch { /* PhoneContact table may not exist yet */ }
 
@@ -34,6 +47,31 @@ export async function matchChatNameToContact(
       select: { id: true },
     })
     if (direct) return direct.id
+  }
+
+  // Step 3b: phone match — compare normalized phone numbers.
+  // Handles "06 12 34 56 78" vs "+33612345678" etc.
+  if (phoneContact.phone) {
+    const normPhone = normalizePhone(phoneContact.phone)
+    if (normPhone.length >= 6) {
+      // Fetch contacts that have a phoneNumber and normalise each one for comparison.
+      // We can't do this in SQL easily so we fetch candidates by prefix heuristic
+      // (last 9 digits are internationally stable) and compare in JS.
+      const suffix = normPhone.slice(-9) // e.g. "612345678"
+      const candidates = await prisma.$queryRaw<{ id: string; phoneNumber: string | null }[]>`
+        SELECT id, "phoneNumber"
+        FROM "Contact"
+        WHERE "userId" = ${userId}
+          AND "phoneNumber" IS NOT NULL
+          AND "phoneNumber" != ''
+          AND replace(replace(replace("phoneNumber", ' ', ''), '-', ''), '.', '') LIKE ${"%" + suffix}
+      `
+      for (const c of candidates) {
+        if (c.phoneNumber && normalizePhone(c.phoneNumber).endsWith(suffix)) {
+          return c.id
+        }
+      }
+    }
   }
 
   // Step 4: retry name match using canonical full name from address book

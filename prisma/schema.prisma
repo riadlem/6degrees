@@ -104,8 +104,7 @@ model Contact {
   // Email interaction tracking
   emailAddress      String?
   phoneNumber       String?
-  // phones TEXT[] column is added at runtime via ALTER TABLE in the API route
-  // (omitted from schema to avoid prisma db push timeout on large tables)
+  phones            String[]  // additional phone numbers (TEXT[] in Postgres)
   lastInteractionAt DateTime?
   interactionScore  Float?
   outreachStatus    String?

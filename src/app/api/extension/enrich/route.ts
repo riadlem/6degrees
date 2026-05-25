@@ -87,12 +87,15 @@ export async function POST(req: Request) {
   const lastName: string  = body.lastName  || fallback.lastName
 
   const enrichData = {
-    ...(headline          !== undefined && { headline }),
-    ...(photoUrl          !== undefined && { photoUrl }),
-    ...(location          !== undefined && { location }),
-    ...(city              !== undefined && { city }),
-    ...(country           !== undefined && { country }),
-    ...(commonConnections !== undefined && { commonConnections }),
+    // Only overwrite text fields when the scraper actually got a value —
+    // null means "scraping failed", not "the field is blank on LinkedIn".
+    // Overwriting with null would erase previously-saved data on re-visits.
+    ...(headline != null  && { headline }),
+    ...(photoUrl != null  && { photoUrl }),
+    ...(location != null  && { location }),
+    ...(city     != null  && { city }),
+    ...(country  != null  && { country }),
+    ...(commonConnections != null && { commonConnections }),
     ...(sharedConnections !== undefined && { sharedConnections }),
     ...(position && { position }),
     ...(company  && { company }),
