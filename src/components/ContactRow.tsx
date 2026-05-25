@@ -7,6 +7,7 @@ import { type ContactSummary } from "./ContactCard"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
+import CompanyLogo, { domainFromEmail } from "./CompanyLogo"
 
 interface Props {
   contact: ContactSummary
@@ -85,7 +86,15 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       </div>
 
       {/* Company */}
-      <div className="w-44 shrink-0 hidden md:block">
+      <div className="w-44 shrink-0 hidden md:flex items-center gap-1.5">
+        {contact.company && (
+          <CompanyLogo
+            domain={domainFromEmail(contact.emailAddress)}
+            name={contact.company}
+            size={16}
+            radius="rounded-sm"
+          />
+        )}
         <p className="text-sm text-gray-600 truncate">{contact.company ?? ""}</p>
       </div>
 

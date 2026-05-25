@@ -60,8 +60,8 @@ export async function GET() {
 
   const engageNames = engageCompanies.map((c) => c.name)
 
-  // Fetch top contacts + photos for each company
-  const [topContacts, photos, industries] = await Promise.all([
+  // Fetch top contacts + photos + domains for each company
+  const [topContacts, photos, industries, companyDomains] = await Promise.all([
     prisma.contact.findMany({
       where: { userId, company: { in: engageNames } },
       select: {
@@ -88,7 +88,17 @@ export async function GET() {
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
+    prisma.companyDomain.findMany({
+      where: { userId, company: { in: engageNames }, excluded: false },
+      select: { company: true, domain: true },
+    }).catch(() => [] as { company: string; domain: string }[]),
   ])
+
+  // Primary domain per company (first non-excluded)
+  const domainByCompany = new Map<string, string>()
+  for (const d of companyDomains) {
+    if (!domainByCompany.has(d.company)) domainByCompany.set(d.company, d.domain)
+  }
 
   // Group contacts by company
   const contactsByCompany = new Map<string, typeof topContacts>()
@@ -119,6 +129,7 @@ export async function GET() {
     industry:  industryByCompany.get(c.name) ?? null,
     photos:    photosByCompany.get(c.name) ?? [],
     contacts:  (contactsByCompany.get(c.name) ?? []).slice(0, 5),
+    domain:    domainByCompany.get(c.name) ?? null,
   }))
 
   // Sort: partner+preferred > partner > preferred > rest; within each group by count desc

@@ -10,6 +10,7 @@ import {
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
+import CompanyLogo from "@/components/CompanyLogo"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
@@ -502,11 +503,14 @@ export default function CompanyDetailPage() {
       {/* Header card */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6 mb-6">
         <div className="flex items-start justify-between gap-4 mb-5">
-          {/* Avatar + name */}
+          {/* Logo + name */}
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-xl font-bold shrink-0">
-              {initials(company.name.split(" ")[0] ?? company.name, company.name.split(" ")[1] ?? "")}
-            </div>
+            <CompanyLogo
+              domain={domains[0] ?? null}
+              name={company.name}
+              size={56}
+              radius="rounded-2xl"
+            />
             <div>
               <h1 className="text-xl font-bold text-gray-900">{company.name}</h1>
               <p className="text-sm text-gray-500 mt-0.5">{company.count} contact{company.count !== 1 ? "s" : ""}</p>
