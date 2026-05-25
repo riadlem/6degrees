@@ -14,16 +14,16 @@ const SYSTEM_PATTERNS = [
   /^.+ created group/,
   /^‎/, // left-to-right mark prefix (WhatsApp system messages in some locales)
   /^<Media omitted>$/,
-  /^ /, // narrow no-break space (some locale system messages)
+  /^ /, // narrow no-break space (some locale system messages)
 ]
 
-// Format 1: [DD/MM/YYYY, HH:MM:SS] Name: message
+// Format 1: [DD/MM/YYYY, HH:MM:SS] Name: message  — European / iOS French
 const FORMAT_1 = /^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]\s+(.+?):\s/i
 
-// Format 2: MM/DD/YY, HH:MM AM/PM - Name: message
+// Format 2: MM/DD/YY, HH:MM AM/PM - Name: message  — American / Android
 const FORMAT_2 = /^(\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\s*-\s*(.+?):\s/i
 
-// Format 3: DD.MM.YY, HH:MM - Name: message (European dot format)
+// Format 3: DD.MM.YY, HH:MM - Name: message  — European dot format
 const FORMAT_3 = /^(\d{1,2}\.\d{1,2}\.\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(.+?):\s/i
 
 const OUTBOUND_NAMES = new Set(["me", "you", "io", "ich", "yo", "moi"])
@@ -35,24 +35,30 @@ function isOutboundSender(name: string, userName?: string): boolean {
   return false
 }
 
-function parseDate(datePart: string, timePart: string): Date | null {
-  try {
-    // Normalize separators and try parsing
-    const combined = `${datePart} ${timePart}`.replace(/\./g, "/")
-    const d = new Date(combined)
-    if (!isNaN(d.getTime())) return d
+/**
+ * Parse a date in DD/MM/YYYY (or DD/MM/YY) order.
+ * Formats 1 and 3 always use this order (European).
+ */
+function parseDMY(datePart: string, timePart: string): Date | null {
+  // Split on slash or dot
+  const parts = datePart.split(/[\/.]/)
+  if (parts.length !== 3) return null
+  const [d, m, y] = parts
+  // Re-assemble as MM/DD/YYYY so JS Date constructor parses it correctly
+  const parsed = new Date(`${m}/${d}/${y} ${timePart}`)
+  return isNaN(parsed.getTime()) ? null : parsed
+}
 
-    // Try DD/MM/YYYY → MM/DD/YYYY swap for ambiguous dates
-    const parts = datePart.split(/[\/\.]/)
-    if (parts.length === 3) {
-      const [a, b, c] = parts
-      const swapped = new Date(`${b}/${a}/${c} ${timePart}`)
-      if (!isNaN(swapped.getTime())) return swapped
-    }
-    return null
-  } catch {
-    return null
-  }
+/**
+ * Parse a date in MM/DD/YYYY (or MM/DD/YY) order.
+ * Format 2 (American/Android) uses this order.
+ */
+function parseMDY(datePart: string, timePart: string): Date | null {
+  const parts = datePart.split(/\//)
+  if (parts.length !== 3) return null
+  const [m, d, y] = parts
+  const parsed = new Date(`${m}/${d}/${y} ${timePart}`)
+  return isNaN(parsed.getTime()) ? null : parsed
 }
 
 export function parseWhatsAppExport(text: string, userName?: string): ParsedWAMessage[] {
@@ -66,18 +72,22 @@ export function parseWhatsAppExport(text: string, userName?: string): ParsedWAMe
     let datePart = ""
     let timePart = ""
     let sender = ""
+    let isDMY = true // FORMAT_1 and FORMAT_3 are DD/MM; FORMAT_2 is MM/DD
 
     match = line.match(FORMAT_1)
     if (match) {
       ;[, datePart, timePart, sender] = match
+      isDMY = true
     } else {
       match = line.match(FORMAT_2)
       if (match) {
         ;[, datePart, timePart, sender] = match
+        isDMY = false // American format: MM/DD/YY
       } else {
         match = line.match(FORMAT_3)
         if (match) {
           ;[, datePart, timePart, sender] = match
+          isDMY = true // dot format is always DD.MM.YY
         }
       }
     }
@@ -89,7 +99,9 @@ export function parseWhatsAppExport(text: string, userName?: string): ParsedWAMe
     if (SYSTEM_PATTERNS.some((p) => p.test(restOfLine) || p.test(sender))) continue
     if (SYSTEM_PATTERNS.some((p) => p.test(line))) continue
 
-    const sentAt = parseDate(datePart.trim(), timePart.trim())
+    const sentAt = isDMY
+      ? parseDMY(datePart.trim(), timePart.trim())
+      : parseMDY(datePart.trim(), timePart.trim())
     if (!sentAt) continue
 
     messages.push({

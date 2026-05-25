@@ -1636,9 +1636,30 @@ function SettingsPageInner() {
 
         <div className="px-6 py-5 space-y-4">
           {waStatus?.importedAt && (
-            <p className="text-xs text-gray-500">
-              Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
+              </p>
+              <button
+                onClick={async () => {
+                  if (!confirm("Delete all imported WhatsApp data and reset? You will need to reimport your chats.")) return
+                  const res = await fetch("/api/whatsapp/reset", { method: "DELETE" })
+                  if (res.ok) {
+                    const { deleted } = await res.json()
+                    setWaStatus(null)
+                    setWaResult(null)
+                    setWaUnmatched([])
+                    setWaUnmatchedTotal(0)
+                    alert(`Cleared ${deleted.toLocaleString()} messages. Please reimport your chats.`)
+                  } else {
+                    alert("Failed to clear WhatsApp data.")
+                  }
+                }}
+                className="shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors"
+              >
+                Clear all data
+              </button>
+            </div>
           )}
 
           {waResult && (
