@@ -463,12 +463,53 @@
 
   // Same data as export_list.py: photo · location · mutual connections.
   // Plus name + headline + position + company which the extension needs for new contacts.
+  // Map region/state names → country for the cases LinkedIn omits the country.
+  // French metropolitan regions are the primary use case; add others as needed.
+  const REGION_TO_COUNTRY = {
+    // France — 13 metropolitan regions + DOM-TOM
+    "île-de-france": "France", "ile-de-france": "France",
+    "auvergne-rhône-alpes": "France", "auvergne-rhone-alpes": "France",
+    "provence-alpes-côte d'azur": "France", "provence-alpes-cote d'azur": "France",
+    "nouvelle-aquitaine": "France",
+    "occitanie": "France",
+    "hauts-de-france": "France",
+    "grand est": "France",
+    "bretagne": "France",
+    "pays de la loire": "France",
+    "normandie": "France",
+    "bourgogne-franche-comté": "France", "bourgogne-franche-comte": "France",
+    "centre-val de loire": "France",
+    "corse": "France",
+    "la réunion": "France", "la reunion": "France",
+    "martinique": "France", "guadeloupe": "France", "guyane": "France",
+    // UK — England/Scotland/Wales/NI are regions, not countries
+    "england": "United Kingdom", "scotland": "United Kingdom",
+    "wales": "United Kingdom", "northern ireland": "United Kingdom",
+    // US states (sampled — LinkedIn usually includes "United States" already)
+    "california": "United States", "new york": "United States",
+    "texas": "United States", "florida": "United States",
+    // Germany — Bundesländer
+    "bavaria": "Germany", "north rhine-westphalia": "Germany",
+    "baden-württemberg": "Germany", "berlin": "Germany",
+    "hamburg": "Germany",
+  }
+
   function extractCityCountry(location) {
     if (!location) return { city: null, country: null }
     const parts = location.split(",").map((p) => p.trim())
-    return parts.length >= 2
-      ? { city: parts[0], country: parts[parts.length - 1] }
-      : { city: null, country: location }
+    if (parts.length >= 2) {
+      const city = parts[0]
+      const lastPart = parts[parts.length - 1]
+      // Check if the last segment is a known region (not a country name)
+      const inferredCountry = REGION_TO_COUNTRY[lastPart.toLowerCase()]
+      const country = inferredCountry ?? lastPart
+      return { city, country }
+    }
+    // Single segment: could be a city or country
+    const inferred = REGION_TO_COUNTRY[parts[0].toLowerCase()]
+    return inferred
+      ? { city: parts[0], country: inferred }
+      : { city: null, country: parts[0] }
   }
 
   function scrapeProfile() {
