@@ -3,6 +3,19 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { enrichContact } from "@/lib/cowork"
 
+// phones TEXT[] lives outside the Prisma schema (added at runtime via ALTER TABLE)
+// so we fetch it with a separate raw query and merge it in.
+async function fetchPhones(contactId: string): Promise<string[]> {
+  try {
+    const rows = await prisma.$queryRaw<{ phones: string[] | null }[]>`
+      SELECT phones FROM "Contact" WHERE id = ${contactId} LIMIT 1
+    `
+    return rows[0]?.phones ?? []
+  } catch {
+    return []
+  }
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
@@ -28,8 +41,12 @@ export async function GET(
   ])
 
   if (!contact) return new Response("Not found", { status: 404 })
+
+  const phones = await fetchPhones(contact.id)
+
   return Response.json({
     ...contact,
+    phones,
     whatsappLastAt: waAgg?._max.sentAt?.toISOString() ?? null,
     whatsappMessageCount: waAgg?._count._all ?? 0,
   })
@@ -42,25 +59,36 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "phones" TEXT[] DEFAULT '{}'`.catch(() => {})
-
   const body = await request.json()
+
+  // Standard Prisma-managed fields
   const allowed = ["firstName", "lastName", "location", "industry", "headline", "profileUrl", "company", "position", "phoneNumber"]
   const data: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key]
   }
 
-  if ("phones" in body && Array.isArray(body.phones)) {
-    data.phones = body.phones.filter((p: unknown) => typeof p === "string" && p.trim()).map((p: string) => p.trim())
+  if (Object.keys(data).length > 0) {
+    const contact = await prisma.contact.updateMany({
+      where: { id: params.id, userId: session.user.id },
+      data,
+    })
+    if (contact.count === 0) return new Response("Not found", { status: 404 })
   }
 
-  const contact = await prisma.contact.updateMany({
-    where: { id: params.id, userId: session.user.id },
-    data,
-  })
+  // phones TEXT[] lives outside the Prisma schema — update via raw SQL
+  if ("phones" in body && Array.isArray(body.phones)) {
+    // Ensure the column exists (idempotent — no-op if already there)
+    await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "phones" TEXT[] DEFAULT '{}'`.catch(() => {})
+    const cleaned = (body.phones as unknown[])
+      .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+      .map((p) => p.trim())
+    await prisma.$executeRaw`
+      UPDATE "Contact" SET phones = ${cleaned}::text[]
+      WHERE id = ${params.id} AND "userId" = ${session.user.id}
+    `
+  }
 
-  if (contact.count === 0) return new Response("Not found", { status: 404 })
   return Response.json({ ok: true })
 }
 

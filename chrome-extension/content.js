@@ -109,14 +109,10 @@
     return humanizeSlug(slugFromUrl())
   }
 
-  // Upgrade LinkedIn CDN URLs to 400×400 resolution.
-  // LinkedIn media URLs contain a size suffix like "shrink_100_100" or "shrink_200_200".
-  // Replacing it with "shrink_400_400" requests a higher-res version the CDN always has.
-  function upgradePhotoUrl(src) {
-    if (!src) return src
-    // Replace any shrink_NxN with 400×400 (covers 100, 200, 800, etc.)
-    return src.replace(/shrink_\d+_\d+/g, "shrink_400_400")
-  }
+  // LinkedIn CDN URLs are HMAC-signed per URL path — modifying the path
+  // (e.g. shrink_100_100 → shrink_400_400) invalidates the ?t= signature.
+  // Since photos are downloaded as base64 at save time anyway, return as-is.
+  function upgradePhotoUrl(src) { return src }
 
   function imgSrc(img) {
     return (
