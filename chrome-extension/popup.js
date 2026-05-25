@@ -61,7 +61,7 @@ async function checkForUpdates(apiUrl) {
 
 // Load saved settings
 chrome.storage.local.get(["apiUrl", "apiToken"], ({ apiUrl, apiToken }) => {
-  const url = apiUrl || "https://6degrees-one.vercel.app"
+  const url = apiUrl || "https://6degrees.aequus.money"
   urlInput.value = url
   if (apiToken) tokenInput.value = apiToken
   updateConnectionIndicator(apiUrl, apiToken)
