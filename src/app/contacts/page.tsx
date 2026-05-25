@@ -16,7 +16,7 @@ import SegmentBuilder from "@/components/SegmentBuilder"
 import { useSyncContext } from "@/contexts/SyncContext"
 
 const DEFAULT_FILTERS: FilterState = {
-  q: "", company: "", industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "", country: "",
+  q: "", companies: [], industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "", country: "",
 }
 
 type LabelOption = { id: string; name: string; color: string }
@@ -97,7 +97,7 @@ function ContactsContent() {
   // Apply URL params on first load: ?company= (treemap), ?contact= (deep link), ?view= (view mode)
   useEffect(() => {
     const company = searchParams.get("company")
-    if (company) setFilters((f) => ({ ...f, company }))
+    if (company) setFilters((f) => ({ ...f, companies: [company] }))
 
     const contactId = searchParams.get("contact")
     if (contactId) setActiveContactId(contactId)
@@ -183,7 +183,7 @@ function ContactsContent() {
         data = await res.json()
       } else {
         const params = new URLSearchParams({
-          q: f.q, company: f.company, industry: f.industry,
+          q: f.q, companies: f.companies.join(","), industry: f.industry,
           location: f.location, position: f.position, label: f.label, sort: f.sort,
           page: String(p), limit: "48",
           preferredCompanies: f.preferredCompanies ? "true" : "false",
@@ -665,7 +665,7 @@ function ContactsContent() {
       ) : allContacts.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-gray-400 text-sm">
-            {filters.q || filters.company || filters.industry || filters.location || filters.position || filters.label || filters.preferredCompanies || filters.sector || filters.companyType || filters.gmailMatched
+            {filters.q || filters.companies.length > 0 || filters.industry || filters.location || filters.position || filters.label || filters.preferredCompanies || filters.sector || filters.companyType || filters.gmailMatched
               ? "No contacts match your filters."
               : "No contacts yet — sync your LinkedIn network to get started."}
           </p>
