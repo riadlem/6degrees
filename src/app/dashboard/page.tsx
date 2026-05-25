@@ -10,6 +10,7 @@ import { labelColors } from "@/lib/label-colors"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { isSuspicious } from "@/lib/company-utils"
 import ContactDetail from "@/components/ContactDetail"
+import CompanyLogo from "@/components/CompanyLogo"
 
 type CompanySize = "small" | "medium" | "corporate" | "fortune500"
 
@@ -49,6 +50,7 @@ type DashboardCompany = {
   industry: string | null
   photos: string[]
   contacts: ContactSnippet[]
+  domain: string | null
 }
 
 type Stats = {
@@ -327,17 +329,8 @@ function CompanyCard({
       {/* Company header */}
       <div className="px-4 py-3 border-b border-gray-50">
         <div className="flex items-start gap-3">
-          {/* Company avatar from first contact photo */}
-          <div className="shrink-0">
-            {company.photos[0] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={company.photos[0]} alt="" className="w-9 h-9 rounded-full object-cover border border-gray-100" />
-            ) : (
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-gray-400 to-gray-600 flex items-center justify-center text-white text-xs font-bold">
-                {inits}
-              </div>
-            )}
-          </div>
+          {/* Company logo */}
+          <CompanyLogo domain={company.domain} name={company.name} size={36} radius="rounded-lg" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-semibold text-gray-900 text-sm">{company.name}</span>
