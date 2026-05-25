@@ -269,17 +269,23 @@ function SettingsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: fromEmail, contactId }),
       })
-      if (res.ok) {
-        const { propagatedEmails = [] } = await res.json()
-        // Remove the matched email + any auto-propagated same-name emails in one shot
-        const removed = new Set([fromEmail, ...propagatedEmails])
-        sessionStorage.removeItem("unmatchedSenders_cache")
-        setUnmatchedSenders((prev) => prev.filter((s) => !removed.has(s.fromEmail)))
-        setUnmatchedTotal((n) => Math.max(0, n - removed.size))
-        setAssigningFor(null)
-        setSearchQuery("")
-        setSearchResults([])
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? `Failed to assign match (${res.status})`)
+        return
       }
+      const { propagatedEmails = [] } = data
+      // Remove the matched email + any auto-propagated same-name emails in one shot
+      const removed = new Set([fromEmail, ...propagatedEmails])
+      sessionStorage.removeItem("unmatchedSenders_cache")
+      setUnmatchedSenders((prev) => prev.filter((s) => !removed.has(s.fromEmail)))
+      setUnmatchedTotal((n) => Math.max(0, n - removed.size))
+      setAssigningFor(null)
+      setSearchQuery("")
+      setSearchResults([])
+    } catch (err) {
+      alert("Network error — could not assign match. Please try again.")
+      console.error("assignMatch error:", err)
     } finally {
       setAssigning(null)
     }

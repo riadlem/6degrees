@@ -4,6 +4,8 @@ import prisma from "@/lib/prisma"
 import { normalizeEmail } from "@/lib/gmail"
 import { recomputeScores } from "@/lib/reconnect-score"
 
+export const maxDuration = 300
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -11,13 +13,13 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null)
   const { email, contactId } = body ?? {}
-  if (!email || !contactId) return new Response("Missing email or contactId", { status: 400 })
+  if (!email || !contactId) return Response.json({ error: "Missing email or contactId" }, { status: 400 })
 
   const normalized = normalizeEmail(email)
 
   // Verify contact belongs to this user
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
-  if (!contact) return new Response("Contact not found", { status: 404 })
+  if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
   // Register email address on the contact
   await prisma.contactEmailAddress.upsert({
@@ -93,7 +95,8 @@ export async function POST(req: Request) {
     }
   }
 
-  await recomputeScores(userId)
+  // Recompute scores in the background — don't block the response
+  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
   // Return propagatedEmails so the UI can immediately remove them from the list
   return Response.json({ ok: true, propagatedEmails })
