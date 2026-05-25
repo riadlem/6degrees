@@ -141,6 +141,16 @@
 }
 .sd-empty { color: #aaa !important; font-size: 12px !important; font-style: italic !important; }
 
+#sd-empty-hint {
+  background: #fff7ed !important;
+  border-bottom: 1px solid #fed7aa !important;
+  color: #c2410c !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  padding: 8px 20px !important;
+  flex-shrink: 0 !important;
+}
+
 #sd-panel-footer {
   padding: 14px 20px !important;
   border-top: 1px solid #f0f0f0 !important;

@@ -110,48 +110,79 @@
     return src.replace(/shrink_\d+_\d+/g, "shrink_400_400")
   }
 
+  function imgSrc(img) {
+    return (
+      img.src ||
+      img.getAttribute("data-delayed-url") ||
+      img.getAttribute("data-ghost-url") ||
+      img.currentSrc ||
+      ""
+    )
+  }
+
+  // Returns true if the image element has a squarish aspect ratio (profile photos are ~1:1).
+  // Banners are ~4:1 or wider. We reject anything wider than 2× its height.
+  function isSquarishImage(img) {
+    const w = img.naturalWidth  || img.getBoundingClientRect().width  || img.width  || 0
+    const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
+    if (!w || !h) return true  // dimensions unknown — don't reject
+    return (w / h) < 2.5
+  }
+
   function scrapePhoto() {
-    // ── Strategy 0: og:image meta tag ─────────────────────────────────────────
-    // LinkedIn always populates this with the profile owner's photo.
-    // It is the most reliable signal regardless of DOM class name churn.
-    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
-    if (og) {
-      const src = og.content || og.getAttribute("content") || ""
-      if (isValidPhoto(src)) return upgradePhotoUrl(src)
+    const mainEl = document.querySelector("main")
+
+    // ── Strategy 1: profile-displayphoto positive filter + largest srcset ─────
+    // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
+    // Banners always contain 'displaybackgroundimage'. Using a positive filter
+    // (rather than just excluding banners) is far more reliable across DOM changes.
+    // Among matching imgs, the top-card headshot has srcset variants up to 400-800px;
+    // sidebar thumbnails (mutual connections, PYMK) only go to 50-100px.
+    // Picking the largest srcset width ≥ 200px reliably selects the right image.
+    if (mainEl) {
+      const profileImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
+        const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
+        return /profile-displayphoto/i.test(s) && !/displaybackgroundimage/i.test(s)
+      })
+
+      let bestUrl = "", bestW = 0
+      for (const img of profileImgs) {
+        for (const part of (img.srcset || "").split(",")) {
+          const [u, w] = part.trim().split(/\s+/)
+          const width = parseInt((w || "0").replace(/\D/g, ""), 10)
+          if (width > bestW) { bestW = width; bestUrl = u }
+        }
+      }
+      if (bestW >= 200 && bestUrl) return upgradePhotoUrl(bestUrl)
+
+      // srcset absent (rare) — fall back to dedicated class or first filtered img
+      const tc = mainEl.querySelector(".pv-top-card-profile-picture__image")
+      if (tc) {
+        const src = tc.currentSrc || tc.src || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
+      if (profileImgs.length > 0) {
+        const src = profileImgs[0].currentSrc || profileImgs[0].src || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
     }
 
-    function imgSrc(img) {
-      return (
-        img.src ||
-        img.getAttribute("data-delayed-url") ||
-        img.getAttribute("data-ghost-url") ||
-        img.currentSrc ||
-        ""
-      )
-    }
-
-    // ── Strategy 1: <picture> source sets in the top-card ─────────────────────
-    // LinkedIn renders the profile photo as a <picture> with <source> elements
-    // that contain the actual high-res URL before any <img> fallback loads.
-    for (const picture of document.querySelectorAll("picture")) {
-      const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
-      if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
-    }
-
-    // ── Strategy 2: profile top-card containers (scoped search) ───────────────
-    const profileRoots = [
+    // ── Strategy 2: tight profile-photo containers ────────────────────────────
+    const photoRoots = [
       document.querySelector(".pv-top-card-profile-picture"),
       document.querySelector(".profile-photo-edit__container"),
       document.querySelector(".pv-top-card__photo-wrapper"),
       document.querySelector("[data-anonymize='headshot-photo']")?.closest("div"),
-      document.querySelector("main section"),
-      document.querySelector("main"),
     ].filter(Boolean)
 
-    for (const root of profileRoots) {
+    for (const root of photoRoots) {
+      for (const picture of root.querySelectorAll("picture")) {
+        const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
       for (const img of root.querySelectorAll("img")) {
         const src = imgSrc(img)
-        if (isValidPhoto(src)) return upgradePhotoUrl(src)
+        if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
       }
     }
 
@@ -168,35 +199,38 @@
       try {
         for (const img of document.querySelectorAll(sel)) {
           const src = imgSrc(img)
-          if (isValidPhoto(src)) return upgradePhotoUrl(src)
+          if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
         }
       } catch { /* bad selector */ }
     }
 
-    // ── Strategy 4: largest rendered LinkedIn media image ─────────────────────
-    // Nav avatar is ~32×32; profile photo is ≥400×400 at full resolution.
-    // We prefer naturalWidth (actual pixel data) over layout size.
-    let bestSrc = null, bestArea = 0
-    for (const img of document.querySelectorAll("img")) {
-      const src = imgSrc(img)
-      if (!isValidPhoto(src)) continue
-      // Prefer naturalWidth; fall back to layout width (getBoundingClientRect)
-      const w = img.naturalWidth || img.getBoundingClientRect().width || img.width || 0
-      const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
-      const area = w * h
-      if (area > bestArea) { bestArea = area; bestSrc = src }
+    // ── Strategy 4: <picture> elements, guarded by aspect ratio ──────────────
+    for (const picture of document.querySelectorAll("picture")) {
+      const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
+      if (!src || !isValidPhoto(src)) continue
+      const img = picture.querySelector("img")
+      if (img && !isSquarishImage(img)) continue
+      return upgradePhotoUrl(src)
     }
-    // Only accept if large enough to be a profile photo (>= 400×400 = 160,000 px²)
-    if (bestSrc && bestArea >= 160000) return upgradePhotoUrl(bestSrc)
+
+    // ── Strategy 5 (last resort): og:image ────────────────────────────────────
+    // In LinkedIn's SPA, og:image stays stale on client-side navigations.
+    // Only use it if nothing else worked AND URL contains 'displayphoto'.
+    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
+    if (og) {
+      const src = og.content || og.getAttribute("content") || ""
+      if (isValidPhoto(src) && src.includes("displayphoto")) return upgradePhotoUrl(src)
+    }
 
     return null
   }
 
   function isValidPhoto(src) {
     if (!src || src.length < 10) return false
-    // Exclude background images, ghost placeholders, static icons, and data URIs
+    // Exclude background/banner images — multiple URL patterns across LinkedIn versions
     if (
-      src.includes("profile-displaybackgroundimage") ||
+      src.includes("background") ||   // catches all banner URL variants
+      src.includes("displaybackgroundimage") ||
       src.includes("ghost") ||
       src.includes("placeholder") ||
       src.includes("static.licdn") ||
@@ -216,44 +250,98 @@
 
   function scrapeHeadline() {
     // Prefer scoping to the top-card to avoid grabbing unrelated .text-body-medium nodes
-    const topCard = document.querySelector(".pv-top-card, .scaffold-layout__main > section, main section")
+    const topCard = document.querySelector(
+      ".pv-top-card, .scaffold-layout__main > section:first-of-type, main section"
+    )
     if (topCard) {
       for (const sel of [
         ".text-body-medium.break-words",
         "[data-field='headline']",
         ".text-body-medium",
+        // 2024/2025 LinkedIn uses div with these combined classes
+        "div.text-body-medium",
+        "span.text-body-medium",
       ]) {
         try {
-          const el = topCard.querySelector(sel)
-          const t = el?.textContent?.trim()
-          // Skip short/generic text (connection count, degree badges, etc.)
-          if (t && t.length > 5 && !t.match(/^\d+/) && !t.includes("connection")) return t
+          for (const el of topCard.querySelectorAll(sel)) {
+            const t = el?.textContent?.trim()
+            // Skip short/generic text (connection count, degree badges, etc.)
+            if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection") && !t.includes("follower")) {
+              return t
+            }
+          }
         } catch { /* skip */ }
       }
     }
-    // Fallback: document-wide
-    return text([".text-body-medium.break-words", "[data-field='headline']"])
+    // Fallback: document-wide, pick the first plausible headline
+    for (const el of document.querySelectorAll(".text-body-medium.break-words, [data-field='headline']")) {
+      const t = el?.textContent?.trim()
+      if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection")) return t
+    }
+    return null
   }
 
   function scrapeLocation() {
-    // LinkedIn's location span in the top card uses these combined classes
-    const specific = text([
-      ".text-body-small.inline.t-black--light.break-words",
-      ".pv-top-card--list-bullet li",
-      "[data-field='location']",
-    ])
-    if (specific && !specific.match(/^\d/) && !specific.toLowerCase().includes("connection")) return specific
+    // ── Text-based approach (ported from export_list.py) ───────────────────────
+    // CSS classes on LinkedIn's profile page change frequently; the text layout
+    // does not.  The location line always sits just above the "Contact info"
+    // link (any locale), so we scan main's inner text and look for that anchor.
+    const mainEl = document.querySelector("main")
+    if (mainEl) {
+      const lines = (mainEl.innerText || mainEl.textContent || "")
+        .split("\n").map((l) => l.trim()).filter(Boolean)
 
-    // Broad fallback: scan all small-body text, skipping numeric/badge strings
-    for (const el of document.querySelectorAll(".text-body-small")) {
-      const t = (el.textContent ?? "").trim()
-      if (
-        t.length > 3 && t.length < 80 &&
-        !t.match(/^\d/) &&
-        !t.includes("connection") && !t.includes("follower") &&
-        !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
-        (t.includes(",") || /\b(Area|Region|Greater|Metropolitan)\b/.test(t))
-      ) return t
+      const CONTACT_MARKERS = [
+        "Coordonnées", "Contact info", "Kontaktinfo",
+        "Información de contacto", "Informazioni di contatto",
+        "Kontaktoplysninger", "Kontaktinformationen",
+      ]
+
+      function looksLikeLocation(s) {
+        return s.length > 2 && s.length < 100 &&
+          !s.match(/^\d/) && !s.includes("|") && !s.includes("@") &&
+          !s.includes("connection") && !s.includes("follower") &&
+          s !== "·"
+      }
+
+      // 1) Line just above the "Contact info" marker (skip bare "·" separators)
+      for (let i = 0; i < lines.length; i++) {
+        if (CONTACT_MARKERS.some((m) => lines[i] === m || lines[i].startsWith(m))) {
+          let j = i - 1
+          while (j >= 0 && lines[j] === "·") j--
+          if (j >= 0 && looksLikeLocation(lines[j])) return lines[j]
+          break
+        }
+      }
+
+      // 2) Fallback: the 2nd "real" line after the name (headline, then location).
+      //    Skip pronouns, degree badges, and separator lines.
+      const kept = []
+      for (const line of lines.slice(1, 15)) {
+        if (/^(He|She|They|Il|Elle)\/(Him|Her|Them|Lui|Elle)$/i.test(line)) continue
+        if (/^·?\s*(1er|2e|3e|1st|2nd|3rd)\b/.test(line)) continue
+        if (line === "·") continue
+        if (!line.includes("@") && !/^\d/.test(line)) kept.push(line)
+        if (kept.length >= 2) break
+      }
+      if (kept.length >= 2 && looksLikeLocation(kept[1])) return kept[1]
+    }
+
+    // ── CSS fallback (still useful if innerText is empty or restricted) ───────
+    for (const sel of [
+      ".text-body-small.inline.t-black--light.break-words",
+      "span.text-body-small.inline.t-black--light",
+      "[data-field='location']",
+    ]) {
+      try {
+        for (const el of document.querySelectorAll(sel)) {
+          const t = (el.textContent ?? "").trim()
+          if (
+            t.length > 3 && t.length < 100 &&
+            !t.match(/^\d/) && !t.includes("connection") && !t.includes("follower")
+          ) return t
+        }
+      } catch { /* skip */ }
     }
     return null
   }
@@ -521,12 +609,20 @@
         ? `<span class="sd-empty">${p.commonConnections} mutual (scroll profile to load names)</span>`
         : `<span class="sd-empty">None found</span>`
 
+    // Show a hint if the profile loaded with almost nothing — likely the page
+    // wasn't fully rendered yet.  Prompts the user to scroll then hit ↻ Refresh.
+    const isEmpty = !p.headline && p.experience.length === 0 && p.education.length === 0
+    const emptyHint = isEmpty
+      ? `<div id="sd-empty-hint">⚠ Profile not fully loaded — scroll down then click ↻ Refresh</div>`
+      : ""
+
     panel.innerHTML = `
       <div id="sd-panel-header">
         <h2>Save to 6Degrees</h2>
         <button id="sd-refresh" title="Re-scrape after scrolling the profile">↻</button>
         <button id="sd-close" title="Close">×</button>
       </div>
+      ${emptyHint}
       <div id="sd-panel-body">
         <div class="sd-profile-header">
           ${avatarHtml}
@@ -609,7 +705,9 @@
 
   function init() {
     if (!window.location.pathname.startsWith("/in/")) return
-    setTimeout(injectFab, 1500)
+    // Wait 3 seconds — LinkedIn's SPA lazily renders the profile sections and
+    // the 1.5 s delay was too short for slower connections / large profiles.
+    setTimeout(injectFab, 3000)
   }
 
   let lastPath = location.pathname
