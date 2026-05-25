@@ -41,17 +41,20 @@ export async function GET(req: Request) {
     }
 
     const contentType = upstream.headers.get("content-type") ?? "image/jpeg"
+    const etag = upstream.headers.get("etag")
     const body = await upstream.arrayBuffer()
 
-    return new Response(body, {
-      headers: {
-        "Content-Type": contentType,
-        // Cache aggressively — LinkedIn CDN URLs have their own expiry (?e=...).
-        // Our proxy URL changes whenever the source URL changes (it's a query param),
-        // so cache-busting is automatic.
-        "Cache-Control": "public, max-age=604800, immutable", // 7 days
-      },
-    })
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": contentType,
+      // Cache aggressively — LinkedIn CDN URLs have their own expiry (?e=...).
+      // Our proxy URL changes whenever the source URL changes (it's a query param),
+      // so cache-busting is automatic.
+      "Cache-Control": "public, max-age=604800, immutable", // 7 days
+    }
+    // Forward upstream ETag so browsers and service workers can validate staleness cheaply.
+    if (etag) responseHeaders["ETag"] = etag
+
+    return new Response(body, { headers: responseHeaders })
   } catch {
     return new Response("Failed to fetch image", { status: 502 })
   }

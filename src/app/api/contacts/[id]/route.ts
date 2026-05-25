@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { enrichContact } from "@/lib/cowork"
+import { invalidateMatchCache } from "@/lib/match-cache-store"
 
 // phones TEXT[] lives outside the Prisma schema (added at runtime via ALTER TABLE)
 // so we fetch it with a separate raw query and merge it in.
@@ -79,6 +80,12 @@ export async function PATCH(
       data,
     })
     if (contact.count === 0) return new Response("Not found", { status: 404 })
+    // Name or email field changes affect the match cache — invalidate so the next
+    // Gmail sync rebuilds with the correct mappings.
+    const matchAffecting = ["firstName", "lastName", "emailAddress"]
+    if (matchAffecting.some((k) => k in data)) {
+      invalidateMatchCache(session.user.id)
+    }
   }
 
   // phones TEXT[] lives outside the Prisma schema — update via raw SQL
@@ -109,6 +116,8 @@ export async function DELETE(
   })
 
   if (deleted.count === 0) return new Response("Not found", { status: 404 })
+  // Removing a contact invalidates the match cache — it must not match to a deleted record.
+  invalidateMatchCache(session.user.id)
   return Response.json({ ok: true })
 }
 

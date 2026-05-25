@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseLinkedInDate, connectionKey, type LinkedInConnection } from "@/lib/linkedin"
 import { stripEdgeEmoji } from "@/lib/utils"
+import { invalidateMatchCache } from "@/lib/match-cache-store"
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
@@ -126,6 +127,10 @@ export async function POST(req: Request) {
         where: { id: userId },
         data: { lastSyncAt: new Date() },
       })
+
+      // CSV import adds new contacts — invalidate the Gmail match cache so
+      // the next Gmail sync will match against the freshly-imported contacts.
+      if (synced > 0) invalidateMatchCache(userId)
 
       send({ type: "done", synced, skipped, failed, total })
       controller.close()

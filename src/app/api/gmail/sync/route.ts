@@ -19,6 +19,7 @@ import {
   recordMatchedEmailCached,
   flushMatchCache,
 } from "@/lib/gmail-match"
+import { getCachedMatchCache, setCachedMatchCache } from "@/lib/match-cache-store"
 import { isAutomatedEmail } from "@/lib/email-filters"
 import { recomputeScores } from "@/lib/reconnect-score"
 
@@ -175,13 +176,16 @@ export async function POST(req: Request) {
         const total = messageIds.length
         send({ type: "status", message: `Processing ${total} emails…`, total })
 
-        // Preload match cache and known gmailIds to avoid per-message DB round trips
+        // Preload match cache and known gmailIds to avoid per-message DB round trips.
+        // Use the in-process singleton cache to skip the DB rebuild on warm instances.
         send({ type: "status", message: "Loading contact index…" })
-        const [matchCache, existingGmailIds] = await Promise.all([
-          buildMatchCache(userId),
+        const [cachedOrNull, existingGmailIds] = await Promise.all([
+          Promise.resolve(getCachedMatchCache(userId)),
           prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
             .then((rows) => new Set(rows.map((r) => r.gmailId))),
         ])
+        const matchCache = cachedOrNull ?? await buildMatchCache(userId)
+        if (!cachedOrNull) setCachedMatchCache(userId, matchCache)
 
         const baseCount = existingGmailIds.size
         // Tell the UI how many messages are already indexed so the counter starts there
@@ -341,6 +345,9 @@ export async function POST(req: Request) {
         // Recompute interaction scores
         send({ type: "status", message: "Computing relationship scores…" })
         await recomputeScores(userId)
+
+        // Persist the updated match cache (it now includes any newly-matched emails)
+        setCachedMatchCache(userId, matchCache)
 
         send({
           type: "done",

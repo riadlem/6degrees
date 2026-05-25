@@ -7,6 +7,7 @@ import { GmailSyncProvider } from "@/contexts/GmailSyncContext"
 export const metadata: Metadata = {
   title: "6Degrees — LinkedIn Network Navigator",
   description: "Navigate and organise your LinkedIn network",
+  manifest: "/manifest.json",
 }
 
 function BuildStamp() {

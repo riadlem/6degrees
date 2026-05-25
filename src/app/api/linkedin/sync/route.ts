@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { ensureMemberAuthorization, fetchConnectionsPage, parseLinkedInDate, connectionKey } from "@/lib/linkedin"
+import { invalidateMatchCache } from "@/lib/match-cache-store"
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
@@ -232,6 +233,8 @@ export async function POST(req: Request) {
           await prisma.user.update({ where: { id: userId }, data: { lastSyncAt: new Date() } })
         }
 
+        // New contacts were added — Gmail match cache is stale, force a rebuild on next sync.
+        if (synced > 0) invalidateMatchCache(userId)
         send({ type: "done", synced, failed, total: quickSync ? synced + failed : total, mode: quickSync ? "quick" : "full" })
       } catch (error) {
         send({ type: "error", message: error instanceof Error ? error.message : String(error) })
