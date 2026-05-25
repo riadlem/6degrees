@@ -26,6 +26,7 @@ export async function GET(req: Request) {
     if (status === "responded") return { userId, outreachStatus: "responded" }
     if (status === "drafted") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "drafted" }
     if (status === "sent") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "sent" }
+    if (status === "pending_review") return { userId, outreachStatus: "pending_review" }
     if (status === "not_contacted") return {
       userId,
       OR: [
@@ -66,7 +67,9 @@ export async function GET(req: Request) {
         snoozedUntil: true,
         labels: { select: { label: { select: { id: true, name: true, color: true } } } },
       },
-      orderBy: { interactionScore: "desc" },
+      orderBy: status === "pending_review"
+        ? { outreachUpdatedAt: "desc" }
+        : { interactionScore: "desc" },
       take: 200,
     }),
     prisma.contact.count({ where: { userId, outreachStatus: "ignored" } }),

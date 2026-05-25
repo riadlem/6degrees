@@ -74,6 +74,8 @@ export async function POST(req: Request) {
     addLabels,
   } = body
 
+  const pendingReview: boolean = !!body.pendingReview
+
   // position / company — sent directly by the extension (parsed from headline)
   const position: string | null = body.position ?? null
   const company: string  | null = body.company  ?? null
@@ -134,6 +136,7 @@ export async function POST(req: Request) {
           degree === "1st" || !degree
             ? (headline ?? null)
             : `[${degree}°] ${headline ?? ""}`.trim() || null,
+        ...(pendingReview && { outreachStatus: "pending_review", outreachUpdatedAt: new Date() }),
       },
       select: { id: true },
     })

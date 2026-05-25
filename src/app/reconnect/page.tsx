@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -52,7 +52,7 @@ function ReconnectContent() {
   const router = useRouter()
   const { blurred } = usePrivacy()
 
-  const [activeTab, setActiveTab] = useState<"reconnect" | "enrich">("reconnect")
+  const [activeTab, setActiveTab] = useState<"reconnect" | "review" | "enrich">("reconnect")
   const [contacts, setContacts] = useState<ReconnectContact[]>([])
   const [total, setTotal] = useState(0)
   const [blockedCount, setBlockedCount] = useState(0)
@@ -61,6 +61,8 @@ function ReconnectContent() {
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const [draftContact, setDraftContact] = useState<ReconnectContact | null>(null)
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
+  const [reviewContacts, setReviewContacts] = useState<ReconnectContact[]>([])
+  const [reviewLoading, setReviewLoading] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -118,6 +120,21 @@ function ReconnectContent() {
 
   useEffect(() => { fetchContacts() }, [fetchContacts])
 
+  const fetchReviewContacts = useCallback(async () => {
+    setReviewLoading(true)
+    try {
+      const res = await fetch("/api/reconnect?status=pending_review")
+      if (res.ok) {
+        const data = await res.json()
+        setReviewContacts(data.contacts)
+      }
+    } finally {
+      setReviewLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { fetchReviewContacts() }, [fetchReviewContacts])
+
   async function updateStatus(contactId: string, newStatus: string) {
     await fetch(`/api/reconnect/${contactId}/status`, {
       method: "PATCH",
@@ -165,6 +182,35 @@ function ReconnectContent() {
     setMoreOpenId(null)
   }
 
+  // Review tab actions
+  async function keepContact(contactId: string) {
+    await fetch(`/api/reconnect/${contactId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: null }),
+    })
+    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+  }
+
+  async function reachOutContact(contactId: string) {
+    await fetch(`/api/reconnect/${contactId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "not_contacted" }),
+    })
+    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+  }
+
+  async function discardContact(contactId: string) {
+    await fetch(`/api/contacts/${contactId}`, { method: "DELETE" })
+    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+  }
+
+  async function discardAllReview() {
+    await Promise.all(reviewContacts.map((c) => fetch(`/api/contacts/${c.id}`, { method: "DELETE" })))
+    setReviewContacts([])
+  }
+
   if (status === "loading") {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -199,6 +245,21 @@ function ReconnectContent() {
           Reach out
         </button>
         <button
+          onClick={() => setActiveTab("review")}
+          className={cn(
+            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "review" ? "border-violet-600 text-violet-700" : "border-transparent text-gray-500 hover:text-gray-700",
+          )}
+        >
+          <ClipboardList size={13} />
+          Review
+          {reviewContacts.length > 0 && (
+            <span className="ml-0.5 bg-violet-600 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">
+              {reviewContacts.length}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setActiveTab("enrich")}
           className={cn(
             "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
@@ -213,6 +274,106 @@ function ReconnectContent() {
 
       {/* Enrich tab */}
       {activeTab === "enrich" && <EnrichContent />}
+
+      {/* Review tab */}
+      {activeTab === "review" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-500">
+              Profiles captured automatically — keep, prioritize for outreach, or discard.
+            </p>
+            {reviewContacts.length > 0 && (
+              <button
+                onClick={discardAllReview}
+                className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors shrink-0"
+              >
+                <Trash2 size={12} />
+                Discard all
+              </button>
+            )}
+          </div>
+
+          {reviewLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : reviewContacts.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium text-gray-500">No profiles to review</p>
+              <p className="text-sm mt-1">
+                Enable &ldquo;Auto-queue visited profiles&rdquo; in the extension popup to start capturing.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {reviewContacts.map((contact) => {
+                const inits = initials(contact.firstName, contact.lastName)
+                const subLine = [contact.position, contact.company].filter(Boolean).join(" at ")
+                return (
+                  <div
+                    key={contact.id}
+                    className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-4 hover:border-gray-300 transition-colors"
+                  >
+                    {/* Avatar */}
+                    <button onClick={() => openContact(contact.id)} className="shrink-0">
+                      {contact.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={contact.photoUrl} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-sm font-bold">
+                          {inits}
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Info */}
+                    <button className="flex-1 min-w-0 text-left" onClick={() => openContact(contact.id)}>
+                      <p className={cn("font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>
+                        {contact.firstName} {contact.lastName}
+                      </p>
+                      {subLine && <p className="text-xs text-gray-500 truncate">{subLine}</p>}
+                      {contact.outreachUpdatedAt && (
+                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                          <Clock size={10} />
+                          Visited {formatDate(contact.outreachUpdatedAt)}
+                        </p>
+                      )}
+                    </button>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => keepContact(contact.id)}
+                        className="text-xs text-gray-600 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                      >
+                        Keep
+                      </button>
+                      <button
+                        onClick={() => reachOutContact(contact.id)}
+                        className="text-xs text-blue-600 border border-blue-200 rounded-lg px-2.5 py-1.5 hover:bg-blue-50 transition-colors"
+                      >
+                        Reach out
+                      </button>
+                      <button
+                        onClick={() => discardContact(contact.id)}
+                        className="text-xs text-red-500 border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 transition-colors"
+                      >
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Contact detail panel */}
+          <ContactDetail contactId={selectedContactId} onClose={closeContact} />
+        </div>
+      )}
 
       {/* Reconnect tab */}
       {activeTab === "reconnect" && (<>

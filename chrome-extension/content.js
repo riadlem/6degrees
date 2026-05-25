@@ -707,11 +707,42 @@
 
   // ─── Init & SPA navigation ────────────────────────────────────────────────────
 
-  function init() {
+  function showQueuedToast() {
+    const shadow = getShadow()
+    const existing = shadow.getElementById("sd-queued-toast")
+    if (existing) existing.remove()
+    const toast = document.createElement("div")
+    toast.id = "sd-queued-toast"
+    toast.textContent = "✓ Queued for review"
+    shadow.appendChild(toast)
+    setTimeout(() => toast.remove(), 2500)
+  }
+
+  async function init() {
     if (!window.location.pathname.startsWith("/in/")) return
     // Wait 3 seconds — LinkedIn's SPA lazily renders the profile sections and
     // the 1.5 s delay was too short for slower connections / large profiles.
     setTimeout(injectFab, 3000)
+
+    // Auto-queue: silently capture this profile if toggle is enabled
+    const cfg = await new Promise((r) => chrome.storage.local.get(["autoQueue"], r))
+    if (!cfg.autoQueue) return
+
+    setTimeout(async () => {
+      let profile
+      try { profile = scrapeProfile() } catch { return }
+      if (!profile.firstName) return
+
+      let photoUrl = profile.photoUrl
+      if (photoUrl) {
+        const b64 = await fetchPhotoAsBase64(photoUrl)
+        if (b64) photoUrl = b64
+      }
+
+      const payload = { ...profile, photoUrl, pendingReview: true }
+      chrome.runtime.sendMessage({ type: "QUEUE_CONTACT", data: payload })
+      showQueuedToast()
+    }, 3500)
   }
 
   let lastPath = location.pathname
