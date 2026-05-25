@@ -1,5 +1,5 @@
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "ENRICH_CONTACT") {
+  if (message.type === "ENRICH_CONTACT" || message.type === "QUEUE_CONTACT") {
     handleEnrich(message.data).then(sendResponse).catch((e) => sendResponse({ ok: false, error: e.message }))
     return true // keep channel open for async
   }

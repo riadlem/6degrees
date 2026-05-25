@@ -59,14 +59,24 @@ async function checkForUpdates(apiUrl) {
   }
 }
 
+const autoQueueEl = document.getElementById("autoQueue")
+
 // Load saved settings
-chrome.storage.local.get(["apiUrl", "apiToken"], ({ apiUrl, apiToken }) => {
+chrome.storage.local.get(["apiUrl", "apiToken", "autoQueue"], ({ apiUrl, apiToken, autoQueue }) => {
   const url = apiUrl || "https://6degrees.aequus.money"
   urlInput.value = url
   if (apiToken) tokenInput.value = apiToken
+  if (autoQueueEl) autoQueueEl.checked = !!autoQueue
   updateConnectionIndicator(apiUrl, apiToken)
   checkForUpdates(url)
 })
+
+// Persist autoQueue immediately on change
+if (autoQueueEl) {
+  autoQueueEl.addEventListener("change", () => {
+    chrome.storage.local.set({ autoQueue: autoQueueEl.checked })
+  })
+}
 
 saveBtn.addEventListener("click", async () => {
   const apiUrl   = urlInput.value.trim().replace(/\/$/, "")

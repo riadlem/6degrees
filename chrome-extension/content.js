@@ -109,14 +109,10 @@
     return humanizeSlug(slugFromUrl())
   }
 
-  // Upgrade LinkedIn CDN URLs to 400×400 resolution.
-  // LinkedIn media URLs contain a size suffix like "shrink_100_100" or "shrink_200_200".
-  // Replacing it with "shrink_400_400" requests a higher-res version the CDN always has.
-  function upgradePhotoUrl(src) {
-    if (!src) return src
-    // Replace any shrink_NxN with 400×400 (covers 100, 200, 800, etc.)
-    return src.replace(/shrink_\d+_\d+/g, "shrink_400_400")
-  }
+  // LinkedIn CDN URLs are HMAC-signed per URL path — modifying the path
+  // (e.g. shrink_100_100 → shrink_400_400) invalidates the ?t= signature.
+  // Since photos are downloaded as base64 at save time anyway, return as-is.
+  function upgradePhotoUrl(src) { return src }
 
   function imgSrc(img) {
     return (
@@ -711,11 +707,42 @@
 
   // ─── Init & SPA navigation ────────────────────────────────────────────────────
 
-  function init() {
+  function showQueuedToast() {
+    const shadow = getShadow()
+    const existing = shadow.getElementById("sd-queued-toast")
+    if (existing) existing.remove()
+    const toast = document.createElement("div")
+    toast.id = "sd-queued-toast"
+    toast.textContent = "✓ Queued for review"
+    shadow.appendChild(toast)
+    setTimeout(() => toast.remove(), 2500)
+  }
+
+  async function init() {
     if (!window.location.pathname.startsWith("/in/")) return
     // Wait 3 seconds — LinkedIn's SPA lazily renders the profile sections and
     // the 1.5 s delay was too short for slower connections / large profiles.
     setTimeout(injectFab, 3000)
+
+    // Auto-queue: silently capture this profile if toggle is enabled
+    const cfg = await new Promise((r) => chrome.storage.local.get(["autoQueue"], r))
+    if (!cfg.autoQueue) return
+
+    setTimeout(async () => {
+      let profile
+      try { profile = scrapeProfile() } catch { return }
+      if (!profile.firstName) return
+
+      let photoUrl = profile.photoUrl
+      if (photoUrl) {
+        const b64 = await fetchPhotoAsBase64(photoUrl)
+        if (b64) photoUrl = b64
+      }
+
+      const payload = { ...profile, photoUrl, pendingReview: true }
+      chrome.runtime.sendMessage({ type: "QUEUE_CONTACT", data: payload })
+      showQueuedToast()
+    }, 3500)
   }
 
   let lastPath = location.pathname

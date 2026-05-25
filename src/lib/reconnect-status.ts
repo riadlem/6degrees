@@ -12,4 +12,5 @@ export const STATUS_BADGE: Record<string, { label: string; className: string }> 
   meeting_done:   { label: "Meeting done",     className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   deprioritized:  { label: "Deprioritized",    className: "bg-gray-100 text-gray-400 border-gray-200" },
   ignored:        { label: "Ignored",          className: "bg-red-50 text-red-400 border-red-200" },
+  pending_review: { label: "To review",        className: "bg-violet-50 text-violet-700 border-violet-200" },
 }
