@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
   Search, ArrowUpDown, ChevronUp, ChevronDown, UserPlus,
-  ExternalLink, Loader2, Settings, Users
+  ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -143,15 +143,26 @@ function ChatRow({
       </div>
 
       {/* Actions */}
-      <div className="shrink-0 flex items-center">
+      <div className="shrink-0 flex items-center gap-2">
         {contact ? (
-          <Link
-            href={`/contacts?id=${contact.id}`}
-            className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
-          >
-            <ExternalLink size={12} />
-            <span className="hidden sm:inline">View</span>
-          </Link>
+          <>
+            {/* View — always visible on mobile, hover-only on desktop */}
+            <Link
+              href={`/contacts?id=${contact.id}`}
+              className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+            >
+              <ExternalLink size={12} />
+              <span className="hidden sm:inline">View</span>
+            </Link>
+            {/* Change assignment */}
+            <button
+              onClick={() => onLinkClick(chat)}
+              className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+              title="Re-assign to different contact"
+            >
+              <Pencil size={11} />
+            </button>
+          </>
         ) : (
           <button
             onClick={() => onLinkClick(chat)}
@@ -227,11 +238,23 @@ export default function WhatsAppPage() {
     else { setSort(s); setOrder("desc") }
   }
 
-  // Simple inline link panel (reuses the pattern from Settings unmatched panel)
+  // Link / re-assign / unlink panel
   const [linkingChat, setLinkingChat] = useState<WAChat | null>(null)
   const [linkSearch, setLinkSearch] = useState("")
   const [linkResults, setLinkResults] = useState<{ id: string; firstName: string; lastName: string; company: string | null }[]>([])
   const [linking, setLinking] = useState(false)
+
+  function openLinkModal(chat: WAChat) {
+    setLinkingChat(chat)
+    setLinkSearch("")
+    setLinkResults([])
+  }
+
+  function closeLinkModal() {
+    setLinkingChat(null)
+    setLinkSearch("")
+    setLinkResults([])
+  }
 
   useEffect(() => {
     if (!linkSearch.trim()) { setLinkResults([]); return }
@@ -254,13 +277,31 @@ export default function WhatsAppPage() {
         body: JSON.stringify({ chatName, contactId }),
       })
       if (res.ok) {
-        setLinkingChat(null)
-        setLinkSearch("")
-        setLinkResults([])
+        closeLinkModal()
         await load()
       } else {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? "Failed to link contact")
+      }
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  async function doUnlink(chatName: string) {
+    setLinking(true)
+    try {
+      const res = await fetch("/api/whatsapp/match", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatName }),
+      })
+      if (res.ok) {
+        closeLinkModal()
+        await load()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        alert(d.error ?? "Failed to unlink")
       }
     } finally {
       setLinking(false)
@@ -410,27 +451,56 @@ export default function WhatsAppPage() {
               key={chat.chatName}
               chat={chat}
               blurred={blurred}
-              onLinkClick={setLinkingChat}
+              onLinkClick={openLinkModal}
             />
           ))
         )}
       </div>
 
-      {/* Link contact modal */}
+      {/* Link / re-assign / unlink modal */}
       {linkingChat && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="font-semibold text-gray-900 mb-1">Link to contact</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Assign <span className="font-medium text-gray-700">{linkingChat.chatName}</span> to a contact
-            </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={closeLinkModal}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="mb-4">
+              <h3 className="font-semibold text-gray-900">
+                {linkingChat.contact ? "Re-assign chat" : "Link to contact"}
+              </h3>
+              <p className="text-sm text-gray-500 mt-0.5">
+                <span className="font-medium text-gray-700">{linkingChat.chatName}</span>
+              </p>
+              {/* Current assignment pill */}
+              {linkingChat.contact && (
+                <div className="mt-2 flex items-center justify-between bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+                  <div>
+                    <p className="text-xs text-gray-500">Currently linked to</p>
+                    <p className="text-sm font-medium text-gray-800">
+                      {linkingChat.contact.firstName} {linkingChat.contact.lastName}
+                    </p>
+                    {linkingChat.contact.company && (
+                      <p className="text-xs text-gray-400">{linkingChat.contact.company}</p>
+                    )}
+                  </div>
+                  <button
+                    disabled={linking}
+                    onClick={() => doUnlink(linkingChat.chatName)}
+                    className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium disabled:opacity-50 ml-3 shrink-0"
+                    title="Remove this link"
+                  >
+                    {linking ? <Loader2 size={12} className="animate-spin" /> : <Unlink2 size={13} />}
+                    Unlink
+                  </button>
+                </div>
+              )}
+            </div>
 
+            {/* Search */}
             <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 mb-3">
               <Search size={13} className="text-gray-400 shrink-0" />
               <input
                 autoFocus
                 type="text"
-                placeholder="Search contacts…"
+                placeholder={linkingChat.contact ? "Search to re-assign…" : "Search contacts…"}
                 value={linkSearch}
                 onChange={(e) => setLinkSearch(e.target.value)}
                 className="text-sm outline-none flex-1"
@@ -438,7 +508,7 @@ export default function WhatsAppPage() {
             </div>
 
             {linkResults.length > 0 && (
-              <ul className="border border-gray-100 rounded-xl overflow-hidden mb-4 divide-y divide-gray-50">
+              <ul className="border border-gray-100 rounded-xl overflow-hidden mb-4 divide-y divide-gray-50 max-h-56 overflow-y-auto">
                 {linkResults.map((c) => (
                   <li key={c.id}>
                     <button
@@ -446,10 +516,16 @@ export default function WhatsAppPage() {
                       onClick={() => doLink(linkingChat.chatName, c.id)}
                       className="w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors flex items-center gap-3 disabled:opacity-50"
                     >
-                      {linking && <Loader2 size={12} className="animate-spin text-green-600" />}
-                      <div>
-                        <p className="font-medium text-gray-900">{c.firstName} {c.lastName}</p>
-                        {c.company && <p className="text-xs text-gray-400">{c.company}</p>}
+                      {linking ? (
+                        <Loader2 size={12} className="animate-spin text-green-600 shrink-0" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                          {initials(c.firstName, c.lastName)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</p>
+                        {c.company && <p className="text-xs text-gray-400 truncate">{c.company}</p>}
                       </div>
                     </button>
                   </li>
@@ -457,9 +533,13 @@ export default function WhatsAppPage() {
               </ul>
             )}
 
-            <div className="flex justify-end gap-2">
+            {linkSearch.trim() && linkResults.length === 0 && (
+              <p className="text-xs text-gray-400 text-center py-3 mb-3">No contacts found</p>
+            )}
+
+            <div className="flex justify-end">
               <button
-                onClick={() => { setLinkingChat(null); setLinkSearch(""); setLinkResults([]) }}
+                onClick={closeLinkModal}
                 className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
                 Cancel

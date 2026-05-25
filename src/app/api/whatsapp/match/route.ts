@@ -18,9 +18,9 @@ export async function POST(req: Request) {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
   if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
-  // Link all unmatched messages from this chat to the contact
+  // Link ALL messages from this chat to the contact (handles both initial match and re-assignment)
   const result = await prisma.whatsAppMessage.updateMany({
-    where: { userId, chatName, contactId: null },
+    where: { userId, chatName },
     data: { contactId },
   })
 
@@ -28,4 +28,24 @@ export async function POST(req: Request) {
   recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
   return Response.json({ ok: true, updated: result.count })
+}
+
+// Unlink all messages for a chat (set contactId back to null)
+export async function DELETE(req: Request) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+  const userId = session.user.id
+
+  const body = await req.json().catch(() => null)
+  const { chatName } = body ?? {}
+  if (!chatName) return Response.json({ error: "Missing chatName" }, { status: 400 })
+
+  const result = await prisma.whatsAppMessage.updateMany({
+    where: { userId, chatName },
+    data: { contactId: null },
+  })
+
+  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+
+  return Response.json({ ok: true, unlinked: result.count })
 }
