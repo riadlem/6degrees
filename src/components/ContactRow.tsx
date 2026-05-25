@@ -1,7 +1,7 @@
 "use client"
 
 import { StickyNote, Plus, Mail, Sparkles, Users } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { type ContactSummary } from "./ContactCard"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
@@ -54,7 +54,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       <div className="shrink-0 w-10 h-10 rounded-full overflow-hidden">
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={contact.photoUrl} alt={fullName} className={cn("w-10 h-10 rounded-full object-cover", blurred && "blur")} />
+          <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-10 h-10 rounded-full object-cover", blurred && "blur")} />
         ) : (
           // Initials fallback — never blurred
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">

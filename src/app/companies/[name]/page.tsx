@@ -7,7 +7,7 @@ import {
   ArrowLeft, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
   ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2
 } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
 import CompanyLogo from "@/components/CompanyLogo"
@@ -791,7 +791,7 @@ export default function CompanyDetailPage() {
                   {c.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={c.photoUrl}
+                      src={photoSrc(c.photoUrl)!}
                       alt={`${c.firstName} ${c.lastName}`}
                       className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")}
                     />
@@ -848,7 +848,7 @@ export default function CompanyDetailPage() {
                   {/* Avatar */}
                   {c.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={c.photoUrl} alt="" className={cn("w-9 h-9 rounded-xl object-cover shrink-0", blurred && "blur")} />
+                    <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-xl object-cover shrink-0", blurred && "blur")} />
                   ) : (
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
                       {inits}

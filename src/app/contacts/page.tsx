@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2 } from "lucide-react"
-import { cn, initials } from "@/lib/utils"
+import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
@@ -682,7 +682,7 @@ function ContactsContent() {
                 {contact.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={contact.photoUrl}
+                    src={photoSrc(contact.photoUrl)!}
                     alt={`${contact.firstName} ${contact.lastName}`}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />

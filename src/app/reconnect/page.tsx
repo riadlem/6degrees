@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2 } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
 import EnrichContent from "@/components/EnrichContent"
@@ -321,7 +321,7 @@ function ReconnectContent() {
                     <button onClick={() => openContact(contact.id)} className="shrink-0">
                       {contact.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={contact.photoUrl} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
+                        <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
                       ) : (
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-sm font-bold">
                           {inits}

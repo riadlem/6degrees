@@ -7,7 +7,7 @@ import {
   Search, ArrowUpDown, ChevronUp, ChevronDown, UserPlus,
   ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
 } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
 
@@ -76,7 +76,7 @@ function ChatRow({
         {contact?.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={contact.photoUrl}
+            src={photoSrc(contact.photoUrl)!}
             alt={displayName}
             className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")}
           />

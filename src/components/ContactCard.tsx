@@ -1,7 +1,7 @@
 "use client"
 
 import { Users, Building2, MapPin, StickyNote, Plus, Mail, Sparkles } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -85,7 +85,7 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
           {contact.photoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={contact.photoUrl}
+              src={photoSrc(contact.photoUrl)!}
               alt={fullName}
               className={cn("w-[100px] h-[100px] rounded-full object-cover border-2 border-gray-100 shadow-sm", blurred && "blur")}
             />

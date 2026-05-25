@@ -5,7 +5,7 @@ import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
   StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
 } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_BG, EMAIL_KIND_TITLE } from "@/lib/email-classify"
@@ -427,7 +427,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={contact.photoUrl}
+                      src={photoSrc(contact.photoUrl)!}
                       alt={fullName}
                       className="w-16 h-16 rounded-2xl object-cover border border-gray-100"
                     />
