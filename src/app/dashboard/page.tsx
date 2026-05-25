@@ -125,10 +125,12 @@ function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: 
 
 function CompanyTreemap({
   data,
+  domainMap = {},
   height = 400,
   onExpand,
 }: {
   data: TreemapItem[]
+  domainMap?: Record<string, string>
   height?: number | string
   onExpand?: () => void
 }) {
@@ -149,26 +151,15 @@ function CompanyTreemap({
   useEffect(() => {
     if (!data.length) return
     setFailedLogos(new Set())
-    // Immediately set guessed logos via Clearbit Logo API (no request needed, instant)
-    const guessed: Record<string, string> = {}
+    // Build Google favicon URLs — use known domain from map, else guess from company name
+    const urls: Record<string, string> = {}
     for (const { name } of data) {
-      const domain = name.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim().split(/\s+/)[0] + ".com"
-      guessed[name] = `https://logo.clearbit.com/${domain}`
+      const domain = domainMap[name]
+        ?? (name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) + ".com")
+      urls[name] = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
     }
-    setLogos(guessed)
-    // Upgrade with autocomplete for accurate domains
-    for (const { name } of data) {
-      fetch(`https://autocomplete.clearbit.com/v1/companies/suggest?query=${encodeURIComponent(name)}&limit=1`)
-        .then((r) => r.json())
-        .then((results: Array<{ logo?: string }>) => {
-          if (results[0]?.logo) {
-            setLogos((prev) => ({ ...prev, [name]: results[0].logo! }))
-            setFailedLogos((prev) => { const n = new Set(prev); n.delete(name); return n })
-          }
-        })
-        .catch(() => {})
-    }
-  }, [data])
+    setLogos(urls)
+  }, [data, domainMap])
 
   const cells = useMemo(
     () => (dims.w > 0 && dims.h > 0 ? binaryLayout(data, 0, 0, dims.w, dims.h) : []),
@@ -565,7 +556,7 @@ export default function DashboardPage() {
           </div>
 
           {treemapData.length > 0 ? (
-            <CompanyTreemap data={treemapData} onExpand={() => setFullscreen(true)} />
+            <CompanyTreemap data={treemapData} domainMap={Object.fromEntries(companies.filter(c => c.domain).map(c => [c.name, c.domain!]))} onExpand={() => setFullscreen(true)} />
           ) : (
             <div className="flex items-center justify-center h-24 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400">
               No companies above threshold
@@ -667,7 +658,7 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="flex-1 min-h-0 p-3">
-            <CompanyTreemap data={treemapData} height="100%" />
+            <CompanyTreemap data={treemapData} domainMap={Object.fromEntries(companies.filter(c => c.domain).map(c => [c.name, c.domain!]))} height="100%" />
           </div>
           <div className="flex items-center gap-4 px-4 pb-3 flex-wrap">
             {COLOR_LEGEND.map(({ color, label }) => (

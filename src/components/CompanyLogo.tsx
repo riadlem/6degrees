@@ -55,11 +55,11 @@ export default function CompanyLogo({ domain, name, size = 40, radius = "rounded
       {domain && !failed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`https://logo.clearbit.com/${domain}`}
+          src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
           alt={name}
           width={size}
           height={size}
-          className="w-full h-full object-contain bg-white"
+          className="w-full h-full object-contain bg-white p-[1px]"
           onError={() => setFailed(true)}
         />
       ) : (
