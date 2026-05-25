@@ -221,12 +221,26 @@ export default function ContactDetail({ contactId, onClose }: Props) {
 
   async function unlinkEmail(email: string) {
     if (!contact) return
-    await fetch(`/api/contacts/${contact.id}/emails`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
-    })
-    fetchContact()
+    // Optimistically remove from local state
+    setContact((prev) => prev ? {
+      ...prev,
+      emailAddresses: prev.emailAddresses.filter((ea) => ea.email !== email),
+    } : prev)
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/emails`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        alert(d.error ?? `Failed to unlink email (${res.status})`)
+        fetchContact() // restore on failure
+      }
+    } catch {
+      alert("Network error — could not unlink email.")
+      fetchContact()
+    }
   }
 
   async function toggleReconnect() {
