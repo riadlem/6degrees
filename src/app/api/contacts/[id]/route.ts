@@ -23,7 +23,7 @@ export async function GET(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const [contact, waAgg] = await Promise.all([
+  const [contact, waAgg, waChatRow] = await Promise.all([
     prisma.contact.findFirst({
       where: { id: params.id, userId: session.user.id },
       include: {
@@ -38,6 +38,10 @@ export async function GET(
       _max: { sentAt: true },
       _count: { _all: true },
     }).catch(() => null),
+    prisma.whatsAppMessage.findFirst({
+      where: { contactId: params.id },
+      select: { chatName: true },
+    }).catch(() => null),
   ])
 
   if (!contact) return new Response("Not found", { status: 404 })
@@ -49,6 +53,7 @@ export async function GET(
     phones,
     whatsappLastAt: waAgg?._max.sentAt?.toISOString() ?? null,
     whatsappMessageCount: waAgg?._count._all ?? 0,
+    whatsappChatName: waChatRow?.chatName ?? null,
   })
 }
 

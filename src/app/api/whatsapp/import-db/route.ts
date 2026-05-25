@@ -12,6 +12,7 @@ export const maxDuration = 300
 // never leaves the browser.
 type ChatPayload = {
   chatName: string
+  phone: string | null          // E.164 number from ZCONTACTJID, e.g. "+33612345678"
   messages: [number, number][]  // [sentAtMs, isOutbound 0|1]
 }
 
@@ -107,7 +108,17 @@ export async function POST(req: Request) {
             // Previously unmatched — skip re-matching (use Re-match button)
             contactId = null
           }
-          if (contactId) totalMatched++
+          if (contactId) {
+            totalMatched++
+            // Backfill the WhatsApp phone number onto the matched contact
+            // (only if they don't already have one — never overwrite).
+            if (chat.phone) {
+              await prisma.contact.updateMany({
+                where: { id: contactId, phoneNumber: null },
+                data: { phoneNumber: chat.phone },
+              })
+            }
+          }
 
           const CHUNK = 200
           let synced = 0

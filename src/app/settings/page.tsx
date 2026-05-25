@@ -512,7 +512,7 @@ function SettingsPageInner() {
 
       // 1:1 sessions only (group JIDs end with @g.us)
       const sessions = db.exec(`
-        SELECT Z_PK, ZPARTNERNAME FROM ZWACHATSESSION
+        SELECT Z_PK, ZPARTNERNAME, ZCONTACTJID FROM ZWACHATSESSION
         WHERE ZPARTNERNAME IS NOT NULL
           AND (ZCONTACTJID IS NULL OR ZCONTACTJID NOT LIKE '%@g.us')
       `)[0]
@@ -523,15 +523,24 @@ function SettingsPageInner() {
         return
       }
 
-      // Build compact chat payload: { chatName, messages: [[sentAtMs, isOutbound], …] }
+      // Build compact chat payload: { chatName, phone, messages: [[sentAtMs, isOutbound], …] }
       // Capped at 500 most-recent messages per chat (enough for scoring).
-      type ChatPayload = { chatName: string; messages: [number, number][] }
+      type ChatPayload = { chatName: string; phone: string | null; messages: [number, number][] }
       const chats: ChatPayload[] = []
+
+      // Parse WhatsApp JID → E.164 phone number.
+      // JID format: "33612345678@s.whatsapp.net"  →  "+33612345678"
+      function jidToPhone(jid: string | null | undefined): string | null {
+        if (!jid) return null
+        const raw = jid.split("@")[0]
+        if (!raw || !/^\d{7,15}$/.test(raw)) return null
+        return "+" + raw
+      }
 
       // OTP / security-code / WhatsApp system notification filter
       const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|votre code de s[eé]curit[eé]|your security code|en savoir plus|tap to learn more|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
 
-      for (const [pk, chatName] of sessions.values) {
+      for (const [pk, chatName, jid] of sessions.values) {
         // Include ZTEXT so we can filter OTP/security-code messages client-side
         // (content is never sent to the server — only timestamps + isOutbound)
         const msgs = db.exec(`
@@ -549,6 +558,7 @@ function SettingsPageInner() {
         if (!filtered.length) continue
         chats.push({
           chatName: String(chatName),
+          phone: jidToPhone(jid as string | null),
           messages: filtered.slice(0, 500).map(([d, f]) => [
             Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
             Number(f) === 1 ? 1 : 0,
@@ -1649,32 +1659,34 @@ function SettingsPageInner() {
         </div>
 
         <div className="px-6 py-5 space-y-4">
-          {waStatus?.importedAt && (
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-gray-500">
-                Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
-              </p>
-              <button
-                onClick={async () => {
-                  if (!confirm("Delete all imported WhatsApp data and reset? You will need to reimport your chats.")) return
-                  const res = await fetch("/api/whatsapp/reset", { method: "DELETE" })
-                  if (res.ok) {
-                    const { deleted } = await res.json()
-                    setWaStatus(null)
-                    setWaResult(null)
-                    setWaUnmatched([])
-                    setWaUnmatchedTotal(0)
-                    alert(`Cleared ${deleted.toLocaleString()} messages. Please reimport your chats.`)
-                  } else {
-                    alert("Failed to clear WhatsApp data.")
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">
+              {waStatus?.importedAt
+                ? `Last import: ${new Date(waStatus.importedAt).toLocaleString()} · ${waStatus.totalMessages.toLocaleString()} messages across ${waStatus.totalChats} chats`
+                : "No data imported yet"}
+            </p>
+            <button
+              onClick={async () => {
+                if (!confirm("Delete all imported WhatsApp data and reset? You will need to reimport your chats.")) return
+                const res = await fetch("/api/whatsapp/reset", { method: "DELETE" })
+                if (res.ok) {
+                  const data = await res.json()
+                  setWaStatus(null)
+                  setWaResult(null)
+                  setWaUnmatched([])
+                  setWaUnmatchedTotal(0)
+                  if (data.deleted > 0) {
+                    alert(`Cleared ${data.deleted.toLocaleString()} messages. You can now reimport.`)
                   }
-                }}
-                className="shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors"
-              >
-                Clear all data
-              </button>
-            </div>
-          )}
+                } else {
+                  alert("Failed to clear WhatsApp data.")
+                }
+              }}
+              className="shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors font-medium"
+            >
+              Disconnect
+            </button>
+          </div>
 
           {waResult && (
             <div className="text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
