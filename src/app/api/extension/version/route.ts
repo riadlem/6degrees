@@ -16,10 +16,11 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.3.6",
+  latest:                "1.3.7",
   reinstallRequiredBelow: "1.3.0" as string | null,
-  reloadRequiredBelow:   "1.3.6" as string | null,
+  reloadRequiredBelow:   "1.3.7" as string | null,
   notes: [
+    "v1.3.7: Fix company scraping (JSON-LD + logo img + modern selectors), fix auto-queue path check.",
     "v1.3.6: Infer country from region when LinkedIn omits it (e.g. 'Île-de-France' → 'France').",
     "v1.3.5: Fix 'Followed' label (skipped for 1st-degree connections), improve location scraping.",
     "v1.3.4: Auto-queue visited profiles (toggle in extension popup).",

@@ -506,28 +506,61 @@
   // that represent current positions). These often contain "Title at Company" text
   // or aria-labels even when the user's headline doesn't follow a standard format.
   function scrapeCompanyFromTopCard() {
-    const topCard = document.querySelector(
-      ".pv-top-card, .pv-top-card-profile-picture, .scaffold-layout__main > section:first-of-type, main > section"
-    )
-    const root = topCard ?? document
+    // ── Strategy 1: JSON-LD structured data ──────────────────────────────────
+    // LinkedIn sometimes embeds a Person schema with worksFor populated.
+    for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        const d = JSON.parse(s.textContent ?? "")
+        const co = d?.worksFor?.name || d?.worksFor?.[0]?.name
+        if (co && co.length > 1 && co.length < 80) return co
+      } catch { /* ignore */ }
+    }
 
-    // Collect candidate elements: experience list items, buttons with aria-labels
-    const candidates = [
-      ...root.querySelectorAll(".pv-top-card--experience-list-item"),
-      ...root.querySelectorAll("[class*='experience-list'] button"),
-      ...root.querySelectorAll("[class*='experience-list'] a"),
+    const root = document.querySelector(
+      "section.artdeco-card, .pv-top-card, .scaffold-layout__main > section, main > section"
+    ) ?? document
+
+    // ── Strategy 2: company logo img alt text ─────────────────────────────────
+    // LinkedIn renders <img alt="Acme Corp logo"> next to each experience item.
+    // The " logo" suffix distinguishes company logos from other images.
+    for (const img of root.querySelectorAll("img[alt]")) {
+      const alt = (img.getAttribute("alt") ?? "").trim()
+      if (
+        alt.toLowerCase().endsWith(" logo") &&
+        alt.length > 6 &&
+        alt.length < 80 &&
+        !img.closest("[class*='profile-picture']") &&
+        !img.closest("[class*='profile-photo']") &&
+        !img.closest("[class*='photo-wrapper']")
+      ) {
+        const company = alt.replace(/\s*logo$/i, "").trim()
+        if (company.length > 1) return company
+      }
+    }
+
+    // ── Strategy 3: experience list items (multiple selector generations) ─────
+    // LinkedIn has cycled through several class naming conventions; try them all.
+    const experienceSelectors = [
+      "[class*='pv-text-details__right-panel'] li",   // 2023 layout
+      ".optional-action-btn-wrapper",                  // current button layout
+      "button[class*='experience']",
+      ".pv-top-card--experience-list-item",            // older layout
+      "[class*='experience-list'] li",
+      "[class*='experience-list'] button",
+      "[class*='experience-list'] a",
     ]
-
-    for (const el of candidates) {
-      const text = (
-        el.getAttribute("aria-label") ||
-        el.querySelector("span[aria-hidden='true']")?.textContent ||
-        el.innerText ||
-        ""
-      ).trim().replace(/\s+/g, " ")
-      if (!text || text.length > 200) continue
-      const { company } = parsePositionCompany(text)
-      if (company && company.length > 1 && company.length < 80) return company
+    for (const sel of experienceSelectors) {
+      for (const el of root.querySelectorAll(sel)) {
+        const text = (
+          el.getAttribute("aria-label") ||
+          el.querySelector("span[aria-hidden='true']")?.textContent ||
+          el.innerText ||
+          ""
+        ).trim().replace(/\s+/g, " ")
+        if (!text || text.length > 200 || text.length < 4) continue
+        const { company } = parsePositionCompany(text)
+        if (company && company.length > 1 && company.length < 80) return company
+      }
     }
     return null
   }
@@ -865,13 +898,25 @@
 
     setTimeout(async () => {
       // Abort if the user navigated away before the delay fired.
-      // Without this guard, navigating from a profile to the news feed ("Fil d'Actualité")
-      // caused the scrape to run on the wrong page and create a bogus contact.
-      if (window.location.pathname !== initPath) return
+      // Normalize trailing slashes — LinkedIn sometimes redirects /in/slug → /in/slug/
+      // which would cause a strict equality check to wrongly abort.
+      const normPath = p => p.replace(/\/$/, "")
+      if (normPath(window.location.pathname) !== normPath(initPath)) {
+        console.debug("[6Degrees] auto-queue: path changed, aborting", initPath, "→", window.location.pathname)
+        return
+      }
 
       let profile
-      try { profile = scrapeProfile() } catch { return }
-      if (!profile.firstName) return
+      try { profile = scrapeProfile() } catch (e) {
+        console.debug("[6Degrees] auto-queue: scrapeProfile threw", e)
+        return
+      }
+      if (!profile.firstName) {
+        console.debug("[6Degrees] auto-queue: no firstName, aborting")
+        return
+      }
+
+      console.debug("[6Degrees] auto-queue: queueing", profile.firstName, profile.lastName, "company:", profile.company)
 
       let photoUrl = profile.photoUrl
       if (photoUrl) {
@@ -883,8 +928,9 @@
       try {
         chrome.runtime.sendMessage({ type: "QUEUE_CONTACT", data: payload })
         showQueuedToast()
-      } catch {
-        // Extension context invalidated — service worker was reloaded; skip silently.
+        console.debug("[6Degrees] auto-queue: sent ✓")
+      } catch (e) {
+        console.debug("[6Degrees] auto-queue: sendMessage failed", e)
       }
     }, 3500)
   }
