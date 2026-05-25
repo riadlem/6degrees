@@ -130,33 +130,63 @@
   }
 
   function scrapePhoto() {
-    // ── Strategy 1: tight profile-photo containers ────────────────────────────
-    // Search for imgs / picture sources *only* inside the known profile-photo
-    // wrapper elements.  This avoids picking up the cover/banner which sits
-    // higher in the DOM in most picture-element passes.
+    const mainEl = document.querySelector("main")
+
+    // ── Strategy 1: profile-displayphoto positive filter + largest srcset ─────
+    // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
+    // Banners always contain 'displaybackgroundimage'. Using a positive filter
+    // (rather than just excluding banners) is far more reliable across DOM changes.
+    // Among matching imgs, the top-card headshot has srcset variants up to 400-800px;
+    // sidebar thumbnails (mutual connections, PYMK) only go to 50-100px.
+    // Picking the largest srcset width ≥ 200px reliably selects the right image.
+    if (mainEl) {
+      const profileImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
+        const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
+        return /profile-displayphoto/i.test(s) && !/displaybackgroundimage/i.test(s)
+      })
+
+      let bestUrl = "", bestW = 0
+      for (const img of profileImgs) {
+        for (const part of (img.srcset || "").split(",")) {
+          const [u, w] = part.trim().split(/\s+/)
+          const width = parseInt((w || "0").replace(/\D/g, ""), 10)
+          if (width > bestW) { bestW = width; bestUrl = u }
+        }
+      }
+      if (bestW >= 200 && bestUrl) return upgradePhotoUrl(bestUrl)
+
+      // srcset absent (rare) — fall back to dedicated class or first filtered img
+      const tc = mainEl.querySelector(".pv-top-card-profile-picture__image")
+      if (tc) {
+        const src = tc.currentSrc || tc.src || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
+      if (profileImgs.length > 0) {
+        const src = profileImgs[0].currentSrc || profileImgs[0].src || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
+    }
+
+    // ── Strategy 2: tight profile-photo containers ────────────────────────────
     const photoRoots = [
       document.querySelector(".pv-top-card-profile-picture"),
       document.querySelector(".profile-photo-edit__container"),
       document.querySelector(".pv-top-card__photo-wrapper"),
       document.querySelector("[data-anonymize='headshot-photo']")?.closest("div"),
-      document.querySelector("button.profile-photo-edit__container"),
-      document.querySelector(".profile-photo-edit__content"),
     ].filter(Boolean)
 
     for (const root of photoRoots) {
-      // Check <picture> sources inside these containers first
       for (const picture of root.querySelectorAll("picture")) {
         const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
         if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
       }
-      // Then <img> tags
       for (const img of root.querySelectorAll("img")) {
         const src = imgSrc(img)
         if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
       }
     }
 
-    // ── Strategy 2: aria-label / data-anonymize attributes ────────────────────
+    // ── Strategy 3: aria-label / data-anonymize attributes ────────────────────
     for (const sel of [
       "img[data-anonymize='headshot-photo']",
       "img[aria-label*='photo' i]",
@@ -174,36 +204,18 @@
       } catch { /* bad selector */ }
     }
 
-    // ── Strategy 3: <picture> elements anywhere, guarded by aspect ratio ──────
-    // Skip strategy until we've excluded the banner: banners are wide (4:1+),
-    // profile photos are square.  We use the rendered <img> size as the signal.
+    // ── Strategy 4: <picture> elements, guarded by aspect ratio ──────────────
     for (const picture of document.querySelectorAll("picture")) {
       const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
       if (!src || !isValidPhoto(src)) continue
       const img = picture.querySelector("img")
-      if (img && !isSquarishImage(img)) continue  // skip banners
+      if (img && !isSquarishImage(img)) continue
       return upgradePhotoUrl(src)
     }
 
-    // ── Strategy 4: largest squarish rendered LinkedIn media image ─────────────
-    // Nav avatar is ~32×32; profile photo is ≥ 200×200 at minimum.
-    // Banners are excluded by the aspect-ratio guard.
-    let bestSrc = null, bestArea = 0
-    for (const img of document.querySelectorAll("img")) {
-      const src = imgSrc(img)
-      if (!isValidPhoto(src)) continue
-      if (!isSquarishImage(img)) continue  // skip banners
-      const w = img.naturalWidth  || img.getBoundingClientRect().width  || img.width  || 0
-      const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
-      const area = w * h
-      if (area > bestArea) { bestArea = area; bestSrc = src }
-    }
-    if (bestSrc && bestArea >= 40000) return upgradePhotoUrl(bestSrc)  // ≥ 200×200
-
     // ── Strategy 5 (last resort): og:image ────────────────────────────────────
-    // In LinkedIn's SPA, og:image may not update on client-side navigation and
-    // can reflect a stale page.  Only use it if nothing else worked, and only
-    // if the URL looks like a profile photo (not a background image).
+    // In LinkedIn's SPA, og:image stays stale on client-side navigations.
+    // Only use it if nothing else worked AND URL contains 'displayphoto'.
     const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
     if (og) {
       const src = og.content || og.getAttribute("content") || ""
@@ -270,39 +282,66 @@
   }
 
   function scrapeLocation() {
-    // LinkedIn's location span — try several selector forms used across versions
+    // ── Text-based approach (ported from export_list.py) ───────────────────────
+    // CSS classes on LinkedIn's profile page change frequently; the text layout
+    // does not.  The location line always sits just above the "Contact info"
+    // link (any locale), so we scan main's inner text and look for that anchor.
+    const mainEl = document.querySelector("main")
+    if (mainEl) {
+      const lines = (mainEl.innerText || mainEl.textContent || "")
+        .split("\n").map((l) => l.trim()).filter(Boolean)
+
+      const CONTACT_MARKERS = [
+        "Coordonnées", "Contact info", "Kontaktinfo",
+        "Información de contacto", "Informazioni di contatto",
+        "Kontaktoplysninger", "Kontaktinformationen",
+      ]
+
+      function looksLikeLocation(s) {
+        return s.length > 2 && s.length < 100 &&
+          !s.match(/^\d/) && !s.includes("|") && !s.includes("@") &&
+          !s.includes("connection") && !s.includes("follower") &&
+          s !== "·"
+      }
+
+      // 1) Line just above the "Contact info" marker (skip bare "·" separators)
+      for (let i = 0; i < lines.length; i++) {
+        if (CONTACT_MARKERS.some((m) => lines[i] === m || lines[i].startsWith(m))) {
+          let j = i - 1
+          while (j >= 0 && lines[j] === "·") j--
+          if (j >= 0 && looksLikeLocation(lines[j])) return lines[j]
+          break
+        }
+      }
+
+      // 2) Fallback: the 2nd "real" line after the name (headline, then location).
+      //    Skip pronouns, degree badges, and separator lines.
+      const kept = []
+      for (const line of lines.slice(1, 15)) {
+        if (/^(He|She|They|Il|Elle)\/(Him|Her|Them|Lui|Elle)$/i.test(line)) continue
+        if (/^·?\s*(1er|2e|3e|1st|2nd|3rd)\b/.test(line)) continue
+        if (line === "·") continue
+        if (!line.includes("@") && !/^\d/.test(line)) kept.push(line)
+        if (kept.length >= 2) break
+      }
+      if (kept.length >= 2 && looksLikeLocation(kept[1])) return kept[1]
+    }
+
+    // ── CSS fallback (still useful if innerText is empty or restricted) ───────
     for (const sel of [
       ".text-body-small.inline.t-black--light.break-words",
       "span.text-body-small.inline.t-black--light",
-      ".pv-top-card--list-bullet li",
       "[data-field='location']",
-      // 2025 LinkedIn: location sits directly in a <span class="text-body-small"> near the top card
-      ".mt2 .text-body-small",
     ]) {
       try {
         for (const el of document.querySelectorAll(sel)) {
           const t = (el.textContent ?? "").trim()
           if (
             t.length > 3 && t.length < 100 &&
-            !t.match(/^\d/) &&
-            !t.includes("connection") && !t.includes("follower") &&
-            !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
-            !t.includes("·")
+            !t.match(/^\d/) && !t.includes("connection") && !t.includes("follower")
           ) return t
         }
       } catch { /* skip */ }
-    }
-
-    // Broad fallback: scan all small-body text, skipping numeric/badge strings
-    for (const el of document.querySelectorAll(".text-body-small")) {
-      const t = (el.textContent ?? "").trim()
-      if (
-        t.length > 3 && t.length < 100 &&
-        !t.match(/^\d/) &&
-        !t.includes("connection") && !t.includes("follower") &&
-        !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
-        (t.includes(",") || /\b(Area|Region|Greater|Metropolitan|City|County)\b/i.test(t))
-      ) return t
     }
     return null
   }
