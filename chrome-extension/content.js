@@ -700,7 +700,14 @@
       status.className = "ok"
       setTimeout(closePanel, 1800)
     } else {
-      status.textContent = result?.error || "Something went wrong"
+      const errMsg = result?.error || "Something went wrong"
+      // "Extension context invalidated" means the service worker was killed
+      // (e.g. after an extension update). Reloading the page restores it.
+      if (errMsg.toLowerCase().includes("context invalidated")) {
+        status.textContent = "Extension reloaded — please refresh this page and try again"
+      } else {
+        status.textContent = errMsg
+      }
       status.className = "err"
     }
   }
@@ -725,7 +732,12 @@
     setTimeout(injectFab, 3000)
 
     // Auto-queue: silently capture this profile if toggle is enabled
-    const cfg = await new Promise((r) => chrome.storage.local.get(["autoQueue"], r))
+    let cfg
+    try {
+      cfg = await new Promise((r) => chrome.storage.local.get(["autoQueue"], r))
+    } catch {
+      return // Extension context invalidated — service worker reloaded; skip silently.
+    }
     if (!cfg.autoQueue) return
 
     setTimeout(async () => {
@@ -740,8 +752,12 @@
       }
 
       const payload = { ...profile, photoUrl, pendingReview: true }
-      chrome.runtime.sendMessage({ type: "QUEUE_CONTACT", data: payload })
-      showQueuedToast()
+      try {
+        chrome.runtime.sendMessage({ type: "QUEUE_CONTACT", data: payload })
+        showQueuedToast()
+      } catch {
+        // Extension context invalidated — service worker was reloaded; skip silently.
+      }
     }, 3500)
   }
 

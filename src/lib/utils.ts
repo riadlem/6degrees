@@ -5,6 +5,21 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Returns a safe photo src for rendering.
+ * LinkedIn CDN URLs are CORS-restricted — they can't be loaded from our domain
+ * directly. Route them through our server-side proxy instead.
+ * Base64 data URIs and null are returned as-is.
+ */
+export function photoSrc(url: string | null | undefined): string | null {
+  if (!url) return null
+  if (url.startsWith("data:")) return url
+  if (url.startsWith("https://media.licdn.com/") || url.startsWith("https://static.licdn.com/")) {
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`
+  }
+  return url
+}
+
 export function initials(firstName: string, lastName: string) {
   return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase()
 }

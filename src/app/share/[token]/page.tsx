@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import prisma from "@/lib/prisma"
-import { initials, formatDate } from "@/lib/utils"
+import { initials, formatDate, photoSrc } from "@/lib/utils"
 import { MapPin, Building2, Users } from "lucide-react"
 
 type Props = { params: { token: string } }
@@ -103,7 +103,7 @@ export default async function SharedListPage({ params }: Props) {
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={contact.photoUrl}
+                      src={photoSrc(contact.photoUrl)!}
                       alt={fullName}
                       className="w-11 h-11 rounded-full object-cover border border-gray-100 shrink-0"
                     />

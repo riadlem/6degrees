@@ -5,7 +5,7 @@ import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye, Download, Maximize2 } from "lucide-react"
-import { cn, initials } from "@/lib/utils"
+import { cn, initials, photoSrc } from "@/lib/utils"
 import { labelColors } from "@/lib/label-colors"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { isSuspicious } from "@/lib/company-utils"
@@ -287,7 +287,7 @@ function ContactAvatar({ contact }: { contact: ContactSnippet }) {
   if (contact.photoUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={contact.photoUrl} alt="" className={cn("w-9 h-9 rounded-full object-cover border border-gray-100 shrink-0", blurred && "blur")} />
+      <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-full object-cover border border-gray-100 shrink-0", blurred && "blur")} />
     )
   }
   return (

@@ -7,7 +7,7 @@ import Link from "next/link"
 import {
   ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap
 } from "lucide-react"
-import { cn, initials, formatDate } from "@/lib/utils"
+import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ShareModal from "@/components/ShareModal"
 import ContactDetail from "@/components/ContactDetail"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -269,7 +269,7 @@ function ListDetailContent() {
                 <div className="w-10">
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={contact.photoUrl} alt={fullName} className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} />
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">
                       {inits}
