@@ -549,7 +549,6 @@ function SettingsPageInner() {
             AND ZMESSAGETYPE NOT IN (6, 10, 12, 14, 15)
             AND ZMESSAGEDATE > ${cutoff}
           ORDER BY ZMESSAGEDATE DESC
-          LIMIT 600
         `)[0]
         if (!msgs?.values?.length) continue
         const filtered = msgs.values.filter(([, , text]) =>
@@ -559,7 +558,7 @@ function SettingsPageInner() {
         chats.push({
           chatName: String(chatName),
           phone: jidToPhone(jid as string | null),
-          messages: filtered.slice(0, 500).map(([d, f]) => [
+          messages: filtered.map(([d, f]) => [
             Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
             Number(f) === 1 ? 1 : 0,
           ]),
