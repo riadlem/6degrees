@@ -16,15 +16,16 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.2.1",
+  latest:                "1.2.3",
   reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.2.1",
+  reloadRequiredBelow:   "1.2.3",
   notes: [
+    "v1.2.3: Photo quality upgrade — og:image strategy first (always reliable),",
+    "        URL rewriting to request 400px from LinkedIn CDN, ≥400×400 size filter.",
+    "        Adds ↻ Refresh button to re-scrape after scrolling.",
+    "v1.2.2: Improve photo scraping with 5 ordered strategies; better selector coverage.",
     "v1.2.1: Fix token verification in popup — use Bearer-token-authenticated endpoint.",
     "v1.2.0: Fix photo picking logged-in user's nav avatar instead of profile photo.",
-    "        Fix name showing 'Unknown' when h1 selectors miss — now falls back to",
-    "        page title ('First Last - Headline | LinkedIn') before slug heuristic.",
-    "v1.1.1: Version shown in popup header; photo scraping checks data-ghost-url.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────
