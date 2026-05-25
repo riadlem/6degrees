@@ -141,11 +141,21 @@
     // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
     // Banners always contain 'displaybackgroundimage'. Using a positive filter
     // (rather than just excluding banners) is far more reliable across DOM changes.
-    // Among matching imgs, the top-card headshot has srcset variants up to 400-800px;
-    // sidebar thumbnails (mutual connections, PYMK) only go to 50-100px.
-    // Picking the largest srcset width ≥ 200px reliably selects the right image.
+    //
+    // IMPORTANT: search within the top-card section only, NOT all of mainEl.
+    // The right sidebar (mutual connections, "People also viewed", PYMK) also
+    // contains profile-displayphoto thumbnails. If any sidebar thumbnail has a
+    // higher srcset width than the top-card photo (e.g. when Open to Work badge
+    // causes LinkedIn to downscale the main photo srcset), the wrong person's
+    // photo gets captured. Scoping to the top card eliminates sidebar noise.
     if (mainEl) {
-      const profileImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
+      // The top card is always the first <section> in <main> or a .pv-top-card element.
+      const topCard =
+        mainEl.querySelector(".pv-top-card") ||
+        mainEl.querySelector("section:first-of-type") ||
+        mainEl
+
+      const profileImgs = [...topCard.querySelectorAll("img")].filter((img) => {
         const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
         return /profile-displayphoto/i.test(s) && !/displaybackgroundimage/i.test(s)
       })
@@ -161,7 +171,7 @@
       if (bestW >= 200 && bestUrl) return upgradePhotoUrl(bestUrl)
 
       // srcset absent (rare) — fall back to dedicated class or first filtered img
-      const tc = mainEl.querySelector(".pv-top-card-profile-picture__image")
+      const tc = topCard.querySelector(".pv-top-card-profile-picture__image")
       if (tc) {
         const src = tc.currentSrc || tc.src || ""
         if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
