@@ -3,6 +3,8 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { recomputeScores } from "@/lib/reconnect-score"
 
+export const maxDuration = 300
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -10,11 +12,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null)
   const { chatName, contactId } = body ?? {}
-  if (!chatName || !contactId) return new Response("Missing chatName or contactId", { status: 400 })
+  if (!chatName || !contactId) return Response.json({ error: "Missing chatName or contactId" }, { status: 400 })
 
   // Verify contact belongs to this user
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
-  if (!contact) return new Response("Contact not found", { status: 404 })
+  if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
   // Link all unmatched messages from this chat to the contact
   const result = await prisma.whatsAppMessage.updateMany({
@@ -22,7 +24,8 @@ export async function POST(req: Request) {
     data: { contactId },
   })
 
-  await recomputeScores(userId)
+  // Recompute scores in the background — don't block the response
+  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
   return Response.json({ ok: true, updated: result.count })
 }

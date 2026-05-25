@@ -457,13 +457,20 @@ function SettingsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chatName, contactId }),
       })
-      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? `Failed to assign match (${res.status})`)
+        return
+      }
       // Remove matched chat from list
       setWaUnmatched((prev) => prev.filter((c) => c.chatName !== chatName))
       setWaUnmatchedTotal((t) => t - 1)
       setWaAssigningFor(null)
       setWaSearchQuery("")
       setWaSearchResults([])
+    } catch (err) {
+      alert("Network error — could not assign match. Please try again.")
+      console.error("assignWAMatch error:", err)
     } finally {
       setWaAssigning(null)
     }
