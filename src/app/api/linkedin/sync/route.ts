@@ -19,7 +19,12 @@ const SSE_HEADERS = {
   "X-Accel-Buffering": "no",
 }
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
+const THIRTY_DAYS_MS    = 30 * 24 * 60 * 60 * 1000
+const MIN_SYNC_INTERVAL = 4  * 60 * 60 * 1000   // 4 hours between syncs
+
+/** Random sleep: avoids mechanical page-fetch patterns that trigger LinkedIn bot detection. */
+const sleep  = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+const jitter = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min
 
 export async function GET() {
   const session = await getServerSession(authOptions)
@@ -62,8 +67,21 @@ export async function POST(req: Request) {
 
   const userState = await prisma.user.findUnique({
     where: { id: userId },
-    select: { syncCursor: true, syncTotal: true },
+    select: { syncCursor: true, syncTotal: true, lastSyncAt: true },
   })
+
+  // Enforce minimum interval for quick syncs to avoid triggering LinkedIn bot detection.
+  // Full restart (restart=true) and resume bypasses this — the user explicitly requested it.
+  if (quickSync && userState?.lastSyncAt) {
+    const elapsed = Date.now() - new Date(userState.lastSyncAt).getTime()
+    if (elapsed < MIN_SYNC_INTERVAL) {
+      const waitMins = Math.ceil((MIN_SYNC_INTERVAL - elapsed) / 60_000)
+      return Response.json(
+        { error: `Please wait ${waitMins} more minute${waitMins !== 1 ? "s" : ""} before syncing again.` },
+        { status: 429 },
+      )
+    }
+  }
 
   const resuming = resume && (userState?.syncCursor ?? 0) > 0
   let pageIndex = resuming ? userState!.syncCursor! : 0
@@ -199,6 +217,9 @@ export async function POST(req: Request) {
           } else {
             pageIndex++
             if (!quickSync) await saveCursor(pageIndex, total)
+            // Pace between pages: random 2–5s to avoid mechanical request patterns.
+            // This is the primary mitigation against LinkedIn bot detection.
+            if (hasNext) await sleep(jitter(2_000, 5_000))
           }
         }
 

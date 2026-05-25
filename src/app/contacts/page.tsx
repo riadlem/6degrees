@@ -438,6 +438,12 @@ function ContactsContent() {
           LinkedIn connection failed: {linkedinError}
         </div>
       )}
+      {/* Pacing notice — shown once when idle, hidden during active sync */}
+      {syncState.phase === "idle" && importState.phase === "idle" && (
+        <p className="mb-3 text-xs text-gray-400">
+          ⏱ Syncs are automatically paced (2–5 s between pages) to avoid LinkedIn security alerts. Quick syncs are limited to once every 4 h.
+        </p>
+      )}
       {resumable && syncState.phase === "idle" && (
         <div className="mb-4 flex items-center justify-between px-4 py-2.5 rounded-xl border bg-amber-50 border-amber-200 text-sm">
           <span className="text-amber-800 font-medium">

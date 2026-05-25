@@ -1,11 +1,16 @@
 const LINKEDIN_API_BASE = "https://api.linkedin.com/rest"
 const LINKEDIN_VERSION = "202312"
 
+// Mimic LinkedIn's own mobile app so server-side calls don't stand out as a bare Node.js agent.
+const LINKEDIN_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 16_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/20H19 [LinkedInApp]/9.1.1082"
+
 // GET requests must not include Content-Type; only POST needs it.
 const LINKEDIN_GET_HEADERS = (accessToken: string) => ({
   Authorization: `Bearer ${accessToken}`,
   "LinkedIn-Version": LINKEDIN_VERSION,
   "X-Restli-Protocol-Version": "2.0.0",
+  "User-Agent": LINKEDIN_UA,
 })
 
 const LINKEDIN_POST_HEADERS = (accessToken: string) => ({

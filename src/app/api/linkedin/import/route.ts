@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseLinkedInDate, connectionKey, type LinkedInConnection } from "@/lib/linkedin"
+import { stripEdgeEmoji } from "@/lib/utils"
 
 function sse(data: object): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
@@ -101,8 +102,8 @@ export async function POST(req: Request) {
             data: chunk.map((conn) => ({
               userId,
               linkedinKey: connectionKey(conn),
-              firstName:   conn["First Name"],
-              lastName:    conn["Last Name"],
+              firstName:   stripEdgeEmoji(conn["First Name"] ?? ""),
+              lastName:    stripEdgeEmoji(conn["Last Name"] ?? ""),
               position:    conn["Position"]    || null,
               company:     conn["Company"]     || null,
               connectedOn: parseLinkedInDate(conn["Connected On"]),

@@ -54,21 +54,24 @@
   color: #1a1a1a !important;
   margin: 0 !important;
 }
-#sd-close {
+#sd-refresh, #sd-close {
   width: 28px !important;
   height: 28px !important;
   border-radius: 8px !important;
   border: none !important;
   background: transparent !important;
   cursor: pointer !important;
-  font-size: 18px !important;
+  font-size: 16px !important;
   color: #888 !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   line-height: 1 !important;
 }
-#sd-close:hover { background: #f4f4f4 !important; color: #444 !important; }
+#sd-close { font-size: 18px !important; }
+#sd-refresh:hover, #sd-close:hover { background: #f4f4f4 !important; color: #444 !important; }
+#sd-panel-header { gap: 6px !important; }
+#sd-panel-header h2 { flex: 1 !important; }
 #sd-panel-body {
   flex: 1 !important;
   overflow-y: auto !important;

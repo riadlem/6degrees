@@ -101,16 +101,49 @@
     return humanizeSlug(slugFromUrl())
   }
 
+  // Upgrade LinkedIn CDN URLs to 400×400 resolution.
+  // LinkedIn media URLs contain a size suffix like "shrink_100_100" or "shrink_200_200".
+  // Replacing it with "shrink_400_400" requests a higher-res version the CDN always has.
+  function upgradePhotoUrl(src) {
+    if (!src) return src
+    // Replace any shrink_NxN with 400×400 (covers 100, 200, 800, etc.)
+    return src.replace(/shrink_\d+_\d+/g, "shrink_400_400")
+  }
+
   function scrapePhoto() {
-    function imgSrc(img) {
-      return img.src || img.getAttribute("data-delayed-url") || img.getAttribute("data-ghost-url") || ""
+    // ── Strategy 0: og:image meta tag ─────────────────────────────────────────
+    // LinkedIn always populates this with the profile owner's photo.
+    // It is the most reliable signal regardless of DOM class name churn.
+    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
+    if (og) {
+      const src = og.content || og.getAttribute("content") || ""
+      if (isValidPhoto(src)) return upgradePhotoUrl(src)
     }
-    // 1. Prefer imgs scoped to the profile top-card — avoids the nav avatar of the
-    //    logged-in user, which also has "profile-displayphoto" in its CDN URL.
+
+    function imgSrc(img) {
+      return (
+        img.src ||
+        img.getAttribute("data-delayed-url") ||
+        img.getAttribute("data-ghost-url") ||
+        img.currentSrc ||
+        ""
+      )
+    }
+
+    // ── Strategy 1: <picture> source sets in the top-card ─────────────────────
+    // LinkedIn renders the profile photo as a <picture> with <source> elements
+    // that contain the actual high-res URL before any <img> fallback loads.
+    for (const picture of document.querySelectorAll("picture")) {
+      const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
+      if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+    }
+
+    // ── Strategy 2: profile top-card containers (scoped search) ───────────────
     const profileRoots = [
       document.querySelector(".pv-top-card-profile-picture"),
       document.querySelector(".profile-photo-edit__container"),
       document.querySelector(".pv-top-card__photo-wrapper"),
+      document.querySelector("[data-anonymize='headshot-photo']")?.closest("div"),
       document.querySelector("main section"),
       document.querySelector("main"),
     ].filter(Boolean)
@@ -118,42 +151,67 @@
     for (const root of profileRoots) {
       for (const img of root.querySelectorAll("img")) {
         const src = imgSrc(img)
-        if (src.includes("profile-displayphoto") && isValidPhoto(src)) return src
+        if (isValidPhoto(src)) return upgradePhotoUrl(src)
       }
     }
 
-    // 2. Among ALL imgs with profile-displayphoto, pick the largest rendered size
-    //    (nav avatar ~32 px vs profile photo ~200 px).
-    let bestSrc = null, bestSize = 0
-    for (const img of document.querySelectorAll("img")) {
-      const src = imgSrc(img)
-      if (!src.includes("profile-displayphoto") || !isValidPhoto(src)) continue
-      const size = (img.naturalWidth || img.width || 0) + (img.naturalHeight || img.height || 0)
-      if (size > bestSize) { bestSize = size; bestSrc = src }
-    }
-    if (bestSrc) return bestSrc
-
-    // 3. Class-based selectors (older LinkedIn layouts)
+    // ── Strategy 3: aria-label / data-anonymize attributes ────────────────────
     for (const sel of [
-      ".pv-top-card-profile-picture__image--show",
       "img[data-anonymize='headshot-photo']",
+      "img[aria-label*='photo' i]",
+      "img[alt*='photo' i]",
+      ".pv-top-card-profile-picture__image--show",
       ".profile-photo-edit__preview",
+      "img[class*='EntityPhoto']",
+      "img[class*='profile-photo']",
     ]) {
       try {
         for (const img of document.querySelectorAll(sel)) {
           const src = imgSrc(img)
-          if (isValidPhoto(src)) return src
+          if (isValidPhoto(src)) return upgradePhotoUrl(src)
         }
       } catch { /* bad selector */ }
     }
+
+    // ── Strategy 4: largest rendered LinkedIn media image ─────────────────────
+    // Nav avatar is ~32×32; profile photo is ≥400×400 at full resolution.
+    // We prefer naturalWidth (actual pixel data) over layout size.
+    let bestSrc = null, bestArea = 0
+    for (const img of document.querySelectorAll("img")) {
+      const src = imgSrc(img)
+      if (!isValidPhoto(src)) continue
+      // Prefer naturalWidth; fall back to layout width (getBoundingClientRect)
+      const w = img.naturalWidth || img.getBoundingClientRect().width || img.width || 0
+      const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
+      const area = w * h
+      if (area > bestArea) { bestArea = area; bestSrc = src }
+    }
+    // Only accept if large enough to be a profile photo (>= 400×400 = 160,000 px²)
+    if (bestSrc && bestArea >= 160000) return upgradePhotoUrl(bestSrc)
+
     return null
   }
 
   function isValidPhoto(src) {
-    if (!src) return false
-    if (src.includes("profile-displaybackgroundimage") || src.includes("ghost") ||
-        src.includes("placeholder") || src.includes("static.licdn")) return false
-    return src.includes("media.licdn.com") || src.includes("mediaproxy.linkedin.com") || src.includes("dms.licdn.com")
+    if (!src || src.length < 10) return false
+    // Exclude background images, ghost placeholders, static icons, and data URIs
+    if (
+      src.includes("profile-displaybackgroundimage") ||
+      src.includes("ghost") ||
+      src.includes("placeholder") ||
+      src.includes("static.licdn") ||
+      src.startsWith("data:") ||
+      src.includes("/icons/") ||
+      src.includes("icon-")
+    ) return false
+    // Accept any LinkedIn CDN origin
+    return (
+      src.includes("media.licdn.com") ||
+      src.includes("mediaproxy.linkedin.com") ||
+      src.includes("dms.licdn.com") ||
+      src.includes("media-exp") ||
+      src.includes("licdn.com")
+    )
   }
 
   function scrapeHeadline() {
@@ -466,6 +524,7 @@
     panel.innerHTML = `
       <div id="sd-panel-header">
         <h2>Save to 6Degrees</h2>
+        <button id="sd-refresh" title="Re-scrape after scrolling the profile">↻</button>
         <button id="sd-close" title="Close">×</button>
       </div>
       <div id="sd-panel-body">
@@ -492,6 +551,10 @@
 
     panel.querySelector("#sd-close").addEventListener("click", closePanel)
     panel.querySelector("#sd-save-btn").addEventListener("click", saveContact)
+    panel.querySelector("#sd-refresh").addEventListener("click", () => {
+      closePanel()
+      openPanel()
+    })
   }
 
   function closePanel() {

@@ -17,3 +17,23 @@ export function formatDate(date: Date | string | null | undefined) {
     day: "numeric",
   })
 }
+
+/**
+ * Strip leading and trailing emoji characters (including skin-tone modifiers,
+ * variation selectors, and ZWJ joiners) from a name string.
+ * e.g. "🌟 John Smith 🎉" → "John Smith"
+ */
+export function stripEdgeEmoji(s: string): string {
+  if (!s) return s
+  // Strip leading emoji block (emoji + any attached modifiers/joiners) + optional spaces
+  let result = s.replace(
+    /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{FE0F}\u{FE0E}\u{200D}\u{1F3FB}-\u{1F3FF}]+\s*/gu,
+    ""
+  )
+  // Strip trailing emoji block
+  result = result.replace(
+    /\s*[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{FE0F}\u{FE0E}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/gu,
+    ""
+  )
+  return result.trim()
+}
