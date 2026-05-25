@@ -26,6 +26,10 @@ export async function GET(request: Request) {
   // Normalize accents so "Guillaume" matches "Guillaumé" and vice-versa
   const qRaw = searchParams.get("q") ?? ""
   const q = qRaw.normalize("NFD").replace(/\p{Mn}/gu, "")
+  // Multi-company filter (comma-separated from the tag selector)
+  const companiesParam = searchParams.get("companies") ?? ""
+  const companies = companiesParam ? companiesParam.split(",").map((c) => c.trim()).filter(Boolean) : []
+  // Single-company legacy param (used by treemap links, backward compat)
   const company = searchParams.get("company") ?? ""
   const industry = searchParams.get("industry") ?? ""
   const location = searchParams.get("location") ?? ""
@@ -64,23 +68,22 @@ export async function GET(request: Request) {
     ? companyPrefs.filter((p) => p.type === companyType).map((p) => p.company)
     : []
 
-  // When a specific company is requested, include its subsidiaries automatically
-  const subsidiaryNames = company
-    ? companyPrefs
-        .filter((p) => p.parentCompany?.toLowerCase() === company.toLowerCase())
-        .map((p) => p.company)
-    : []
+  // Build a filter clause for one company: case-insensitive match + subsidiary expansion
+  const oneCompanyClause = (co: string): Prisma.ContactWhereInput => {
+    const subs = companyPrefs
+      .filter((p) => p.parentCompany?.toLowerCase() === co.toLowerCase())
+      .map((p) => p.company)
+    if (subs.length === 0) return { company: { equals: co, mode: "insensitive" } }
+    return { OR: [{ company: { equals: co, mode: "insensitive" } }, { company: { in: subs } }] }
+  }
 
-  // Build company filter: parent (case-insensitive) + exact subsidiary names
-  const companyFilter = (): Prisma.ContactWhereInput => {
-    if (!company) return {}
-    if (subsidiaryNames.length === 0) return { company: { equals: company, mode: "insensitive" } }
-    return {
-      OR: [
-        { company: { equals: company, mode: "insensitive" } },
-        { company: { in: subsidiaryNames } },
-      ],
-    }
+  // Unified multi-company filter: union of all selected companies (including subsidiaries).
+  // Uses the `companies` array first; falls back to single `company` param for legacy treemap links.
+  const selectedCompanies = companies.length > 0 ? companies : (company ? [company] : [])
+  const buildCompaniesFilter = (): Prisma.ContactWhereInput => {
+    if (selectedCompanies.length === 0) return {}
+    if (selectedCompanies.length === 1) return oneCompanyClause(selectedCompanies[0])
+    return { OR: selectedCompanies.map(oneCompanyClause) }
   }
 
   const where: Prisma.ContactWhereInput = {
@@ -115,8 +118,8 @@ export async function GET(request: Request) {
         }
         return [{ OR: baseClauses }]
       })() : []),
-      // Company filter (with subsidiary expansion)
-      ...(company ? [companyFilter()] : []),
+      // Company filter (multi-select with subsidiary expansion per company)
+      ...(selectedCompanies.length > 0 ? [buildCompaniesFilter()] : []),
       // Industry filter: company-confirmed industry takes precedence over LinkedIn contact industry.
       // A contact matches if:
       //   (a) their company has a confirmed industry matching the filter, OR
@@ -203,7 +206,7 @@ export async function GET(request: Request) {
     prisma.contact.count({ where }),
   ])
 
-  const [industries, companies, locations, countries, labels] = await Promise.all([
+  const [industries, companyRows, locations, countries, labels] = await Promise.all([
     prisma.contact.findMany({
       where: { userId: session.user.id, industry: { not: null } },
       select: { industry: true },
@@ -249,7 +252,7 @@ export async function GET(request: Request) {
     pages: Math.ceil(total / limit),
     filters: {
       industries: industries.map((r) => r.industry).filter(Boolean),
-      companies: companies.map((r) => r.company).filter(Boolean),
+      companies: companyRows.map((r) => r.company).filter(Boolean),
       locations: locations.map((r) => r.location).filter(Boolean),
       countries: countries.map((r) => r.country).filter(Boolean),
       labels,

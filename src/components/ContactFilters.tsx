@@ -1,14 +1,14 @@
 "use client"
 
-import { Search, X, SlidersHorizontal, Star, Mail } from "lucide-react"
+import { Search, X, SlidersHorizontal, Star, Mail, Building2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { labelColors } from "@/lib/label-colors"
 import { INDUSTRY_SECTORS } from "@/lib/industry-sectors"
 
 export interface FilterState {
   q: string
-  company: string
+  companies: string[]   // multi-company filter
   industry: string
   location: string
   country: string
@@ -94,10 +94,131 @@ function FilterSelect({
   )
 }
 
+/** Multi-company tag selector with autocomplete. */
+function CompanyMultiSelect({
+  selected,
+  options,
+  onChange,
+}: {
+  selected: string[]
+  options: (string | null)[]
+  onChange: (v: string[]) => void
+}) {
+  const [input, setInput] = useState("")
+  const [open, setOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const allCompanies = options.filter(Boolean) as string[]
+  const suggestions = allCompanies
+    .filter((c) => c.toLowerCase().includes(input.toLowerCase()) && !selected.includes(c))
+    .slice(0, 8)
+
+  const add = (company: string) => {
+    const trimmed = company.trim()
+    if (trimmed && !selected.includes(trimmed)) {
+      onChange([...selected, trimmed])
+    }
+    setInput("")
+    setOpen(false)
+    inputRef.current?.focus()
+  }
+
+  const remove = (company: string) => {
+    onChange(selected.filter((c) => c !== company))
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 mb-1.5">
+        Companies
+        {selected.length > 0 && (
+          <span className="ml-1.5 text-blue-600 font-semibold">{selected.length} selected</span>
+        )}
+      </label>
+
+      {/* Selected company chips */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {selected.map((c) => (
+            <span
+              key={c}
+              className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1 font-medium"
+            >
+              <Building2 size={10} className="shrink-0" />
+              {c}
+              <button
+                onClick={() => remove(c)}
+                className="ml-0.5 text-blue-400 hover:text-blue-700 transition-colors leading-none"
+                title={`Remove ${c}`}
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => onChange([])}
+            className="text-xs text-gray-400 hover:text-gray-600 px-1"
+            title="Clear all companies"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      {/* Autocomplete input */}
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="text"
+          value={input}
+          placeholder="Type a company name…"
+          onChange={(e) => { setInput(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              if (suggestions.length > 0) add(suggestions[0])
+              else if (input.trim()) add(input.trim())
+            }
+            if (e.key === "Escape") setOpen(false)
+          }}
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+        {open && (suggestions.length > 0 || (input.length > 1 && !allCompanies.includes(input))) && (
+          <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto">
+            {suggestions.map((c) => (
+              <button
+                key={c}
+                onMouseDown={(e) => { e.preventDefault(); add(c) }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-gray-700 flex items-center gap-2 transition-colors"
+              >
+                <Building2 size={12} className="text-gray-400 shrink-0" />
+                {c}
+              </button>
+            ))}
+            {/* Allow adding a company not in the list (e.g. not yet in contacts) */}
+            {input.trim() && !allCompanies.find((c) => c.toLowerCase() === input.toLowerCase()) && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); add(input.trim()) }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-blue-600 flex items-center gap-2 border-t border-gray-100 transition-colors"
+              >
+                <Building2 size={12} className="shrink-0" />
+                Add &ldquo;{input.trim()}&rdquo;
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
   const activeCount =
-    [filters.company, filters.industry, filters.location, filters.country, filters.position, filters.label, filters.sector, filters.companyType]
+    (filters.companies.length > 0 ? 1 : 0) +
+    [filters.industry, filters.location, filters.country, filters.position, filters.label, filters.sector, filters.companyType]
       .filter(Boolean).length +
     (filters.preferredCompanies ? 1 : 0) +
     (filters.gmailMatched ? 1 : 0)
@@ -180,6 +301,16 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
              filters.gmailMatched === "email_no_linkedin" ? "Email, no LinkedIn" :
              "Gmail"}
           </button>
+          {/* Active company chips in the quick bar */}
+          {filters.companies.map((c) => (
+            <span key={c} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1 font-medium">
+              <Building2 size={10} />
+              {c}
+              <button onClick={() => onChange({ companies: filters.companies.filter((x) => x !== c) })} className="ml-0.5 text-blue-400 hover:text-blue-700">
+                <X size={10} />
+              </button>
+            </span>
+          ))}
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -296,12 +427,14 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
             options={options.industries}
             onChange={(v) => onChange({ industry: v })}
           />
-          <FilterSelect
-            label="Company"
-            value={filters.company}
+
+          {/* Multi-company selector */}
+          <CompanyMultiSelect
+            selected={filters.companies}
             options={options.companies}
-            onChange={(v) => onChange({ company: v })}
+            onChange={(v) => onChange({ companies: v })}
           />
+
           <FilterSelect
             label="Location"
             value={filters.location}
