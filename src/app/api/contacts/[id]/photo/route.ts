@@ -84,3 +84,18 @@ export async function POST(
 
   return Response.json({ ok: true })
 }
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+
+  await prisma.contact.updateMany({
+    where: { id: params.id, userId: session.user.id },
+    data: { photoUrl: null },
+  })
+
+  return Response.json({ ok: true })
+}
