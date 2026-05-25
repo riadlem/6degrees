@@ -4,14 +4,28 @@ import prisma from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 import { getSectorIndustries } from "@/lib/industry-sectors"
 
+// Ensure search indexes exist (idempotent, runs once on first cold-start)
+let _indexesEnsured = false
+async function ensureIndexes() {
+  if (_indexesEnsured) return
+  _indexesEnsured = true
+  await Promise.all([
+    prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "Contact_userId_firstName_idx" ON "Contact"("userId", "firstName")`.catch(() => {}),
+    prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "Contact_userId_lastName_idx"  ON "Contact"("userId", "lastName")`.catch(() => {}),
+  ])
+}
+
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) {
     return new Response("Unauthorized", { status: 401 })
   }
+  ensureIndexes().catch(() => {})
 
   const { searchParams } = new URL(request.url)
-  const q = searchParams.get("q") ?? ""
+  // Normalize accents so "Guillaume" matches "Guillaumé" and vice-versa
+  const qRaw = searchParams.get("q") ?? ""
+  const q = qRaw.normalize("NFD").replace(/\p{Mn}/gu, "")
   const company = searchParams.get("company") ?? ""
   const industry = searchParams.get("industry") ?? ""
   const location = searchParams.get("location") ?? ""
@@ -78,14 +92,29 @@ export async function GET(request: Request) {
       ...(preferredOnly && preferredCompanies.length > 0 ? [{ company: { in: preferredCompanies } }] : []),
       ...(!preferredOnly && !company && ignoredCompanies.length > 0 ? [{ company: { notIn: ignoredCompanies } }] : []),
       // Search query (any field)
-      ...(q ? [{
-        OR: [
+      // Multi-word queries (e.g. "William B") split across firstName + lastName
+      ...(q ? (() => {
+        const words = q.trim().split(/\s+/).filter(Boolean)
+        const baseClauses: Prisma.ContactWhereInput[] = [
           { firstName: { contains: q, mode: "insensitive" as const } },
           { lastName:  { contains: q, mode: "insensitive" as const } },
           { company:   { contains: q, mode: "insensitive" as const } },
           { position:  { contains: q, mode: "insensitive" as const } },
-        ],
-      }] : []),
+        ]
+        // When multiple words: require EACH word to appear in firstName OR lastName
+        // so "William B" matches firstName=William + lastName=Brown
+        if (words.length >= 2) {
+          baseClauses.push({
+            AND: words.map((w) => ({
+              OR: [
+                { firstName: { contains: w, mode: "insensitive" as const } },
+                { lastName:  { contains: w, mode: "insensitive" as const } },
+              ],
+            })),
+          })
+        }
+        return [{ OR: baseClauses }]
+      })() : []),
       // Company filter (with subsidiary expansion)
       ...(company ? [companyFilter()] : []),
       // Industry filter: company-confirmed industry takes precedence over LinkedIn contact industry.

@@ -51,12 +51,17 @@ export async function POST(req: Request) {
         let totalChats = 0
         let totalMatched = 0
 
+        // Only import messages from the last 4 years — older interactions
+        // have negligible score weight and bloat the table unnecessarily.
+        const FOUR_YEARS_AGO = new Date(Date.now() - 4 * 365.25 * 24 * 60 * 60 * 1000)
+
         for (const file of files) {
           const filename = file.name
           const chatName = extractChatName(filename)
           const text = await file.text()
 
-          const messages = parseWhatsAppExport(text, userName)
+          const allMessages = parseWhatsAppExport(text, userName)
+          const messages = allMessages.filter((m) => m.sentAt >= FOUR_YEARS_AGO)
           if (messages.length === 0) {
             send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0 })
             continue

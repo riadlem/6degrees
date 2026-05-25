@@ -127,6 +127,8 @@ model Contact {
   @@index([userId, company])
   @@index([userId, industry])
   @@index([userId, interactionScore])
+  @@index([userId, firstName])
+  @@index([userId, lastName])
 }
 
 model ContactNote {
