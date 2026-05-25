@@ -127,6 +127,8 @@ model Contact {
   @@index([userId, company])
   @@index([userId, industry])
   @@index([userId, interactionScore])
+  @@index([userId, firstName])
+  @@index([userId, lastName])
 }
 
 model ContactNote {
@@ -140,14 +142,15 @@ model ContactNote {
 }
 
 model ContactList {
-  id           String   @id @default(cuid())
-  userId       String
-  name         String
-  description  String?
-  shareToken   String?  @unique @default(cuid())
-  shareEnabled Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  name          String
+  description   String?
+  filterCompany String?  // when set, list is dynamic: shows all contacts at this company
+  shareToken    String?  @unique @default(cuid())
+  shareEnabled  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user    User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   members ContactListMember[]

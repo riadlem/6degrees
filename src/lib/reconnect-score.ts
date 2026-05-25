@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma"
 
-const LAMBDA = 0.02            // decay constant — half-life ≈ 35 days
+const LAMBDA = 0.002           // decay constant — half-life ≈ 347 days; 4-year history contributes meaningfully
 const OUTBOUND_WEIGHT = 1.2
 const INBOUND_WEIGHT = 1.0
 const CONNECTIONS_WEIGHT = 0.4 // log2(1+n) * weight: 7 connections ≈ +1.2, 63 ≈ +2.4

@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
-  ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote
+  ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap
 } from "lucide-react"
 import { cn, initials, formatDate } from "@/lib/utils"
 import ShareModal from "@/components/ShareModal"
@@ -33,6 +33,7 @@ type ListData = {
   id: string
   name: string
   description: string | null
+  filterCompany: string | null
   shareEnabled: boolean
   shareToken: string | null
   members: Member[]
@@ -191,6 +192,14 @@ function ListDetailContent() {
               {list.name}
             </h1>
           )}
+          {list.filterCompany && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-2 py-0.5">
+                <Zap size={9} />
+                Dynamic · {list.filterCompany}
+              </span>
+            </div>
+          )}
           {list.description && (
             <p className="text-sm text-gray-500 mt-1">{list.description}</p>
           )}
@@ -230,11 +239,10 @@ function ListDetailContent() {
           <Users size={32} className="text-gray-300 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">No contacts in this list</p>
           <p className="text-sm text-gray-400 mt-1">
-            Go to{" "}
-            <Link href="/contacts" className="text-blue-500 hover:underline">
-              Contacts
-            </Link>{" "}
-            and add some here.
+            {list.filterCompany
+              ? <>No contacts found at <strong>{list.filterCompany}</strong>. Import or sync contacts to populate this list.</>
+              : <>Go to{" "}<Link href="/contacts" className="text-blue-500 hover:underline">Contacts</Link>{" "}and add some here.</>
+            }
           </p>
         </div>
       ) : (
@@ -339,16 +347,18 @@ function ListDetailContent() {
                   <span className="text-xs text-gray-400">{formatDate(contact.connectedOn)}</span>
                 </div>
 
-                {/* Remove */}
+                {/* Remove — hidden for dynamic company lists */}
                 <div className="w-20 flex justify-end">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}
-                    disabled={removingId === contact.id}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50"
-                  >
-                    <UserMinus size={12} />
-                    Remove
-                  </button>
+                  {!list.filterCompany && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}
+                      disabled={removingId === contact.id}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-red-400 hover:text-red-600 px-2 py-1 rounded-lg hover:bg-red-50"
+                    >
+                      <UserMinus size={12} />
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
             )

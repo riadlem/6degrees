@@ -77,6 +77,25 @@ export default function CompanyLogo({ domain, name, size = 40, radius = "rounded
   )
 }
 
+/**
+ * Derive a best-guess web domain from a company name.
+ * Used so logos come from the company, not from the contact's email address.
+ * e.g. "Red Hat" → "redhat.com", "McKinsey & Company" → "mckinsey.com"
+ */
+export function companyNameToDomain(company: string | null | undefined): string | null {
+  if (!company?.trim()) return null
+  const clean = company
+    .toLowerCase()
+    // Strip common legal entity suffixes
+    .replace(/\b(incorporated|corporation|limited|inc\.?|corp\.?|ltd\.?|llc|gmbh|s\.a\.r\.l|sarl|s\.a\.s|sas|plc)\b/g, " ")
+    // Strip "& Company", "& Co.", "and Company", "and Co"
+    .replace(/(\s+(&|and)\s+(co\.?|company))\b/g, " ")
+    // Strip remaining special characters except alphanumeric
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 20)
+  return clean ? `${clean}.com` : null
+}
+
 /** Extract a company domain from a work email address, ignoring personal domains. */
 const PERSONAL_DOMAINS = new Set([
   "gmail.com","yahoo.com","hotmail.com","outlook.com","icloud.com",
