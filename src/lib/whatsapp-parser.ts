@@ -17,6 +17,27 @@ const SYSTEM_PATTERNS = [
   /^ /, // narrow no-break space (some locale system messages)
 ]
 
+// OTP / security-code messages — automated, never count as real interaction.
+// These are typically SMS-forwarded 2FA codes or app verification codes.
+const OTP_PATTERNS = [
+  /\bne partagez pas\b/i,              // FR: "Ne partagez pas ce code"
+  /\bdo not share\b/i,                 // EN: "Do not share this code"
+  /\bpas le partager\b/i,
+  /\bcode de vérification\b/i,
+  /\bcode de verification\b/i,
+  /\bverification code\b/i,
+  /\bcode de sécurité\b/i,
+  /\bsecurity code\b/i,
+  /\bone.?time\s*(pass|code|password|pin)\b/i,
+  /\bvotre code\b.*\d{4,8}/i,          // "votre code est 123456"
+  /\byour code\b.*\d{4,8}/i,
+  /\bcode\b.*\b(whatsapp|google|apple|facebook|instagram|telegram)\b/i,
+  /^G-\d{4,8}\b/,                      // Google SMS codes ("G-123456 is your …")
+  /^\d{4,8}\s+is your\b/i,             // "123456 is your code"
+  /^\d{4,8}\s+est\b/i,                 // "123456 est votre code"
+  /^\s*\d{4,8}\s*$/,                   // message is only a numeric code
+]
+
 // Format 1: [DD/MM/YYYY, HH:MM:SS] Name: message  — European / iOS French
 const FORMAT_1 = /^\[(\d{1,2}\/\d{1,2}\/\d{2,4}),\s*(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]\s+(.+?):\s/i
 
@@ -94,10 +115,11 @@ export function parseWhatsAppExport(text: string, userName?: string): ParsedWAMe
 
     if (!match || !sender) continue
 
-    // Skip system messages
+    // Skip system messages and automated OTP/security-code messages
     const restOfLine = line.slice(match[0].length)
     if (SYSTEM_PATTERNS.some((p) => p.test(restOfLine) || p.test(sender))) continue
     if (SYSTEM_PATTERNS.some((p) => p.test(line))) continue
+    if (OTP_PATTERNS.some((p) => p.test(restOfLine))) continue
 
     const sentAt = isDMY
       ? parseDMY(datePart.trim(), timePart.trim())

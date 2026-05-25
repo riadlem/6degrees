@@ -528,19 +528,28 @@ function SettingsPageInner() {
       type ChatPayload = { chatName: string; messages: [number, number][] }
       const chats: ChatPayload[] = []
 
+      // OTP / security-code filter — same patterns as whatsapp-parser.ts
+      const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
+
       for (const [pk, chatName] of sessions.values) {
+        // Include ZTEXT so we can filter OTP/security-code messages client-side
+        // (content is never sent to the server — only timestamps + isOutbound)
         const msgs = db.exec(`
-          SELECT ZMESSAGEDATE, ZISFROMME FROM ZWAMESSAGE
+          SELECT ZMESSAGEDATE, ZISFROMME, ZTEXT FROM ZWAMESSAGE
           WHERE ZCHATSESSION = ${pk}
             AND ZMESSAGETYPE != 6
             AND ZMESSAGEDATE > ${cutoff}
           ORDER BY ZMESSAGEDATE DESC
-          LIMIT 500
+          LIMIT 600
         `)[0]
         if (!msgs?.values?.length) continue
+        const filtered = msgs.values.filter(([, , text]) =>
+          !text || !OTP_RE.test(String(text))
+        )
+        if (!filtered.length) continue
         chats.push({
           chatName: String(chatName),
-          messages: msgs.values.map(([d, f]) => [
+          messages: filtered.slice(0, 500).map(([d, f]) => [
             Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
             Number(f) === 1 ? 1 : 0,
           ]),
