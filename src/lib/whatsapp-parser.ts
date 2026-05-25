@@ -148,10 +148,14 @@ export function extractChatName(filename: string): string {
   const base = filename.split(/[/\\]/).pop() ?? filename
   // Remove extension
   let name = base.replace(/\.[^.]+$/, "")
-  // Strip "WhatsApp Chat with " prefix (various locales)
+  // Strip "WhatsApp Chat with " prefix — all known locale variants
   name = name
-    .replace(/^WhatsApp Chat with\s+/i, "")
-    .replace(/^Chat WhatsApp avec\s+/i, "")
-    .replace(/^WhatsApp-Chat mit\s+/i, "")
+    .replace(/^WhatsApp Chat with\s+/i, "")        // English
+    .replace(/^Discussion WhatsApp avec\s+/i, "")   // French Android (most common)
+    .replace(/^Chat WhatsApp avec\s+/i, "")         // French (alternate)
+    .replace(/^WhatsApp-Chat mit\s+/i, "")          // German
+    .replace(/^Conversa do WhatsApp com\s+/i, "")   // Portuguese
+    .replace(/^Chat de WhatsApp con\s+/i, "")       // Spanish
+    .replace(/^Chat WhatsApp con\s+/i, "")          // Italian
   return name.trim()
 }

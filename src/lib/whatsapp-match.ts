@@ -13,10 +13,47 @@ function normalizePhone(phone: string): string {
   return sign + digits
 }
 
+/**
+ * Strip accent marks (diacritics) from a string so that "Lézin" == "Lezin".
+ * Uses Unicode NFD decomposition, then removes combining marks (category Mn).
+ */
+function stripAccents(str: string): string {
+  return str.normalize("NFD").replace(/\p{Mn}/gu, "")
+}
+
+/**
+ * Strip common WhatsApp export filename prefixes so the stored chatName
+ * (which may include the full filename minus extension) resolves to just the
+ * contact's display name — even when it was imported before this fix existed.
+ *
+ * Handled prefixes (case-insensitive):
+ *   English  : "WhatsApp Chat with "
+ *   French   : "Discussion WhatsApp avec ", "Chat WhatsApp avec "
+ *   German   : "WhatsApp-Chat mit "
+ *   Portuguese: "Conversa do WhatsApp com "
+ *   Spanish  : "Chat de WhatsApp con "
+ *   Italian  : "Chat WhatsApp con "
+ */
+function stripWAPrefix(name: string): string {
+  return name
+    .replace(/^WhatsApp Chat with\s+/i, "")
+    .replace(/^Discussion WhatsApp avec\s+/i, "")
+    .replace(/^Chat WhatsApp avec\s+/i, "")
+    .replace(/^WhatsApp-Chat mit\s+/i, "")
+    .replace(/^Conversa do WhatsApp com\s+/i, "")
+    .replace(/^Chat de WhatsApp con\s+/i, "")
+    .replace(/^Chat WhatsApp con\s+/i, "")
+    .trim()
+}
+
 export async function matchChatNameToContact(
   userId: string,
-  chatName: string,
+  rawChatName: string,
 ): Promise<string | null> {
+  // Normalise: strip any locale-specific filename prefix that wasn't stripped at
+  // import time (e.g. French Android exports "Discussion WhatsApp avec Gaspard Lezin").
+  const chatName = stripWAPrefix(rawChatName)
+
   // Step 1: direct name split match against Contact
   const directId = await directNameMatch(userId, chatName)
   if (directId) return directId
@@ -99,6 +136,8 @@ async function directNameMatch(userId: string, name: string): Promise<string | n
 
   const parts = cleaned.split(/\s+/).filter(Boolean)
 
+  // ── Exact match (case-insensitive) ────────────────────────────────────────
+
   // Two-or-more word name: match firstName + lastName exactly
   if (parts.length >= 2) {
     const firstName = parts[0]
@@ -127,6 +166,44 @@ async function directNameMatch(userId: string, name: string): Promise<string | n
       take: 2,
     })
     if (matches.length === 1) return matches[0].id
+  }
+
+  // ── Accent-normalised fallback ─────────────────────────────────────────────
+  // "Gaspard Lézin" (contact) vs "Gaspard Lezin" (chat) — Postgres ILIKE is
+  // case-insensitive but NOT accent-insensitive.  Fetch contacts whose first
+  // name starts with the same letter, then compare after stripping accents.
+  if (parts.length >= 2) {
+    const normFirst = stripAccents(parts[0]).toLowerCase()
+    const normLast  = stripAccents(parts[parts.length - 1]).toLowerCase()
+
+    const firstChar = normFirst.charAt(0)
+    const candidates = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
+      SELECT id, "firstName", "lastName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ${firstChar}
+    `
+    const accentMatches = candidates.filter(
+      (c) =>
+        stripAccents(c.firstName ?? "").toLowerCase() === normFirst &&
+        stripAccents(c.lastName  ?? "").toLowerCase() === normLast
+    )
+    if (accentMatches.length === 1) return accentMatches[0].id
+  }
+
+  if (parts.length === 1) {
+    const normFirst = stripAccents(parts[0]).toLowerCase()
+    const firstChar = normFirst.charAt(0)
+    const candidates = await prisma.$queryRaw<{ id: string; firstName: string }[]>`
+      SELECT id, "firstName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ${firstChar}
+    `
+    const accentMatches = candidates.filter(
+      (c) => stripAccents(c.firstName ?? "").toLowerCase() === normFirst
+    )
+    if (accentMatches.length === 1) return accentMatches[0].id
   }
 
   return null
