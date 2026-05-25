@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight, LayoutGrid } from "lucide-react"
 import CompanyTreemap from "@/components/CompanyTreemap"
@@ -564,8 +565,33 @@ function CompaniesContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
+  const queryClient = useQueryClient()
+  const userId = session?.user?.id
+
+  // Cached companies fetch — serves instantly on re-navigation
+  const { data: companiesData, isLoading: companiesLoading } = useQuery<{ companies: Company[] }>({
+    queryKey: ["companies", userId],
+    queryFn: () => fetch("/api/companies").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Local state mirrors query data and supports optimistic updates
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Sync local state whenever React Query returns fresh data
+  useEffect(() => {
+    if (companiesData?.companies) {
+      setCompanies(companiesData.companies)
+      setLoading(false)
+    }
+  }, [companiesData])
+
+  // Mirror React Query loading state
+  useEffect(() => {
+    if (companiesLoading) setLoading(true)
+  }, [companiesLoading])
   const [view, setView] = useState<"list" | "treemap">("list")
   const [q, setQ] = useState("")
   const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
@@ -624,22 +650,10 @@ function CompaniesContent() {
     window.history.replaceState({}, "", url.toString())
   }
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch("/api/companies")
-      if (res.ok) {
-        const data = await res.json()
-        setCompanies(data.companies)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (status === "authenticated") load()
-  }, [status, load])
+  /** Invalidates the React Query cache, triggering a fresh companies fetch. */
+  const load = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["companies", userId] })
+  }, [queryClient, userId])
 
   async function setStatus(name: string, newStatus: "preferred" | "ignored" | "none") {
     setCompanies((prev) => sortCompanies(prev.map((c) =>

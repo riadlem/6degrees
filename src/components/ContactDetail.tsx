@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
+import { useSession } from "next-auth/react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
   StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
@@ -70,8 +72,35 @@ interface Props {
 
 export default function ContactDetail({ contactId, onClose, onDeleted }: Props) {
   const { blurred } = usePrivacy()
-  const [contact, setContact] = useState<Contact | null>(null)
-  const [loading, setLoading] = useState(false)
+  const { data: session } = useSession()
+  const userId = session?.user?.id
+  const queryClient = useQueryClient()
+
+  // Fetch contact data — cached by React Query for instant re-opens
+  const { data: contact, isLoading: loading } = useQuery<Contact>({
+    queryKey: ["contact", userId, contactId],
+    queryFn: async () => {
+      const res = await fetch(`/api/contacts/${contactId}`)
+      if (!res.ok) throw new Error("Failed to fetch contact")
+      return res.json()
+    },
+    enabled: !!contactId && !!userId,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  // Fetch all labels — shared cache across ContactDetail instances
+  const { data: allLabels = [] } = useQuery<LabelOption[]>({
+    queryKey: ["labels", userId],
+    queryFn: () => fetch("/api/labels").then((r) => r.json()),
+    enabled: !!contactId && !!userId,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  /** Invalidate the contact cache so the UI refreshes with latest server data. */
+  function refetchContact() {
+    queryClient.invalidateQueries({ queryKey: ["contact", userId, contactId] })
+  }
+
   const [noteText, setNoteText] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [enriching, setEnriching] = useState(false)
@@ -80,7 +109,6 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
   const [editingName, setEditingName] = useState(false)
   const [editFirstName, setEditFirstName] = useState("")
   const [editLastName, setEditLastName] = useState("")
-  const [allLabels, setAllLabels] = useState<LabelOption[]>([])
   const [addingLabel, setAddingLabel] = useState(false)
   const [emails, setEmails] = useState<EmailEntry[]>([])
   const [emailsExpanded, setEmailsExpanded] = useState(false)
@@ -100,23 +128,14 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
   const [addingPhone, setAddingPhone] = useState(false)
   const [newPhoneValue, setNewPhoneValue] = useState("")
 
-  const fetchContact = useCallback(async () => {
-    if (!contactId) return
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/contacts/${contactId}`)
-      if (res.ok) setContact(await res.json())
-    } finally {
-      setLoading(false)
-    }
-  }, [contactId])
-
   async function deleteContact() {
     if (!contactId) return
     setDeleting(true)
     try {
       const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" })
       if (res.ok) {
+        queryClient.removeQueries({ queryKey: ["contact", userId, contactId] })
+        queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
         onDeleted?.(contactId)
         onClose()
       }
@@ -126,13 +145,9 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
     }
   }
 
-  useEffect(() => {
-    fetchContact()
-  }, [fetchContact])
-
+  // Reset per-contact UI state and load emails when contactId changes
   useEffect(() => {
     if (contactId) {
-      fetch("/api/labels").then((r) => r.json()).then(setAllLabels)
       setEmails([])
       setEmailsExpanded(false)
       setEmailNextCursor(null)
@@ -188,7 +203,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       body: JSON.stringify({ contactIds: [contact.id] }),
     })
     setAddingLabel(false)
-    fetchContact()
+    refetchContact()
   }
 
   async function removeLabel(labelId: string) {
@@ -198,7 +213,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contactIds: [contact.id] }),
     })
-    fetchContact()
+    refetchContact()
   }
 
   async function addNote() {
@@ -211,7 +226,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
     })
     setNoteText("")
     setSubmitting(false)
-    fetchContact()
+    refetchContact()
   }
 
   async function deleteNote(noteId: string) {
@@ -221,7 +236,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ noteId }),
     })
-    fetchContact()
+    refetchContact()
   }
 
   async function enrich() {
@@ -229,7 +244,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
     setEnriching(true)
     await fetch(`/api/contacts/${contact.id}`, { method: "POST" })
     setEnriching(false)
-    fetchContact()
+    refetchContact()
   }
 
   async function saveField(field: string) {
@@ -240,16 +255,15 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       body: JSON.stringify({ [field]: editValue }),
     })
     setEditingField(null)
-    fetchContact()
+    refetchContact()
   }
 
   async function unlinkEmail(email: string) {
     if (!contact) return
-    // Optimistically remove from local state
-    setContact((prev) => prev ? {
-      ...prev,
-      emailAddresses: prev.emailAddresses.filter((ea) => ea.email !== email),
-    } : prev)
+    // Optimistically remove from cache
+    queryClient.setQueryData<Contact>(["contact", userId, contactId], (prev) =>
+      prev ? { ...prev, emailAddresses: prev.emailAddresses.filter((ea) => ea.email !== email) } : prev
+    )
     try {
       const res = await fetch(`/api/contacts/${contact.id}/emails`, {
         method: "DELETE",
@@ -259,11 +273,11 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? `Failed to unlink email (${res.status})`)
-        fetchContact() // restore on failure
+        refetchContact() // restore on failure
       }
     } catch {
       alert("Network error — could not unlink email.")
-      fetchContact()
+      refetchContact()
     }
   }
 
@@ -276,7 +290,9 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       body: JSON.stringify({ status: newStatus }),
     })
     if (res.ok) {
-      setContact((prev) => prev ? { ...prev, outreachStatus: newStatus } : prev)
+      queryClient.setQueryData<Contact>(["contact", userId, contactId], (prev) =>
+        prev ? { ...prev, outreachStatus: newStatus } : prev
+      )
     }
   }
 
@@ -292,7 +308,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       setLinkingEmail(false)
       setEmailSearchQ("")
       setEmailSearchResults([])
-      fetchContact()
+      refetchContact()
       fetch(`/api/contacts/${contactId}/emails?limit=20`)
         .then((r) => r.ok ? r.json() : null)
         .then((d) => { if (d) { setEmails(d.messages ?? []); setEmailNextCursor(d.nextCursor) } })
@@ -313,7 +329,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       if (res.ok) {
         setPhotoUrlOpen(false)
         setPhotoUrlInput("")
-        fetchContact()
+        refetchContact()
       }
     } finally {
       setPhotoUrlLoading(false)
@@ -331,7 +347,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       body: JSON.stringify({ firstName, lastName }),
     })
     setEditingName(false)
-    fetchContact()
+    refetchContact()
   }
 
   async function savePhone(which: "primary" | number) {
@@ -352,7 +368,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       })
     }
     setEditingPhone(null)
-    fetchContact()
+    refetchContact()
   }
 
   async function addPhone() {
@@ -374,7 +390,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
     }
     setNewPhoneValue("")
     setAddingPhone(false)
-    fetchContact()
+    refetchContact()
   }
 
   async function removePhone(which: "primary" | number) {
@@ -392,7 +408,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
         body: JSON.stringify({ phones: updated }),
       })
     }
-    fetchContact()
+    refetchContact()
   }
 
   if (!contactId) return null
@@ -475,7 +491,10 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                               const res = await fetch(`/api/contacts/${contact.id}/photo`, {
                                 method: "DELETE",
                               })
-                              if (res.ok) { setContact((c) => c ? { ...c, photoUrl: null } : c); setPhotoUrlOpen(false) }
+                              if (res.ok) {
+                                queryClient.setQueryData<Contact>(["contact", userId, contactId], (c) => c ? { ...c, photoUrl: null } : c)
+                                setPhotoUrlOpen(false)
+                              }
                             } finally { setPhotoUrlLoading(false) }
                           }}
                           className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-lg px-3 py-1.5 disabled:opacity-50 transition-colors"
@@ -822,7 +841,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ chatName: contact.whatsappChatName }),
                         })
-                        fetchContact()
+                        refetchContact()
                       }}
                       title="Unlink WhatsApp chat from this contact"
                       className="opacity-0 group-hover/wa:opacity-100 transition-opacity text-gray-300 hover:text-red-400 shrink-0"

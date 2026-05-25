@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2 } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
@@ -14,10 +15,7 @@ import AddToListModal from "@/components/AddToListModal"
 import ManageLabelsModal from "@/components/ManageLabelsModal"
 import SegmentBuilder from "@/components/SegmentBuilder"
 import { useSyncContext } from "@/contexts/SyncContext"
-
-const DEFAULT_FILTERS: FilterState = {
-  q: "", companies: [], industry: "", location: "", position: "", label: "", sort: "name", preferredCompanies: false, sector: "", companyType: "", gmailMatched: "", country: "",
-}
+import { usePersistedFilters } from "@/hooks/usePersistedFilters"
 
 type LabelOption = { id: string; name: string; color: string }
 
@@ -33,29 +31,97 @@ type ApiMeta = {
   }
 }
 
+type ContactsPage = {
+  contacts: ContactSummary[]
+  total: number
+  pages: number
+  filters: ApiMeta["filters"]
+}
+
+async function fetchContactsPage(
+  filters: FilterState,
+  page: number,
+  segmentIds: string[] | null,
+): Promise<ContactsPage> {
+  if (segmentIds && segmentIds.length > 0) {
+    const res = await fetch("/api/contacts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: segmentIds, sort: filters.sort, page, limit: 48 }),
+    })
+    if (!res.ok) throw new Error("Failed to fetch contacts")
+    return res.json()
+  } else {
+    const params = new URLSearchParams({
+      q: filters.q, companies: filters.companies.join(","), industry: filters.industry,
+      location: filters.location, position: filters.position, label: filters.label, sort: filters.sort,
+      page: String(page), limit: "48",
+      preferredCompanies: filters.preferredCompanies ? "true" : "false",
+      sector: filters.sector, companyType: filters.companyType, gmailMatched: filters.gmailMatched,
+      country: filters.country,
+    })
+    const res = await fetch(`/api/contacts?${params}`)
+    if (!res.ok) throw new Error("Failed to fetch contacts")
+    return res.json()
+  }
+}
+
 function ContactsContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const userId = session?.user?.id
 
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
-  const [allContacts, setAllContacts] = useState<ContactSummary[]>([])
-  const [meta, setMeta] = useState<ApiMeta | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(false)
+  const [filters, updateFilters, resetFilters] = usePersistedFilters()
   const [view, setView] = useState<"grid" | "list" | "photos">("grid")
+
+  // Debounce search text changes so we don't fire a query on every keystroke
+  const [debouncedFilters, setDebouncedFilters] = useState<FilterState>(filters)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebouncedFilters(filters), 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [filters])
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [segmentOpen, setSegmentOpen] = useState(false)
   const [segmentIds, setSegmentIds] = useState<string[] | null>(null)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
-  // contactIds: authoritative IDs to add; contacts: optional display data (single-contact case)
   const [addToListState, setAddToListState] = useState<{ contactIds: string[]; contacts?: ContactSummary[] } | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // Stable serialised query key for the filter state
+  const filtersKey = JSON.stringify(debouncedFilters)
+  const segmentKey = segmentIds ? segmentIds.slice(0, 5).join(",") : null
+
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetching,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["contacts", userId, filtersKey, segmentKey],
+    queryFn: ({ pageParam = 1 }) =>
+      fetchContactsPage(debouncedFilters, pageParam as number, segmentIds),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) =>
+      (lastPageParam as number) < lastPage.pages ? (lastPageParam as number) + 1 : undefined,
+    enabled: status === "authenticated",
+    staleTime: 2 * 60 * 1000,
+  })
+
+  const allContacts = data?.pages.flatMap((p) => p.contacts) ?? []
+  const meta: ApiMeta | null = data?.pages[0]
+    ? { total: data.pages[0].total, pages: data.pages[0].pages, filters: data.pages[0].filters }
+    : null
+
+  const loading = isFetching && !isFetchingNextPage && allContacts.length === 0
+  const loadingMore = isFetchingNextPage
 
   function selectAll() {
-    // In segment mode select ALL segment IDs, not just the loaded page
     if (segmentIds) setSelectedIds(new Set(segmentIds))
     else setSelectedIds(new Set(allContacts.map((c) => c.id)))
   }
@@ -72,13 +138,8 @@ function ContactsContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, field, value }),
     })
-    if (field !== "note") {
-      setAllContacts((prev) => prev.map((c) =>
-        selectedIds.has(c.id) ? { ...c, [field]: value || null } as ContactSummary : c
-      ))
-    }
     setSelectedIds(new Set())
-    fetchPage(filters, 1, false)
+    queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
   }
 
   type ImportState =
@@ -97,7 +158,7 @@ function ContactsContent() {
   // Apply URL params on first load: ?company= (treemap), ?contact= (deep link), ?view= (view mode)
   useEffect(() => {
     const company = searchParams.get("company")
-    if (company) setFilters((f) => ({ ...f, companies: [company] }))
+    if (company) updateFilters({ companies: [company] })
 
     const contactId = searchParams.get("contact")
     if (contactId) setActiveContactId(contactId)
@@ -121,9 +182,6 @@ function ContactsContent() {
     window.addEventListener("popstate", handlePopState)
     return () => window.removeEventListener("popstate", handlePopState)
   }, [])
-
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sentinelRef = useRef<HTMLDivElement>(null)
 
   // Open contact — pushes a history entry so the back button closes the drawer
   function openContact(id: string) {
@@ -167,64 +225,15 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  const fetchPage = useCallback(async (f: FilterState, p: number, append: boolean, segIds?: string[] | null) => {
-    if (!append) setLoading(true)
-    else setLoadingMore(true)
-    try {
-      let data
-      if (segIds && segIds.length > 0) {
-        // Segment mode: POST with explicit IDs to avoid URL length limits
-        const res = await fetch("/api/contacts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: segIds, sort: f.sort, page: p, limit: 48 }),
-        })
-        if (!res.ok) return
-        data = await res.json()
-      } else {
-        const params = new URLSearchParams({
-          q: f.q, companies: f.companies.join(","), industry: f.industry,
-          location: f.location, position: f.position, label: f.label, sort: f.sort,
-          page: String(p), limit: "48",
-          preferredCompanies: f.preferredCompanies ? "true" : "false",
-          sector: f.sector, companyType: f.companyType, gmailMatched: f.gmailMatched,
-          country: f.country,
-        })
-        const res = await fetch(`/api/contacts?${params}`)
-        if (!res.ok) return
-        data = await res.json()
-      }
-      setMeta({ total: data.total, pages: data.pages, filters: data.filters })
-      if (append) {
-        setAllContacts((prev) => [...prev, ...data.contacts])
-      } else {
-        setAllContacts(data.contacts)
-      }
-      setHasMore(p < data.pages)
-    } finally {
-      setLoading(false)
-      setLoadingMore(false)
+  // Refresh contact list on sync completion / partial progress
+  useEffect(() => {
+    if (syncState.phase === "done") {
+      queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+    } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
+      queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
     }
-  }, [])
-
-  // Debounce filter/segment changes → reset to page 1
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      setPage(1)
-      // Only clear selection on non-segment filter changes; segment mode manages its own selection
-      if (!segmentIds) setSelectedIds(new Set())
-      fetchPage(filters, 1, false, segmentIds)
-    }, 300)
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, fetchPage, segmentIds])
-
-  // Load next page when page increments beyond 1
-  useEffect(() => {
-    if (page > 1) fetchPage(filters, page, true, segmentIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+  }, [syncState])
 
   // IntersectionObserver sentinel for infinite scroll
   useEffect(() => {
@@ -232,25 +241,15 @@ function ContactsContent() {
     if (!el) return
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loadingMore) {
-          setPage((p) => p + 1)
+        if (entries[0].isIntersecting && hasNextPage && !loadingMore) {
+          fetchNextPage()
         }
       },
       { rootMargin: "300px" }
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [hasMore, loadingMore])
-
-  // Refresh on sync progress / completion
-  useEffect(() => {
-    if (syncState.phase === "done") {
-      setPage(1); fetchPage(filters, 1, false, segmentIds)
-    } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
-      fetchPage(filters, 1, false, segmentIds)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncState])
+  }, [hasNextPage, loadingMore, fetchNextPage])
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -262,17 +261,13 @@ function ContactsContent() {
   }
 
   function handleFilterChange(partial: Partial<FilterState>) {
-    setFilters((prev) => ({ ...prev, ...partial }))
-  }
-
-  function handleReset() {
-    setFilters(DEFAULT_FILTERS)
+    // Reset segment IDs on filter changes so segment mode doesn't interfere
+    updateFilters(partial)
   }
 
   async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    // Reset input so the same file can be re-selected
     e.target.value = ""
 
     const formData = new FormData()
@@ -307,7 +302,7 @@ function ContactsContent() {
               setImportState({ phase: "importing", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed, total: event.total, current: event.current })
             } else if (event.type === "done") {
               setImportState({ phase: "done", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed })
-              fetchPage(filters, 1, false)
+              queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
               setTimeout(() => setImportState({ phase: "idle" }), 5000)
             } else if (event.type === "error") {
               setImportState({ phase: "error", message: event.message })
@@ -604,7 +599,7 @@ function ContactsContent() {
             view={view}
             onViewChange={handleViewChange}
             onChange={handleFilterChange}
-            onReset={handleReset}
+            onReset={resetFilters}
           />
         </div>
       )}
@@ -768,7 +763,11 @@ function ContactsContent() {
           contactIds={addToListState.contactIds}
           contacts={addToListState.contacts}
           onClose={() => { setAddToListState(null); setSelectedIds(new Set()) }}
-          onDone={() => { setAddToListState(null); setSelectedIds(new Set()); fetchPage(filters, 1, false, segmentIds) }}
+          onDone={() => {
+            setAddToListState(null)
+            setSelectedIds(new Set())
+            queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+          }}
         />
       )}
 
@@ -777,7 +776,11 @@ function ContactsContent() {
         <ManageLabelsModal
           contacts={labelContacts}
           onClose={() => { setLabelContacts(null); setSelectedIds(new Set()) }}
-          onDone={() => { setLabelContacts(null); setSelectedIds(new Set()); fetchPage(filters, 1, false) }}
+          onDone={() => {
+            setLabelContacts(null)
+            setSelectedIds(new Set())
+            queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+          }}
         />
       )}
     </div>

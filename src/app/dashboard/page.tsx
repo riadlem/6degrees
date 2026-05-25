@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { useEffect, useState, useRef, useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
@@ -437,11 +438,7 @@ export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [connectionYears, setConnectionYears] = useState<YearBucket[]>([])
-  const [companies, setCompanies] = useState<DashboardCompany[]>([])
-  const [allTreemapData, setAllTreemapData] = useState<TreemapItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const userId = session?.user?.id
   const [sizeFilter, setSizeFilter] = useState<CompanySize | null>(null)
   const [partnerOnly, setPartnerOnly] = useState(false)
   const [minThreshold, setMinThreshold] = useState(2)
@@ -453,31 +450,30 @@ export default function DashboardPage() {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [dashRes, tmRes] = await Promise.all([
-        fetch("/api/dashboard"),
-        fetch("/api/contacts/treemap?min=1"),
-      ])
-      if (dashRes.ok) {
-        const data = await dashRes.json()
-        setStats(data.stats)
-        setCompanies(data.companies)
-        setConnectionYears(data.connectionYears ?? [])
-      }
-      if (tmRes.ok) {
-        const data = await tmRes.json()
-        setAllTreemapData(data.companies)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  // Cached dashboard data — instant on re-navigation within the session
+  const { data: dashData, isLoading: dashLoading } = useQuery<{
+    stats: Stats
+    companies: DashboardCompany[]
+    connectionYears: YearBucket[]
+  }>({
+    queryKey: ["dashboard", userId],
+    queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 5 * 60 * 1000,
+  })
 
-  useEffect(() => {
-    if (status === "authenticated") load()
-  }, [status, load])
+  const { data: treemapRaw, isLoading: tmLoading } = useQuery<{ companies: TreemapItem[] }>({
+    queryKey: ["treemap", userId],
+    queryFn: () => fetch("/api/contacts/treemap?min=1").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const stats = dashData?.stats ?? null
+  const companies = dashData?.companies ?? []
+  const connectionYears = dashData?.connectionYears ?? []
+  const allTreemapData = treemapRaw?.companies ?? []
+  const loading = dashLoading || tmLoading
 
   const treemapData = allTreemapData
     .filter((c) => c.count >= minThreshold)
