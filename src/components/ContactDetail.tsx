@@ -63,9 +63,10 @@ type Contact = {
 interface Props {
   contactId: string | null
   onClose: () => void
+  onDeleted?: (id: string) => void
 }
 
-export default function ContactDetail({ contactId, onClose }: Props) {
+export default function ContactDetail({ contactId, onClose, onDeleted }: Props) {
   const { blurred } = usePrivacy()
   const [contact, setContact] = useState<Contact | null>(null)
   const [loading, setLoading] = useState(false)
@@ -90,6 +91,8 @@ export default function ContactDetail({ contactId, onClose }: Props) {
   const [photoUrlInput, setPhotoUrlInput] = useState("")
   const [photoUrlOpen, setPhotoUrlOpen] = useState(false)
   const [photoUrlLoading, setPhotoUrlLoading] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchContact = useCallback(async () => {
     if (!contactId) return
@@ -101,6 +104,21 @@ export default function ContactDetail({ contactId, onClose }: Props) {
       setLoading(false)
     }
   }, [contactId])
+
+  async function deleteContact() {
+    if (!contactId) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/contacts/${contactId}`, { method: "DELETE" })
+      if (res.ok) {
+        onDeleted?.(contactId)
+        onClose()
+      }
+    } finally {
+      setDeleting(false)
+      setDeleteConfirm(false)
+    }
+  }
 
   useEffect(() => {
     fetchContact()
@@ -488,6 +506,35 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                   >
                     <Bookmark size={12} fill={contact.outreachStatus === "not_contacted" ? "currentColor" : "none"} />
                     {contact.outreachStatus === "not_contacted" ? "In Reconnect" : "Add to Reconnect"}
+                  </button>
+                )}
+                {/* Delete contact — requires explicit confirmation */}
+                {deleteConfirm ? (
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="text-xs text-red-600 font-medium">Delete contact?</span>
+                    <button
+                      onClick={deleteContact}
+                      disabled={deleting}
+                      className="flex items-center gap-1 text-xs text-white bg-red-500 hover:bg-red-600 border border-red-500 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                    >
+                      {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(false)}
+                      className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDeleteConfirm(true)}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg px-3 py-1.5 transition-colors ml-auto"
+                    title="Delete contact"
+                  >
+                    <Trash2 size={12} />
+                    Delete
                   </button>
                 )}
               </div>

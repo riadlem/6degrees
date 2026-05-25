@@ -20,7 +20,29 @@ export async function GET(
     },
   })
   if (!list) return new Response("Not found", { status: 404 })
-  return Response.json(list)
+
+  const filterCompany = (list as { filterCompany?: string | null }).filterCompany ?? null
+
+  // Company list: replace static members with dynamic contacts from that company
+  if (filterCompany) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId: session.user.id, company: { equals: filterCompany, mode: "insensitive" } },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+      include: { notes: { take: 1, orderBy: { createdAt: "desc" } } },
+    })
+    return Response.json({
+      ...list,
+      filterCompany,
+      members: contacts.map((c) => ({
+        id: c.id,
+        addedAt: list.createdAt.toISOString(),
+        contact: c,
+      })),
+      _count: { members: contacts.length },
+    })
+  }
+
+  return Response.json({ ...list, filterCompany: null })
 }
 
 export async function PATCH(

@@ -58,6 +58,21 @@ export async function PATCH(
   return Response.json({ ok: true })
 }
 
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+
+  const deleted = await prisma.contact.deleteMany({
+    where: { id: params.id, userId: session.user.id },
+  })
+
+  if (deleted.count === 0) return new Response("Not found", { status: 404 })
+  return Response.json({ ok: true })
+}
+
 // Trigger Cowork enrichment for a single contact
 export async function POST(
   _req: Request,
