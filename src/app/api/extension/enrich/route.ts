@@ -68,37 +68,33 @@ export async function POST(req: Request) {
     location,
     city,
     country,
-    industry,
     degree,
     commonConnections,
     sharedConnections,
-    experience,
-    education,
+    addLabels,
   } = body
+
+  // position / company — sent directly by the extension (parsed from headline)
+  const position: string | null = body.position ?? null
+  const company: string  | null = body.company  ?? null
 
   // firstName/lastName from scraper — fall back to humanizing the URL slug
   const slug = extractSlug(profileUrl)
   const fallback = humanizeSlug(slug)
   const firstName: string = body.firstName || fallback.firstName
-  const lastName: string = body.lastName || fallback.lastName
-
-  // Derive position / company from first experience entry
-  const topRole = Array.isArray(experience) && experience.length > 0 ? experience[0] : null
+  const lastName: string  = body.lastName  || fallback.lastName
 
   const enrichData = {
-    ...(headline !== undefined && { headline }),
-    ...(photoUrl !== undefined && { photoUrl }),
-    ...(location !== undefined && { location }),
-    ...(city !== undefined && { city }),
-    ...(country !== undefined && { country }),
-    ...(industry !== undefined && { industry }),
+    ...(headline          !== undefined && { headline }),
+    ...(photoUrl          !== undefined && { photoUrl }),
+    ...(location          !== undefined && { location }),
+    ...(city              !== undefined && { city }),
+    ...(country           !== undefined && { country }),
     ...(commonConnections !== undefined && { commonConnections }),
     ...(sharedConnections !== undefined && { sharedConnections }),
-    ...(experience !== undefined && { experience }),
-    ...(education !== undefined && { education }),
+    ...(position && { position }),
+    ...(company  && { company }),
     profileUrl,
-    ...(topRole?.title && { position: topRole.title }),
-    ...(topRole?.company && { company: topRole.company }),
     extensionSyncedAt: new Date(),
   }
 
@@ -142,6 +138,25 @@ export async function POST(req: Request) {
       select: { id: true },
     })
     action = "created"
+  }
+
+  // Apply labels (e.g. "Followed") — create if needed, then assign
+  if (Array.isArray(addLabels) && addLabels.length > 0) {
+    for (const name of addLabels as string[]) {
+      if (!name?.trim()) continue
+      try {
+        const label = await prisma.label.upsert({
+          where: { userId_name: { userId: user.id, name: name.trim() } },
+          update: {},
+          create: { userId: user.id, name: name.trim(), color: "blue" },
+        })
+        await prisma.contactLabel.upsert({
+          where: { contactId_labelId: { contactId: contact.id, labelId: label.id } },
+          update: {},
+          create: { contactId: contact.id, labelId: label.id },
+        })
+      } catch { /* ignore duplicate / constraint errors */ }
+    }
   }
 
   return Response.json({ ok: true, action, contactId: contact.id }, { headers: CORS })

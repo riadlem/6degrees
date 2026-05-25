@@ -235,9 +235,8 @@
 
   function isValidPhoto(src) {
     if (!src || src.length < 10) return false
-    // Exclude background/banner images — multiple URL patterns across LinkedIn versions
+    // Exclude banner/background images — use the specific URL marker (same as export_list.py)
     if (
-      src.includes("background") ||   // catches all banner URL variants
       src.includes("displaybackgroundimage") ||
       src.includes("ghost") ||
       src.includes("placeholder") ||
@@ -374,13 +373,37 @@
     return m ? m[1] : null
   }
 
+  // Multilingual mutual-connections keywords (same approach as export_list.py)
+  const MUTUAL_RE = /mutual\s+connection|relation[s]?\s+en\s+commun|gemeinsame[n]?\s+Kontakt|contatto\s+in\s+comune|contacto[s]?\s+en\s+com[uú]n/i
+
   function scrapeMutualConnections() {
-    for (const a of document.querySelectorAll("a")) {
-      const t = (a.textContent ?? "").trim()
-      if (t.includes("mutual connection")) {
-        const m = t.match(/(\d+)/)
-        return m ? parseInt(m[1]) : null
-      }
+    // DOM-first: look for a link or span whose text mentions mutual connections
+    for (const el of document.querySelectorAll("a, span, button")) {
+      const t = (el.textContent ?? "").trim()
+      if (!MUTUAL_RE.test(t)) continue
+      // "42 mutual connections" or "42 relations en commun"
+      let m = t.match(/(\d[\d\s]*)\s+(?:mutual|relation|gemeinsam|contatto|contacto)/i)
+      if (m) return parseInt(m[1].replace(/\s/g, ""), 10)
+      // "Name, Name2 et 35 autres relations en commun" → 37
+      m = t.match(/,\s*[^,]+\s+et\s+(\d+)\s+autres/i)
+      if (m) return parseInt(m[1], 10) + 2
+      m = t.match(/[^\s,]+\s+et\s+(\d+)\s+autres/i)
+      if (m) return parseInt(m[1], 10) + 1
+      // "Name and N others"
+      m = t.match(/and\s+(\d+)\s+other/i)
+      if (m) return parseInt(m[1], 10) + 1
+    }
+    // Text fallback in main innerText
+    const body = document.querySelector("main")?.innerText ?? ""
+    const patterns = [
+      [/(\d[\d\s]*)\s+mutual\s+connections?/i,                           (m) => parseInt(m[1].replace(/\s/g, ""), 10)],
+      [/(\d[\d\s]*)\s+relations?\s+en\s+commun/i,                       (m) => parseInt(m[1].replace(/\s/g, ""), 10)],
+      [/[^\n,]+,\s*[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun/i, (m) => parseInt(m[1], 10) + 2],
+      [/[^\n,]+?\s+et\s+(\d+)\s+autres?\s+relations?\s+en\s+commun/i,  (m) => parseInt(m[1], 10) + 1],
+    ]
+    for (const [pat, extract] of patterns) {
+      const m = body.match(pat)
+      if (m) return extract(m)
     }
     return null
   }
@@ -406,9 +429,41 @@
     return results
   }
 
+  // Parse "Title at Company" / "Title chez Company" / "Title · Company" patterns
+  // from a LinkedIn headline.  Returns { position, company } — either may be null.
+  function parsePositionCompany(headline) {
+    if (!headline) return { position: null, company: null }
+    // "Role at Company" (EN), "Role chez Company" (FR), "Role bei Company" (DE),
+    // "Role presso Company" (IT), "Role en Company" (ES), "Role @ Company"
+    const atPatterns = [
+      /^(.+?)\s+at\s+(.+)$/i,
+      /^(.+?)\s+chez\s+(.+)$/i,
+      /^(.+?)\s+bei\s+(.+)$/i,
+      /^(.+?)\s+presso\s+(.+)$/i,
+      /^(.+?)\s*@\s*(.+)$/,
+    ]
+    for (const pat of atPatterns) {
+      const m = headline.match(pat)
+      if (m && m[1].trim().length > 1 && m[2].trim().length > 1) {
+        // strip trailing badges like "| Board Member"
+        const company = m[2].split(/\s*[|·]\s*/)[0].trim()
+        return { position: m[1].trim(), company: company || null }
+      }
+    }
+    // "Role · Company" — only accept if second part doesn't look like a location
+    const dotM = headline.match(/^(.+?)\s*·\s*(.+)$/)
+    if (dotM) {
+      const right = dotM[2].trim()
+      if (right.length > 1 && !/^\d/.test(right) && !/connection|follower|relation/i.test(right)) {
+        return { position: dotM[1].trim(), company: right.split(/\s*[|·]\s*/)[0].trim() || null }
+      }
+    }
+    // No separator — whole headline is the position
+    return { position: headline, company: null }
+  }
+
   // Same data as export_list.py: photo · location · mutual connections.
-  // Plus name + headline which the extension needs for new contacts.
-  // Experience / education removed — too fragile, not needed for core use-case.
+  // Plus name + headline + position + company which the extension needs for new contacts.
   function extractCityCountry(location) {
     if (!location) return { city: null, country: null }
     const parts = location.split(",").map((p) => p.trim())
@@ -421,13 +476,17 @@
     const { firstName, lastName } = scrapeName()
     const location = scrapeLocation()
     const { city, country } = extractCityCountry(location)
+    const headline = scrapeHeadline()
+    const { position, company } = parsePositionCompany(headline)
     const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     const profile = {
       profileUrl,
       firstName,
       lastName,
-      headline: scrapeHeadline(),
+      headline,
+      position,
+      company,
       photoUrl: scrapePhoto(),
       location,
       city,
@@ -515,7 +574,10 @@
         (p.sharedConnections.length > 8 ? `<span class="sd-empty"> +${p.sharedConnections.length - 8} more</span>` : "")
       : p.commonConnections
         ? `<span class="sd-empty">${p.commonConnections} mutual connection${p.commonConnections !== 1 ? "s" : ""}</span>`
-        : `<span class="sd-empty">None found</span>`
+        : null
+
+    // Sub-line: "Position · Company" or just position or just company
+    const subLine = [p.position, p.company].filter(Boolean).join(" · ")
 
     panel.innerHTML = `
       <div id="sd-panel-header">
@@ -528,16 +590,17 @@
           ${avatarHtml}
           <div>
             <p class="sd-name">${esc((p.firstName ?? "") + " " + (p.lastName ?? "")).trim()}</p>
-            ${p.headline ? `<p class="sd-headline">${esc(p.headline)}</p>` : ""}
+            ${subLine ? `<p class="sd-headline">${esc(subLine)}</p>` : ""}
             <div class="sd-meta">
               ${degreeBadge}
               ${p.location ? `<span>${esc(p.location)}</span>` : ""}
             </div>
           </div>
         </div>
-        ${p.sharedConnections.length > 0 || p.commonConnections
+        ${mutualHtml
           ? `<div class="sd-section"><p class="sd-section-title">Mutual connections</p>${mutualHtml}</div>`
           : ""}
+        <p class="sd-empty" style="font-size:11px;margin-top:8px">Will be tagged <strong>Followed</strong></p>
       </div>
       <div id="sd-panel-footer">
         <button id="sd-save-btn">Save contact</button>
@@ -573,9 +636,12 @@
 
     let result
     try {
+      // Always tag contacts saved via the extension as "Followed"
+      const payload = { ...currentProfile, addLabels: ["Followed"] }
+
       result = await Promise.race([
         new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: currentProfile }, (response) => {
+          chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: payload }, (response) => {
             if (chrome.runtime.lastError) {
               reject(new Error(chrome.runtime.lastError.message || "Extension messaging error"))
             } else {

@@ -16,10 +16,13 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.3.1",
+  latest:                "1.3.2",
   reinstallRequiredBelow: "1.3.0" as string | null,
-  reloadRequiredBelow:   "1.3.1" as string | null,
+  reloadRequiredBelow:   "1.3.2" as string | null,
   notes: [
+    "v1.3.2: Fix photo (isValidPhoto too aggressive), add company/title parsing",
+    "        from headline ('CEO at Acme' → position=CEO company=Acme), fix mutual",
+    "        connections for French LinkedIn, auto-tag saved contacts as 'Followed'.",
     "v1.3.1: Simplify scraper — collect same data as export_list.py script.",
     "        Photo · location · mutual connections · name · headline.",
     "        Removed experience/education scraping (unreliable, not needed).",
