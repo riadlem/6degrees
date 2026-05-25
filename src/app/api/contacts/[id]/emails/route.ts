@@ -4,6 +4,8 @@ import prisma from "@/lib/prisma"
 import { normalizeEmail } from "@/lib/gmail"
 import { recomputeScores } from "@/lib/reconnect-score"
 
+export const maxDuration = 300
+
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
@@ -72,7 +74,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     data: { contactId: null },
   })
 
-  await recomputeScores(userId)
+  // Recompute scores in the background — don't block the response
+  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
   return Response.json({ ok: true })
 }
