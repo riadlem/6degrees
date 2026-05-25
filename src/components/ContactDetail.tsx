@@ -367,9 +367,27 @@ export default function ContactDetail({ contactId, onClose }: Props) {
                         {photoUrlLoading ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
                         {photoUrlLoading ? "Saving…" : "Save"}
                       </button>
+                      {contact.photoUrl && (
+                        <button
+                          disabled={photoUrlLoading}
+                          onClick={async () => {
+                            setPhotoUrlLoading(true)
+                            try {
+                              const res = await fetch(`/api/contacts/${contact.id}/photo`, {
+                                method: "DELETE",
+                              })
+                              if (res.ok) { setContact((c) => c ? { ...c, photoUrl: null } : c); setPhotoUrlOpen(false) }
+                            } finally { setPhotoUrlLoading(false) }
+                          }}
+                          className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-lg px-3 py-1.5 disabled:opacity-50 transition-colors"
+                        >
+                          <Trash2 size={10} />
+                          Remove
+                        </button>
+                      )}
                       <button
                         onClick={() => setPhotoUrlOpen(false)}
-                        className="text-xs text-gray-400 hover:text-gray-600"
+                        className="text-xs text-gray-400 hover:text-gray-600 ml-auto"
                       >
                         Cancel
                       </button>

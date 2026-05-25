@@ -138,8 +138,8 @@ export async function GET(request: Request) {
 
   const primaryOrder: Prisma.ContactOrderByWithRelationInput =
     sort === "company"        ? { company: "asc" } :
-    sort === "connected"      ? { connectedOn: "desc" } :
-    sort === "connected_asc"  ? { connectedOn: "asc" } :
+    sort === "connected"      ? { connectedOn: { sort: "desc", nulls: "last" } } :
+    sort === "connected_asc"  ? { connectedOn: { sort: "asc",  nulls: "last" } } :
     sort === "recent"         ? { syncedAt: "desc" } :
     sort === "location"       ? { location: "asc" } :
     sort === "mutual"         ? { commonConnections: { sort: "desc", nulls: "last" } } :
@@ -244,8 +244,8 @@ export async function POST(request: Request) {
 
   const primaryOrder: Prisma.ContactOrderByWithRelationInput =
     sort === "company"        ? { company: "asc" } :
-    sort === "connected"      ? { connectedOn: "desc" } :
-    sort === "connected_asc"  ? { connectedOn: "asc" } :
+    sort === "connected"      ? { connectedOn: { sort: "desc", nulls: "last" } } :
+    sort === "connected_asc"  ? { connectedOn: { sort: "asc",  nulls: "last" } } :
     sort === "recent"         ? { syncedAt: "desc" } :
     sort === "location"       ? { location: "asc" } :
     sort === "mutual"         ? { commonConnections: { sort: "desc", nulls: "last" } } :

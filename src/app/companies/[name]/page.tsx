@@ -58,6 +58,7 @@ type ContactRow = {
   country: string | null
   industry: string | null
   commonConnections: number | null
+  connectedOn: string | null
   labels: { label: { id: string; name: string; color: string } }[]
 }
 
@@ -305,6 +306,18 @@ export default function CompanyDetailPage() {
       if (contactSort === "position") return (a.position ?? "").localeCompare(b.position ?? "")
       if (contactSort === "mutual") return (b.commonConnections ?? 0) - (a.commonConnections ?? 0)
       if (contactSort === "mutual_asc") return (a.commonConnections ?? 0) - (b.commonConnections ?? 0)
+      if (contactSort === "connected") {
+        if (!a.connectedOn && !b.connectedOn) return 0
+        if (!a.connectedOn) return 1
+        if (!b.connectedOn) return -1
+        return new Date(b.connectedOn).getTime() - new Date(a.connectedOn).getTime()
+      }
+      if (contactSort === "connected_asc") {
+        if (!a.connectedOn && !b.connectedOn) return 0
+        if (!a.connectedOn) return 1
+        if (!b.connectedOn) return -1
+        return new Date(a.connectedOn).getTime() - new Date(b.connectedOn).getTime()
+      }
       // default: score desc
       return (b.interactionScore ?? 0) - (a.interactionScore ?? 0)
     })
@@ -674,6 +687,8 @@ export default function CompanyDetailPage() {
                 <option value="score">By score</option>
                 <option value="mutual">Most connections</option>
                 <option value="mutual_asc">Fewest connections</option>
+                <option value="connected">Recently connected</option>
+                <option value="connected_asc">Oldest connection</option>
                 <option value="name">Name A–Z</option>
                 <option value="name_desc">Name Z–A</option>
                 <option value="country">Country A–Z</option>
@@ -692,6 +707,29 @@ export default function CompanyDetailPage() {
               )}
             </div>
           </div>
+          {/* Connection-year mini chart */}
+          {(() => {
+            const yearCounts = new Map<number, number>()
+            for (const c of contacts) {
+              if (!c.connectedOn) continue
+              const yr = new Date(c.connectedOn).getFullYear()
+              yearCounts.set(yr, (yearCounts.get(yr) ?? 0) + 1)
+            }
+            const years = Array.from(yearCounts.entries()).map(([year, count]) => ({ year, count })).sort((a, b) => a.year - b.year)
+            if (years.length < 2) return null
+            const max = Math.max(...years.map(y => y.count), 1)
+            return (
+              <div className="flex items-end gap-1 h-10 pt-1">
+                {years.map(({ year, count }) => (
+                  <div key={year} className="flex flex-col items-center gap-0.5 flex-1 min-w-0" title={`${count} in ${year}`}>
+                    <div className="w-full rounded-t-sm bg-blue-400 hover:bg-blue-500 transition-colors" style={{ height: `${Math.max(3, (count / max) * 24)}px` }} />
+                    <span className="text-[9px] text-gray-400 leading-none">{String(year).slice(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+
           {/* Search/filter row */}
           <div className="flex items-center gap-2">
             <input

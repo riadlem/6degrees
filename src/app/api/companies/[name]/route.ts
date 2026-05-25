@@ -59,6 +59,7 @@ export async function GET(
         outreachStatus: true,
         profileUrl: true,
         commonConnections: true,
+        connectedOn: true,
         labels: { select: { label: { select: { id: true, name: true, color: true } } } },
         emailAddresses: { select: { email: true }, take: 5 },
       },
