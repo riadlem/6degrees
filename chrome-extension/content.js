@@ -624,6 +624,36 @@
     panelEl = null
   }
 
+  // Download a LinkedIn CDN photo and return it as a base64 data URI.
+  // Runs in the LinkedIn tab so auth cookies are available.
+  // Resizes to maxPx×maxPx to keep the DB payload small.
+  async function fetchPhotoAsBase64(url, maxPx = 200) {
+    if (!url) return null
+    try {
+      const resp = await fetch(url, { credentials: "include" })
+      if (!resp.ok) return null
+      const blob = await resp.blob()
+      if (!blob.type.startsWith("image/")) return null
+      return await new Promise((resolve) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement("canvas")
+          const scale = Math.min(1, maxPx / Math.max(img.width || maxPx, img.height || maxPx))
+          canvas.width  = Math.round((img.width  || maxPx) * scale)
+          canvas.height = Math.round((img.height || maxPx) * scale)
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height)
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.82)
+          URL.revokeObjectURL(img.src)
+          resolve(dataUrl.length > 500 ? dataUrl : null)
+        }
+        img.onerror = () => resolve(null)
+        img.src = URL.createObjectURL(blob)
+      })
+    } catch {
+      return null
+    }
+  }
+
   async function saveContact() {
     const btn = panelEl?.querySelector("#sd-save-btn")
     const status = panelEl?.querySelector("#sd-status")
@@ -634,10 +664,19 @@
     status.textContent = ""
     status.className = ""
 
+    // Download photo as base64 so it's stored permanently (LinkedIn CDN URLs expire)
+    let photoUrl = currentProfile.photoUrl
+    if (photoUrl) {
+      status.textContent = "Downloading photo…"
+      const b64 = await fetchPhotoAsBase64(photoUrl)
+      if (b64) photoUrl = b64
+      status.textContent = ""
+    }
+
     let result
     try {
       // Always tag contacts saved via the extension as "Followed"
-      const payload = { ...currentProfile, addLabels: ["Followed"] }
+      const payload = { ...currentProfile, photoUrl, addLabels: ["Followed"] }
 
       result = await Promise.race([
         new Promise((resolve, reject) => {

@@ -42,11 +42,17 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
+  await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "phones" TEXT[] DEFAULT '{}'`.catch(() => {})
+
   const body = await request.json()
-  const allowed = ["firstName", "lastName", "location", "industry", "headline", "profileUrl", "company"]
-  const data: Record<string, string> = {}
+  const allowed = ["firstName", "lastName", "location", "industry", "headline", "profileUrl", "company", "position", "phoneNumber"]
+  const data: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key]
+  }
+
+  if ("phones" in body && Array.isArray(body.phones)) {
+    data.phones = body.phones.filter((p: unknown) => typeof p === "string" && p.trim()).map((p: string) => p.trim())
   }
 
   const contact = await prisma.contact.updateMany({
