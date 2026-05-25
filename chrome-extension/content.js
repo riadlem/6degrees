@@ -432,24 +432,25 @@
   // from a LinkedIn headline.  Returns { position, company } — either may be null.
   function parsePositionCompany(headline) {
     if (!headline) return { position: null, company: null }
-    // "Role at Company" (EN), "Role chez Company" (FR), "Role bei Company" (DE),
-    // "Role presso Company" (IT), "Role en Company" (ES), "Role @ Company"
+
+    // ── Preposition patterns: "Role at Company" (and multilingual equivalents) ──
     const atPatterns = [
       /^(.+?)\s+at\s+(.+)$/i,
       /^(.+?)\s+chez\s+(.+)$/i,
       /^(.+?)\s+bei\s+(.+)$/i,
       /^(.+?)\s+presso\s+(.+)$/i,
+      /^(.+?)\s+en\s+([A-Z].+)$/,   // "Directeur en Kering" — only if company starts uppercase
       /^(.+?)\s*@\s*(.+)$/,
     ]
     for (const pat of atPatterns) {
       const m = headline.match(pat)
       if (m && m[1].trim().length > 1 && m[2].trim().length > 1) {
-        // strip trailing badges like "| Board Member"
         const company = m[2].split(/\s*[|·]\s*/)[0].trim()
         return { position: m[1].trim(), company: company || null }
       }
     }
-    // "Role · Company" — only accept if second part doesn't look like a location
+
+    // ── Middle-dot separator: "Role · Company" ──
     const dotM = headline.match(/^(.+?)\s*·\s*(.+)$/)
     if (dotM) {
       const right = dotM[2].trim()
@@ -457,18 +458,129 @@
         return { position: dotM[1].trim(), company: right.split(/\s*[|·]\s*/)[0].trim() || null }
       }
     }
-    // No separator — whole headline is the position
+
+    // ── Pipe separator: "Company | Role" (common on LinkedIn) ──
+    const pipeM = headline.match(/^(.+?)\s*\|\s*(.+)$/)
+    if (pipeM) {
+      const [left, right] = [pipeM[1].trim(), pipeM[2].trim()]
+      if (left.length > 1 && right.length > 1) {
+        // Convention: company is usually on the left of the pipe
+        return { position: right, company: left }
+      }
+    }
+
+    // ── Dash separator: "Company - Role" or "Company – Role" ──
+    const dashM = headline.match(/^(.+?)\s*[-–—]\s*(.+)$/)
+    if (dashM) {
+      const [left, right] = [dashM[1].trim(), dashM[2].trim()]
+      if (left.length > 1 && right.length > 1 && left.length < 60) {
+        // Use title-word heuristic to determine which side is the role
+        const TITLE_RE = /\b(director|directeur|manager|head|lead|chief|officer|president|ceo|cto|coo|cfo|vp|vice|founder|partner|associate|analyst|engineer|architect|consultant|specialist|advisor|intern|responsable|chargé)\b/i
+        if (TITLE_RE.test(right) && !TITLE_RE.test(left)) {
+          return { position: right, company: left }
+        }
+        if (TITLE_RE.test(left) && !TITLE_RE.test(right)) {
+          return { position: left, company: right }
+        }
+        // Default: left = company, right = role (more common format)
+        return { position: right, company: left }
+      }
+    }
+
+    // ── Comma separator: "Role, Company" ──
+    const commaM = headline.match(/^([^,]+),\s*(.+)$/)
+    if (commaM) {
+      const [left, right] = [commaM[1].trim(), commaM[2].trim()]
+      // Only use comma as separator if right side looks like a company (not a long clause)
+      if (left.length > 1 && right.length > 1 && right.length < 60 && !/^\d/.test(right)) {
+        return { position: left, company: right }
+      }
+    }
+
+    // No separator — whole headline is the position; company resolved via DOM fallback
     return { position: headline, company: null }
+  }
+
+  // Fallback: if headline parsing gave no company, try to read the current company
+  // from LinkedIn's top-card experience items (the buttons/links below the headline
+  // that represent current positions). These often contain "Title at Company" text
+  // or aria-labels even when the user's headline doesn't follow a standard format.
+  function scrapeCompanyFromTopCard() {
+    const topCard = document.querySelector(
+      ".pv-top-card, .pv-top-card-profile-picture, .scaffold-layout__main > section:first-of-type, main > section"
+    )
+    const root = topCard ?? document
+
+    // Collect candidate elements: experience list items, buttons with aria-labels
+    const candidates = [
+      ...root.querySelectorAll(".pv-top-card--experience-list-item"),
+      ...root.querySelectorAll("[class*='experience-list'] button"),
+      ...root.querySelectorAll("[class*='experience-list'] a"),
+    ]
+
+    for (const el of candidates) {
+      const text = (
+        el.getAttribute("aria-label") ||
+        el.querySelector("span[aria-hidden='true']")?.textContent ||
+        el.innerText ||
+        ""
+      ).trim().replace(/\s+/g, " ")
+      if (!text || text.length > 200) continue
+      const { company } = parsePositionCompany(text)
+      if (company && company.length > 1 && company.length < 80) return company
+    }
+    return null
   }
 
   // Same data as export_list.py: photo · location · mutual connections.
   // Plus name + headline + position + company which the extension needs for new contacts.
+  // Map region/state names → country for the cases LinkedIn omits the country.
+  // French metropolitan regions are the primary use case; add others as needed.
+  const REGION_TO_COUNTRY = {
+    // France — 13 metropolitan regions + DOM-TOM
+    "île-de-france": "France", "ile-de-france": "France",
+    "auvergne-rhône-alpes": "France", "auvergne-rhone-alpes": "France",
+    "provence-alpes-côte d'azur": "France", "provence-alpes-cote d'azur": "France",
+    "nouvelle-aquitaine": "France",
+    "occitanie": "France",
+    "hauts-de-france": "France",
+    "grand est": "France",
+    "bretagne": "France",
+    "pays de la loire": "France",
+    "normandie": "France",
+    "bourgogne-franche-comté": "France", "bourgogne-franche-comte": "France",
+    "centre-val de loire": "France",
+    "corse": "France",
+    "la réunion": "France", "la reunion": "France",
+    "martinique": "France", "guadeloupe": "France", "guyane": "France",
+    // UK — England/Scotland/Wales/NI are regions, not countries
+    "england": "United Kingdom", "scotland": "United Kingdom",
+    "wales": "United Kingdom", "northern ireland": "United Kingdom",
+    // US states (sampled — LinkedIn usually includes "United States" already)
+    "california": "United States", "new york": "United States",
+    "texas": "United States", "florida": "United States",
+    // Germany — Bundesländer
+    "bavaria": "Germany", "north rhine-westphalia": "Germany",
+    "baden-württemberg": "Germany", "berlin": "Germany",
+    "hamburg": "Germany",
+  }
+
   function extractCityCountry(location) {
     if (!location) return { city: null, country: null }
     const parts = location.split(",").map((p) => p.trim())
-    return parts.length >= 2
-      ? { city: parts[0], country: parts[parts.length - 1] }
-      : { city: null, country: location }
+    if (parts.length >= 2) {
+      const city = parts[0]
+      const lastPart = parts[parts.length - 1]
+      // Check if the last segment is a known region (not a country name)
+      const inferredCountry = REGION_TO_COUNTRY[lastPart.toLowerCase()]
+      const country = inferredCountry ?? lastPart
+      return { city, country }
+    }
+    // Single segment: could be a city or country
+    const inferred = REGION_TO_COUNTRY[parts[0].toLowerCase()]
+    return inferred
+      ? { city: parts[0], country: inferred }
+      : { city: null, country: parts[0] }
   }
 
   function scrapeProfile() {
@@ -476,7 +588,10 @@
     const location = scrapeLocation()
     const { city, country } = extractCityCountry(location)
     const headline = scrapeHeadline()
-    const { position, company } = parsePositionCompany(headline)
+    const parsed = parsePositionCompany(headline)
+    const position = parsed.position
+    // If headline parsing didn't yield a company, try the top-card experience section
+    const company = parsed.company || scrapeCompanyFromTopCard() || null
     const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     const profile = {
@@ -731,7 +846,10 @@
   }
 
   async function init() {
-    if (!window.location.pathname.startsWith("/in/")) return
+    // Capture the path at init time — used to abort if the user navigates away
+    // before the 3.5 s scrape delay fires (SPA navigation race condition).
+    const initPath = window.location.pathname
+    if (!initPath.startsWith("/in/")) return
     // Wait 3 seconds — LinkedIn's SPA lazily renders the profile sections and
     // the 1.5 s delay was too short for slower connections / large profiles.
     setTimeout(injectFab, 3000)
@@ -746,6 +864,11 @@
     if (!cfg.autoQueue) return
 
     setTimeout(async () => {
+      // Abort if the user navigated away before the delay fired.
+      // Without this guard, navigating from a profile to the news feed ("Fil d'Actualité")
+      // caused the scrape to run on the wrong page and create a bogus contact.
+      if (window.location.pathname !== initPath) return
+
       let profile
       try { profile = scrapeProfile() } catch { return }
       if (!profile.firstName) return

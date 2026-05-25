@@ -40,20 +40,27 @@ async function checkForUpdates(apiUrl) {
     if (needsReinstall) {
       updateBanner.className = "update-banner reinstall"
       updateBanner.innerHTML =
-        `<strong>⚠ Reinstall required (v${info.latest} available)</strong>` +
-        `Download the new version from <a href="${apiUrl}/extension" target="_blank">6Degrees → Extension</a> ` +
-        `and replace the loaded folder in <code>chrome://extensions</code>.`
+        `<strong>⚠ Reinstall required (v${info.latest} available)</strong><br>` +
+        `1. Download the new ZIP from <a href="${apiUrl}/extension" target="_blank">6Degrees → Extension page</a><br>` +
+        `2. Extract it, replacing your current extension folder<br>` +
+        `3. Go to <span class="ext-link" data-url="chrome://extensions">chrome://extensions</span> and click ↺ reload`
       updateBanner.style.display = "block"
     } else if (needsReload) {
       updateBanner.className = "update-banner reload"
       updateBanner.innerHTML =
-        `<strong>↻ Reload needed (v${info.latest} available)</strong>` +
-        `Open <a href="chrome://extensions" target="_blank">chrome://extensions</a> ` +
-        `and click the <strong>↺ reload</strong> icon next to 6Degrees.`
+        `<strong>↻ Update available (v${info.latest})</strong><br>` +
+        `1. Download the new ZIP from <a href="${apiUrl}/extension" target="_blank">6Degrees → Extension page</a><br>` +
+        `2. Extract it, replacing your current extension folder<br>` +
+        `3. Go to <span class="ext-link" data-url="chrome://extensions">chrome://extensions</span> and click ↺ reload`
       updateBanner.style.display = "block"
     } else {
       updateBanner.style.display = "none"
     }
+    // Wire up chrome:// links (href doesn't work in extension popups)
+    updateBanner.querySelectorAll(".ext-link").forEach(el => {
+      el.style.cssText = "cursor:pointer;text-decoration:underline;color:inherit"
+      el.addEventListener("click", () => chrome.tabs.create({ url: el.dataset.url }))
+    })
   } catch {
     // Version check is best-effort; ignore network errors
   }

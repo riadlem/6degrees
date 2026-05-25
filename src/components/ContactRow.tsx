@@ -3,7 +3,7 @@
 import { StickyNote, Plus, Mail, Sparkles, Users } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
-import { type ContactSummary } from "./ContactCard"
+import { type ContactSummary, linkedinDegree } from "./ContactCard"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
@@ -22,6 +22,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
   const inits = initials(contact.firstName, contact.lastName)
   const { blurred } = usePrivacy()
   const emailKind = classifyEmail(contact.emailAddress, contact.company)
+  const degree = linkedinDegree(contact)
 
   return (
     <div
@@ -65,7 +66,15 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
 
       {/* Name + optional email */}
       <div className="w-40 shrink-0">
-        <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
+        <div className="flex items-center gap-1.5">
+          <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
+          {degree === "1" && (
+            <span title="LinkedIn connection" className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold leading-none">1</span>
+          )}
+          {degree === "2" && (
+            <span title="Followed on LinkedIn (not connected)" className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-white text-[9px] font-bold leading-none">2</span>
+          )}
+        </div>
         {emailKind && (
           <div className={cn("text-[10px] flex items-center gap-0.5", EMAIL_KIND_COLOR[emailKind])}
                title={EMAIL_KIND_TITLE[emailKind]}>

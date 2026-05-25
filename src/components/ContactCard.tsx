@@ -22,9 +22,20 @@ export type ContactSummary = {
   connectedOn: string | null
   outreachStatus: string | null
   coworkEnrichedAt: string | null
+  profileUrl: string | null
   notes: { id: string }[]
   listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]
+}
+
+/**
+ * Derive LinkedIn degree badge from available contact data.
+ * Returns "1" (direct connection), "2" (followed/not connected), or null.
+ */
+export function linkedinDegree(contact: ContactSummary): "1" | "2" | null {
+  if (!contact.profileUrl) return null
+  const isFollowed = contact.labels.some((l) => l.label.name === "Followed")
+  return isFollowed ? "2" : "1"
 }
 
 interface Props {
