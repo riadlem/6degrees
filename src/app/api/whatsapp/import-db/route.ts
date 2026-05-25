@@ -51,6 +51,11 @@ export async function POST(req: Request) {
       try {
         send({ type: "status", message: `Processing ${chats.length} chats…` })
 
+        // Ensure phone column exists (added after initial schema; idempotent)
+        await prisma.$executeRaw`
+          ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "phone" TEXT
+        `.catch(() => {})
+
         // ── Phase 1: pre-load existing state in parallel ─────────────────────
         // Three queries run simultaneously:
         //   a) chatName → contactId for already-matched chats
@@ -171,6 +176,7 @@ export async function POST(req: Request) {
                     chatName: chat.chatName,
                     sentAt: new Date(sentAtMs),
                     isOutbound: isOut === 1,
+                    phone: chat.phone ?? null,
                   })),
                   skipDuplicates: true,
                 })
