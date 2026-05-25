@@ -53,8 +53,41 @@ export async function POST(req: Request) {
         let totalSynced = 0
         let totalMatched = 0
 
+        // Pre-load already-matched chats in one query so re-imports don't
+        // re-run the expensive per-chat matching (4–5 DB queries each).
+        const existingMappings = await prisma.whatsAppMessage.findMany({
+          where: { userId, contactId: { not: null } },
+          select: { chatName: true, contactId: true },
+          distinct: ["chatName"],
+        })
+        const chatContactCache = new Map(
+          existingMappings.map((m) => [m.chatName, m.contactId as string])
+        )
+
+        // Also pre-load chats that exist but were never matched (contactId = null)
+        // so we don't re-run matching for deliberately-unmatched chats either.
+        const unmatchedChats = await prisma.whatsAppMessage.findMany({
+          where: { userId, contactId: null },
+          select: { chatName: true },
+          distinct: ["chatName"],
+        })
+        const unmatchedSet = new Set(unmatchedChats.map((m) => m.chatName))
+
         for (const chat of chats) {
-          const contactId = await matchChatNameToContact(userId, chat.chatName)
+          // Use cached match if this chat was already imported; only run the
+          // expensive matching algorithm for genuinely new (never-seen) chats.
+          let contactId: string | null
+          if (chatContactCache.has(chat.chatName)) {
+            contactId = chatContactCache.get(chat.chatName)!
+          } else if (unmatchedSet.has(chat.chatName)) {
+            // Previously imported but unmatched — skip re-matching (user can
+            // use the manual "Re-match" button on the WhatsApp page instead).
+            contactId = null
+          } else {
+            // New chat: run the full matching pipeline
+            send({ type: "status", message: `Matching ${chat.chatName}…` })
+            contactId = await matchChatNameToContact(userId, chat.chatName)
+          }
           if (contactId) totalMatched++
 
           const CHUNK = 200
