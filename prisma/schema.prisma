@@ -354,6 +354,7 @@ model WhatsAppMessage {
   chatName   String
   sentAt     DateTime
   isOutbound Boolean
+  phone      String?  // E.164 number from ZCONTACTJID, e.g. "+33612345678"
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)

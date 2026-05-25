@@ -25,6 +25,19 @@ export async function POST(req: Request) {
     data: { contactId },
   })
 
+  // Backfill phone number onto the contact if it doesn't already have one.
+  // The phone is stored on the message rows (from ZCONTACTJID during import).
+  const msgWithPhone = await prisma.whatsAppMessage.findFirst({
+    where: { userId, chatName, phone: { not: null } },
+    select: { phone: true },
+  }).catch(() => null)
+  if (msgWithPhone?.phone) {
+    await prisma.contact.updateMany({
+      where: { id: contactId, phoneNumber: null },
+      data: { phoneNumber: msgWithPhone.phone },
+    })
+  }
+
   // Recompute scores in the background — don't block the response
   recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
@@ -54,6 +67,17 @@ export async function PUT(req: Request) {
       where: { userId, chatName, contactId: null },
       data: { contactId },
     })
+    // Backfill phone number if stored on the messages
+    const msgWithPhone = await prisma.whatsAppMessage.findFirst({
+      where: { userId, chatName, phone: { not: null } },
+      select: { phone: true },
+    }).catch(() => null)
+    if (msgWithPhone?.phone) {
+      await prisma.contact.updateMany({
+        where: { id: contactId, phoneNumber: null },
+        data: { phoneNumber: msgWithPhone.phone },
+      })
+    }
     fixed++
   }
 
