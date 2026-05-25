@@ -251,6 +251,7 @@ export default function CompanyDetailPage() {
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set())
   const [contactSort, setContactSort] = useState<string>("score")  // default: by interaction score
   const [contactFilter, setContactFilter] = useState<string>("")   // text filter on name/position/country/industry
+  const [contactView, setContactView] = useState<"list" | "photos">("list")
 
   // Unmatched senders
   const [unmatched, setUnmatched] = useState<UnmatchedSender[]>([])
@@ -682,32 +683,53 @@ export default function CompanyDetailPage() {
               <h2 className="font-semibold text-gray-800 text-sm">{company.count} contact{company.count !== 1 ? "s" : ""}</h2>
             </div>
             <div className="flex items-center gap-2">
-              {/* Sort select */}
-              <select
-                value={contactSort}
-                onChange={(e) => setContactSort(e.target.value)}
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="score">By score</option>
-                <option value="mutual">Most connections</option>
-                <option value="mutual_asc">Fewest connections</option>
-                <option value="connected">Recently connected</option>
-                <option value="connected_asc">Oldest connection</option>
-                <option value="name">Name A–Z</option>
-                <option value="name_desc">Name Z–A</option>
-                <option value="country">Country A–Z</option>
-                <option value="industry">Industry A–Z</option>
-                <option value="position">Position A–Z</option>
-              </select>
-              {/* Select all / none */}
-              {selectedContactIds.size === 0 ? (
-                <button onClick={selectAllContacts} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
-                  Select all
+              {/* View toggle */}
+              <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setContactView("list")}
+                  title="List view"
+                  className={cn("px-2 py-1.5 transition-colors", contactView === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+                >
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="6" width="12" height="2" rx="1" fill="currentColor"/><rect x="1" y="10" width="12" height="2" rx="1" fill="currentColor"/></svg>
                 </button>
-              ) : (
-                <button onClick={clearContactSelection} className="text-xs text-gray-500 hover:text-gray-700">
-                  Clear ({selectedContactIds.size})
+                <button
+                  onClick={() => setContactView("photos")}
+                  title="Photo grid"
+                  className={cn("px-2 py-1.5 transition-colors border-l border-gray-200", contactView === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+                >
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><circle cx="3.5" cy="4" r="2.5" fill="currentColor"/><circle cx="10.5" cy="4" r="2.5" fill="currentColor"/><circle cx="3.5" cy="10" r="2.5" fill="currentColor"/><circle cx="10.5" cy="10" r="2.5" fill="currentColor"/></svg>
                 </button>
+              </div>
+              {/* Sort select — hidden in photo mode */}
+              {contactView === "list" && (
+                <select
+                  value={contactSort}
+                  onChange={(e) => setContactSort(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="score">By score</option>
+                  <option value="mutual">Most connections</option>
+                  <option value="mutual_asc">Fewest connections</option>
+                  <option value="connected">Recently connected</option>
+                  <option value="connected_asc">Oldest connection</option>
+                  <option value="name">Name A–Z</option>
+                  <option value="name_desc">Name Z–A</option>
+                  <option value="country">Country A–Z</option>
+                  <option value="industry">Industry A–Z</option>
+                  <option value="position">Position A–Z</option>
+                </select>
+              )}
+              {/* Select all / none — hidden in photo mode */}
+              {contactView === "list" && (
+                selectedContactIds.size === 0 ? (
+                  <button onClick={selectAllContacts} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                    Select all
+                  </button>
+                ) : (
+                  <button onClick={clearContactSelection} className="text-xs text-gray-500 hover:text-gray-700">
+                    Clear ({selectedContactIds.size})
+                  </button>
+                )
               )}
             </div>
           </div>
@@ -756,7 +778,42 @@ export default function CompanyDetailPage() {
           <p className="text-sm text-gray-400 text-center py-8">No contacts found</p>
         ) : filteredContacts.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-8">No contacts match your filter</p>
+        ) : contactView === "photos" ? (
+          /* ── Photo grid ── */
+          <div className="p-3 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+            {filteredContacts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedContactId(c.id)}
+                className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all text-left focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+              >
+                <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                  {c.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={c.photoUrl}
+                      alt={`${c.firstName} ${c.lastName}`}
+                      className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">
+                      {initials(c.firstName, c.lastName)}
+                    </div>
+                  )}
+                </div>
+                <div className="px-2 py-1.5">
+                  <p className={cn("text-xs font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>
+                    {c.firstName} {c.lastName}
+                  </p>
+                  {c.position && (
+                    <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{c.position}</p>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
         ) : (
+          /* ── List view ── */
           <div className="divide-y divide-gray-50">
             {filteredContacts.map((c) => {
               const inits = initials(c.firstName, c.lastName)

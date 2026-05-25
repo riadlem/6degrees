@@ -2,12 +2,13 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { recomputeScoreForContact } from "@/lib/reconnect-score"
+import { stripEdgeEmoji } from "@/lib/utils"
 
 function parseName(fromName: string | null, fromEmail: string): { firstName: string; lastName: string } {
   if (fromName?.trim()) {
     const parts = fromName.trim().split(/\s+/)
-    if (parts.length >= 2) return { firstName: parts[0], lastName: parts.slice(1).join(" ") }
-    return { firstName: parts[0], lastName: "" }
+    if (parts.length >= 2) return { firstName: stripEdgeEmoji(parts[0]), lastName: stripEdgeEmoji(parts.slice(1).join(" ")) }
+    return { firstName: stripEdgeEmoji(parts[0]), lastName: "" }
   }
   return { firstName: fromEmail.split("@")[0], lastName: "" }
 }
