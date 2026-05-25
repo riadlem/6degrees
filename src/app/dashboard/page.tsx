@@ -58,6 +58,8 @@ type Stats = {
   partnerCount: number
 }
 
+type YearBucket = { year: number; count: number }
+
 const SIZE_OPTIONS: { value: CompanySize; label: string }[] = [
   { value: "small",      label: "Small" },
   { value: "medium",     label: "Medium" },
@@ -413,6 +415,30 @@ function CompanyCard({
   )
 }
 
+function ConnectionYearChart({ years, className }: { years: YearBucket[]; className?: string }) {
+  const max = Math.max(...years.map((y) => y.count), 1)
+  return (
+    <div className={cn("bg-white border border-gray-200 rounded-xl px-4 pt-3 pb-4", className)}>
+      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+        Connections by year
+      </p>
+      <div className="flex items-end gap-1.5 h-20">
+        {years.map(({ year, count }) => (
+          <div key={year} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+            <span className="text-[10px] text-gray-500 font-medium leading-none">{count}</span>
+            <div
+              className="w-full rounded-t-sm bg-blue-500 hover:bg-blue-600 transition-colors"
+              style={{ height: `${Math.max(4, (count / max) * 52)}px` }}
+              title={`${count} connection${count !== 1 ? "s" : ""} in ${year}`}
+            />
+            <span className="text-[10px] text-gray-400 leading-none">{String(year).slice(2)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
@@ -428,6 +454,7 @@ export default function DashboardPage() {
   const router = useRouter()
 
   const [stats, setStats] = useState<Stats | null>(null)
+  const [connectionYears, setConnectionYears] = useState<YearBucket[]>([])
   const [companies, setCompanies] = useState<DashboardCompany[]>([])
   const [allTreemapData, setAllTreemapData] = useState<TreemapItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -453,6 +480,7 @@ export default function DashboardPage() {
         const data = await dashRes.json()
         setStats(data.stats)
         setCompanies(data.companies)
+        setConnectionYears(data.connectionYears ?? [])
       }
       if (tmRes.ok) {
         const data = await tmRes.json()
@@ -499,6 +527,11 @@ export default function DashboardPage() {
           <StatCard label="Preferred" value={stats.preferredCount} sub="companies starred" />
           <StatCard label="Partners" value={stats.partnerCount} sub="companies tagged" />
         </div>
+      )}
+
+      {/* Connection-year distribution */}
+      {connectionYears.length > 0 && (
+        <ConnectionYearChart years={connectionYears} className="mb-6" />
       )}
 
       {/* Treemap */}

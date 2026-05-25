@@ -129,8 +129,24 @@ export async function GET() {
     return b.count - a.count
   })
 
+  // Connection-year distribution: count contacts by year of connectedOn
+  const connectedRows = await prisma.contact.findMany({
+    where: { userId, connectedOn: { not: null } },
+    select: { connectedOn: true },
+  })
+  const yearCounts = new Map<number, number>()
+  for (const { connectedOn } of connectedRows) {
+    if (!connectedOn) continue
+    const yr = new Date(connectedOn).getFullYear()
+    yearCounts.set(yr, (yearCounts.get(yr) ?? 0) + 1)
+  }
+  const connectionYears = Array.from(yearCounts.entries())
+    .map(([year, count]) => ({ year, count }))
+    .sort((a, b) => a.year - b.year)
+
   return Response.json({
     stats: { totalContacts, totalCompanies, preferredCount, partnerCount },
     companies: result,
+    connectionYears,
   })
 }
