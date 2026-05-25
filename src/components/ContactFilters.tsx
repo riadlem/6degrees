@@ -214,6 +214,91 @@ function CompanyMultiSelect({
   )
 }
 
+/** Compact inline "+ Company" button for the always-visible filter bar. */
+function InlineCompanyAdd({
+  selected,
+  options,
+  onChange,
+}: {
+  selected: string[]
+  options: (string | null)[]
+  onChange: (v: string[]) => void
+}) {
+  const [active, setActive] = useState(false)
+  const [input, setInput] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const allCompanies = options.filter(Boolean) as string[]
+  const suggestions = allCompanies
+    .filter((c) => c.toLowerCase().includes(input.toLowerCase()) && !selected.includes(c))
+    .slice(0, 7)
+
+  const add = (company: string) => {
+    const trimmed = company.trim()
+    if (trimmed && !selected.includes(trimmed)) onChange([...selected, trimmed])
+    setInput("")
+    setActive(false)
+  }
+
+  if (!active) {
+    return (
+      <button
+        onClick={() => { setActive(true); setTimeout(() => inputRef.current?.focus(), 0) }}
+        className="inline-flex items-center gap-1 text-xs text-gray-400 border border-dashed border-gray-300 rounded-full px-2.5 py-1 hover:border-blue-300 hover:text-blue-500 transition-colors"
+        title="Filter by company"
+      >
+        <Building2 size={10} />
+        + Company
+      </button>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        autoFocus
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        onBlur={() => setTimeout(() => { setActive(false); setInput("") }, 150)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            if (suggestions.length > 0) add(suggestions[0])
+            else if (input.trim()) add(input.trim())
+          }
+          if (e.key === "Escape") { setActive(false); setInput("") }
+        }}
+        placeholder="Company name…"
+        className="text-xs border border-blue-400 rounded-full px-3 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 w-36 bg-white"
+      />
+      {(suggestions.length > 0 || (input.trim() && !allCompanies.find((c) => c.toLowerCase() === input.toLowerCase()))) && (
+        <div className="absolute left-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 min-w-48 overflow-hidden">
+          {suggestions.map((c) => (
+            <button
+              key={c}
+              onMouseDown={(e) => { e.preventDefault(); add(c) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-gray-700 flex items-center gap-2 transition-colors"
+            >
+              <Building2 size={12} className="text-gray-400 shrink-0" />
+              {c}
+            </button>
+          ))}
+          {input.trim() && !allCompanies.find((c) => c.toLowerCase() === input.toLowerCase()) && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); add(input.trim()) }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-blue-600 flex items-center gap-2 border-t border-gray-100 transition-colors"
+            >
+              <Building2 size={12} className="shrink-0" />
+              Add &ldquo;{input.trim()}&rdquo;
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
   const [open, setOpen] = useState(false)
   const activeCount =
@@ -301,7 +386,7 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
              filters.gmailMatched === "email_no_linkedin" ? "Email, no LinkedIn" :
              "Gmail"}
           </button>
-          {/* Active company chips in the quick bar */}
+          {/* Active company chips + inline add button */}
           {filters.companies.map((c) => (
             <span key={c} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1 font-medium">
               <Building2 size={10} />
@@ -311,6 +396,11 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
               </button>
             </span>
           ))}
+          <InlineCompanyAdd
+            selected={filters.companies}
+            options={options.companies}
+            onChange={(v) => onChange({ companies: v })}
+          />
         </div>
         <div className="flex items-center gap-2">
           <select
