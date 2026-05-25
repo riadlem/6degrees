@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  Search, ArrowUpDown, ChevronUp, ChevronDown, UserPlus,
+  Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronUp, ChevronDown, UserPlus,
   ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
@@ -455,10 +455,22 @@ export default function WhatsAppPage() {
         <div className="hidden sm:flex items-center gap-3 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs text-gray-400 font-medium">
           <div className="w-9 shrink-0" />
           <div className="flex-1 min-w-0 sm:w-44 sm:flex-none">Name</div>
-          <div className="shrink-0 w-16 text-center">Messages</div>
+          <button
+            onClick={() => toggleSort("messageCount")}
+            className={cn("shrink-0 w-16 flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
+          >
+            Messages
+            {sort === "messageCount" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
+          </button>
           <div className="w-28 shrink-0 hidden md:block">Response rate</div>
           <div className="w-20 shrink-0 hidden lg:block">First</div>
-          <div className="w-24 shrink-0 hidden sm:block">Last</div>
+          <button
+            onClick={() => toggleSort("lastAt")}
+            className={cn("shrink-0 w-24 flex items-center gap-1 hidden sm:flex hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
+          >
+            Last
+            {sort === "lastAt" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
+          </button>
           <div className="shrink-0 w-12" />
         </div>
 
