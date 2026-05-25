@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { matchChatNameToContact } from "@/lib/whatsapp-match"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
@@ -28,6 +29,39 @@ export async function POST(req: Request) {
   recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
   return Response.json({ ok: true, updated: result.count })
+}
+
+// Re-run automatic matching on all currently-unmatched chats.
+// Useful after updating the matching algorithm without re-importing.
+// PUT /api/whatsapp/match   (no body needed)
+export async function PUT(req: Request) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+  const userId = session.user.id
+
+  // Get all distinct unmatched chat names
+  const unmatched = await prisma.$queryRaw<{ chatName: string }[]>`
+    SELECT DISTINCT "chatName"
+    FROM "WhatsAppMessage"
+    WHERE "userId" = ${userId} AND "contactId" IS NULL
+  `
+
+  let fixed = 0
+  for (const { chatName } of unmatched) {
+    const contactId = await matchChatNameToContact(userId, chatName)
+    if (!contactId) continue
+    await prisma.whatsAppMessage.updateMany({
+      where: { userId, chatName, contactId: null },
+      data: { contactId },
+    })
+    fixed++
+  }
+
+  if (fixed > 0) {
+    recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  }
+
+  return Response.json({ ok: true, checked: unmatched.length, fixed })
 }
 
 // Unlink all messages for a chat (set contactId back to null)

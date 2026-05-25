@@ -212,6 +212,8 @@ export default function WhatsAppPage() {
   const [order, setOrder] = useState<Order>("desc")
   const [q, setQ] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
+  const [rematching, setRematching] = useState(false)
+  const [rematchResult, setRematchResult] = useState<{ fixed: number; checked: number } | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -288,6 +290,21 @@ export default function WhatsAppPage() {
     }
   }
 
+  async function doRematch() {
+    setRematching(true)
+    setRematchResult(null)
+    try {
+      const res = await fetch("/api/whatsapp/match", { method: "PUT" })
+      if (res.ok) {
+        const data = await res.json()
+        setRematchResult({ fixed: data.fixed, checked: data.checked })
+        await load()
+      }
+    } finally {
+      setRematching(false)
+    }
+  }
+
   async function doUnlink(chatName: string) {
     setLinking(true)
     try {
@@ -329,13 +346,31 @@ export default function WhatsAppPage() {
             <p className="text-sm text-gray-500">Chat history imported from your phone</p>
           </div>
         </div>
-        <Link
-          href="/settings#whatsapp"
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          <Settings size={14} />
-          Import / reset
-        </Link>
+        <div className="flex items-center gap-3">
+          {stats && stats.unmatched > 0 && (
+            <button
+              onClick={doRematch}
+              disabled={rematching}
+              title="Re-run automatic matching on all unmatched chats using the latest algorithm"
+              className="flex items-center gap-1.5 text-sm text-green-700 hover:text-green-900 transition-colors disabled:opacity-50"
+            >
+              {rematching ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+              {rematching ? "Matching…" : `Re-match (${stats.unmatched})`}
+            </button>
+          )}
+          {rematchResult && !rematching && (
+            <span className="text-xs text-green-600 font-medium">
+              ✓ {rematchResult.fixed} newly matched
+            </span>
+          )}
+          <Link
+            href="/settings#whatsapp"
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <Settings size={14} />
+            Import / reset
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}
