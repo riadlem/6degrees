@@ -156,6 +156,10 @@ function SettingsPageInner() {
         .then((r) => r.ok ? r.json() : null)
         .then((d) => d && setWaStatus(d))
 
+      fetch("/api/whatsapp/unmatched?page=0")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) { setWaUnmatchedTotal(d.total); setWaUnmatched(d.chats ?? []) } })
+
       fetch("/api/user/emails")
         .then((r) => r.ok ? r.json() : [])
         .then((rows: { email: string }[]) => setUserEmails(rows.map((r) => r.email)))
@@ -1698,8 +1702,7 @@ function SettingsPageInner() {
           </p>
 
           {/* Unmatched WhatsApp chats */}
-          {waStatus?.importedAt && (
-            <div className="border border-gray-100 rounded-xl overflow-hidden">
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
               <button
                 className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
                 onClick={() => {
@@ -1824,7 +1827,6 @@ function SettingsPageInner() {
                 </div>
               )}
             </div>
-          )}
         </div>
       </div>
 
