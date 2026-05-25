@@ -104,7 +104,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         )}
       </div>
 
-      {/* Status + labels + lists + notes */}
+      {/* Status + labels + notes (no lists here) */}
       <div className="flex items-center gap-1 shrink-0">
         {contact.outreachStatus && STATUS_BADGE[contact.outreachStatus] && (
           <span className={cn("text-xs rounded-full px-2 py-0.5 border font-medium shrink-0", STATUS_BADGE[contact.outreachStatus].className)}>
@@ -116,13 +116,6 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         ))}
         {contact.labels.length > 2 && (
           <span className="text-xs text-gray-400">+{contact.labels.length - 2}</span>
-        )}
-        {contact.listMembers.length > 0 && (
-          <span className="text-xs text-violet-600 bg-violet-50 rounded-full px-2 py-0.5 shrink-0 truncate max-w-[100px]">
-            {contact.listMembers.length === 1
-              ? contact.listMembers[0].list.name
-              : `${contact.listMembers.length} lists`}
-          </span>
         )}
         {contact.coworkEnrichedAt && (
           <span title={`Cowork enriched ${formatDate(contact.coworkEnrichedAt)}`} className="text-xs text-purple-500 bg-purple-50 rounded-full px-1.5 py-0.5 shrink-0">
@@ -139,6 +132,17 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       {/* Connected date */}
       <div className="w-20 text-right shrink-0 hidden md:block">
         <p className="text-xs text-gray-400">{contact.connectedOn ? formatDate(contact.connectedOn) : ""}</p>
+      </div>
+
+      {/* Lists — fixed column after connected date */}
+      <div className="w-32 shrink-0 hidden md:block">
+        {contact.listMembers.length > 0 && (
+          <span className="text-xs text-violet-600 bg-violet-50 rounded-full px-2 py-0.5 truncate max-w-full inline-block">
+            {contact.listMembers.length === 1
+              ? contact.listMembers[0].list.name
+              : `${contact.listMembers.length} lists`}
+          </span>
+        )}
       </div>
 
       {/* Add to list */}
