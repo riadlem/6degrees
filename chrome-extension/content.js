@@ -9,9 +9,10 @@
     return
   }
 
-  if (!path.startsWith("/in/")) return
-
   // ─── Shadow DOM host ──────────────────────────────────────────────────────────
+  // NOTE: This script now loads on all LinkedIn pages (manifest matches /*).
+  // All profile-specific code below is only *invoked* when path is /in/*.
+  // Function definitions are safe on any page — only init() causes side effects.
   // We render the FAB and panel inside a shadow root so:
   //   1. LinkedIn's nonce-based CSP cannot block our styles (extension URL origin)
   //   2. LinkedIn's own CSS cannot bleed into our UI (shadow encapsulation)
@@ -935,6 +936,10 @@
     }, 3500)
   }
 
+  // ─── SPA navigation detection ─────────────────────────────────────────────
+  // Uses subtree:true so any DOM mutation (not just direct body children) is
+  // detected — required because LinkedIn's SPA sometimes mutates nested nodes.
+  // The guard on location.pathname change prevents spurious re-inits.
   let lastPath = location.pathname
   new MutationObserver(() => {
     if (location.pathname !== lastPath) {
@@ -942,11 +947,12 @@
       closePanel()
       fabEl?.remove()
       fabEl = null
-      init()
+      if (location.pathname.startsWith("/in/")) init()
     }
-  }).observe(document.body, { childList: true, subtree: false })
+  }).observe(document.body, { childList: true, subtree: true })
 
-  init()
+  // Only run profile-page logic when we're actually on a profile.
+  if (path.startsWith("/in/")) init()
 })()
 
 // ─── Following-page importer (runs when initFollowsImporter() is called) ──────
