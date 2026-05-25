@@ -269,17 +269,23 @@ function SettingsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: fromEmail, contactId }),
       })
-      if (res.ok) {
-        const { propagatedEmails = [] } = await res.json()
-        // Remove the matched email + any auto-propagated same-name emails in one shot
-        const removed = new Set([fromEmail, ...propagatedEmails])
-        sessionStorage.removeItem("unmatchedSenders_cache")
-        setUnmatchedSenders((prev) => prev.filter((s) => !removed.has(s.fromEmail)))
-        setUnmatchedTotal((n) => Math.max(0, n - removed.size))
-        setAssigningFor(null)
-        setSearchQuery("")
-        setSearchResults([])
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? `Failed to assign match (${res.status})`)
+        return
       }
+      const { propagatedEmails = [] } = data
+      // Remove the matched email + any auto-propagated same-name emails in one shot
+      const removed = new Set([fromEmail, ...propagatedEmails])
+      sessionStorage.removeItem("unmatchedSenders_cache")
+      setUnmatchedSenders((prev) => prev.filter((s) => !removed.has(s.fromEmail)))
+      setUnmatchedTotal((n) => Math.max(0, n - removed.size))
+      setAssigningFor(null)
+      setSearchQuery("")
+      setSearchResults([])
+    } catch (err) {
+      alert("Network error — could not assign match. Please try again.")
+      console.error("assignMatch error:", err)
     } finally {
       setAssigning(null)
     }
@@ -457,13 +463,20 @@ function SettingsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chatName, contactId }),
       })
-      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(data.error ?? `Failed to assign match (${res.status})`)
+        return
+      }
       // Remove matched chat from list
       setWaUnmatched((prev) => prev.filter((c) => c.chatName !== chatName))
       setWaUnmatchedTotal((t) => t - 1)
       setWaAssigningFor(null)
       setWaSearchQuery("")
       setWaSearchResults([])
+    } catch (err) {
+      alert("Network error — could not assign match. Please try again.")
+      console.error("assignWAMatch error:", err)
     } finally {
       setWaAssigning(null)
     }
@@ -515,19 +528,28 @@ function SettingsPageInner() {
       type ChatPayload = { chatName: string; messages: [number, number][] }
       const chats: ChatPayload[] = []
 
+      // OTP / security-code / WhatsApp system notification filter
+      const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|votre code de s[eé]curit[eé]|your security code|en savoir plus|tap to learn more|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
+
       for (const [pk, chatName] of sessions.values) {
+        // Include ZTEXT so we can filter OTP/security-code messages client-side
+        // (content is never sent to the server — only timestamps + isOutbound)
         const msgs = db.exec(`
-          SELECT ZMESSAGEDATE, ZISFROMME FROM ZWAMESSAGE
+          SELECT ZMESSAGEDATE, ZISFROMME, ZTEXT FROM ZWAMESSAGE
           WHERE ZCHATSESSION = ${pk}
-            AND ZMESSAGETYPE != 6
+            AND ZMESSAGETYPE NOT IN (6, 10, 12, 14, 15)
             AND ZMESSAGEDATE > ${cutoff}
           ORDER BY ZMESSAGEDATE DESC
-          LIMIT 500
+          LIMIT 600
         `)[0]
         if (!msgs?.values?.length) continue
+        const filtered = msgs.values.filter(([, , text]) =>
+          !text || !OTP_RE.test(String(text))
+        )
+        if (!filtered.length) continue
         chats.push({
           chatName: String(chatName),
-          messages: msgs.values.map(([d, f]) => [
+          messages: filtered.slice(0, 500).map(([d, f]) => [
             Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
             Number(f) === 1 ? 1 : 0,
           ]),
@@ -1623,9 +1645,30 @@ function SettingsPageInner() {
 
         <div className="px-6 py-5 space-y-4">
           {waStatus?.importedAt && (
-            <p className="text-xs text-gray-500">
-              Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
-            </p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                Last import: {new Date(waStatus.importedAt).toLocaleString()} · {waStatus.totalMessages.toLocaleString()} messages across {waStatus.totalChats} chats
+              </p>
+              <button
+                onClick={async () => {
+                  if (!confirm("Delete all imported WhatsApp data and reset? You will need to reimport your chats.")) return
+                  const res = await fetch("/api/whatsapp/reset", { method: "DELETE" })
+                  if (res.ok) {
+                    const { deleted } = await res.json()
+                    setWaStatus(null)
+                    setWaResult(null)
+                    setWaUnmatched([])
+                    setWaUnmatchedTotal(0)
+                    alert(`Cleared ${deleted.toLocaleString()} messages. Please reimport your chats.`)
+                  } else {
+                    alert("Failed to clear WhatsApp data.")
+                  }
+                }}
+                className="shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors"
+              >
+                Clear all data
+              </button>
+            </div>
           )}
 
           {waResult && (

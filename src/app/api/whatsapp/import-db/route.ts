@@ -102,8 +102,8 @@ export async function POST(req: Request) {
           },
         })
 
-        send({ type: "status", message: "Computing relationship scores…" })
-        await recomputeScores(userId)
+        // Recompute scores in the background — don't block the SSE stream
+        recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
         send({ type: "done", synced: totalSynced, chats: chats.length, matched: totalMatched })
       } catch (err) {
