@@ -16,16 +16,18 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.2.3",
+  latest:                "1.2.4",
   reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.2.3",
+  reloadRequiredBelow:   "1.2.4",
   notes: [
-    "v1.2.3: Photo quality upgrade — og:image strategy first (always reliable),",
-    "        URL rewriting to request 400px from LinkedIn CDN, ≥400×400 size filter.",
-    "        Adds ↻ Refresh button to re-scrape after scrolling.",
-    "v1.2.2: Improve photo scraping with 5 ordered strategies; better selector coverage.",
-    "v1.2.1: Fix token verification in popup — use Bearer-token-authenticated endpoint.",
-    "v1.2.0: Fix photo picking logged-in user's nav avatar instead of profile photo.",
+    "v1.2.4: Fix banner captured instead of profile photo; fix empty profile fields.",
+    "        Photo scraping: banner excluded by aspect ratio + 'background' URL check;",
+    "        og:image moved to last resort (was causing SPA stale-page banner capture).",
+    "        FAB delay 1.5s → 3s; shows warning when profile not fully loaded yet.",
+    "v1.2.3: Photo quality upgrade — 400px CDN URL rewriting, shrink_400_400.",
+    "v1.2.2: Improve photo scraping with 5 ordered strategies.",
+    "v1.2.1: Fix token verification in popup.",
+    "v1.2.0: Fix photo picking logged-in user's nav avatar.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────

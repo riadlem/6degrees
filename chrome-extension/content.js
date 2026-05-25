@@ -110,52 +110,53 @@
     return src.replace(/shrink_\d+_\d+/g, "shrink_400_400")
   }
 
+  function imgSrc(img) {
+    return (
+      img.src ||
+      img.getAttribute("data-delayed-url") ||
+      img.getAttribute("data-ghost-url") ||
+      img.currentSrc ||
+      ""
+    )
+  }
+
+  // Returns true if the image element has a squarish aspect ratio (profile photos are ~1:1).
+  // Banners are ~4:1 or wider. We reject anything wider than 2× its height.
+  function isSquarishImage(img) {
+    const w = img.naturalWidth  || img.getBoundingClientRect().width  || img.width  || 0
+    const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
+    if (!w || !h) return true  // dimensions unknown — don't reject
+    return (w / h) < 2.5
+  }
+
   function scrapePhoto() {
-    // ── Strategy 0: og:image meta tag ─────────────────────────────────────────
-    // LinkedIn always populates this with the profile owner's photo.
-    // It is the most reliable signal regardless of DOM class name churn.
-    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
-    if (og) {
-      const src = og.content || og.getAttribute("content") || ""
-      if (isValidPhoto(src)) return upgradePhotoUrl(src)
-    }
-
-    function imgSrc(img) {
-      return (
-        img.src ||
-        img.getAttribute("data-delayed-url") ||
-        img.getAttribute("data-ghost-url") ||
-        img.currentSrc ||
-        ""
-      )
-    }
-
-    // ── Strategy 1: <picture> source sets in the top-card ─────────────────────
-    // LinkedIn renders the profile photo as a <picture> with <source> elements
-    // that contain the actual high-res URL before any <img> fallback loads.
-    for (const picture of document.querySelectorAll("picture")) {
-      const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
-      if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
-    }
-
-    // ── Strategy 2: profile top-card containers (scoped search) ───────────────
-    const profileRoots = [
+    // ── Strategy 1: tight profile-photo containers ────────────────────────────
+    // Search for imgs / picture sources *only* inside the known profile-photo
+    // wrapper elements.  This avoids picking up the cover/banner which sits
+    // higher in the DOM in most picture-element passes.
+    const photoRoots = [
       document.querySelector(".pv-top-card-profile-picture"),
       document.querySelector(".profile-photo-edit__container"),
       document.querySelector(".pv-top-card__photo-wrapper"),
       document.querySelector("[data-anonymize='headshot-photo']")?.closest("div"),
-      document.querySelector("main section"),
-      document.querySelector("main"),
+      document.querySelector("button.profile-photo-edit__container"),
+      document.querySelector(".profile-photo-edit__content"),
     ].filter(Boolean)
 
-    for (const root of profileRoots) {
+    for (const root of photoRoots) {
+      // Check <picture> sources inside these containers first
+      for (const picture of root.querySelectorAll("picture")) {
+        const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
+        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      }
+      // Then <img> tags
       for (const img of root.querySelectorAll("img")) {
         const src = imgSrc(img)
-        if (isValidPhoto(src)) return upgradePhotoUrl(src)
+        if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
       }
     }
 
-    // ── Strategy 3: aria-label / data-anonymize attributes ────────────────────
+    // ── Strategy 2: aria-label / data-anonymize attributes ────────────────────
     for (const sel of [
       "img[data-anonymize='headshot-photo']",
       "img[aria-label*='photo' i]",
@@ -168,35 +169,56 @@
       try {
         for (const img of document.querySelectorAll(sel)) {
           const src = imgSrc(img)
-          if (isValidPhoto(src)) return upgradePhotoUrl(src)
+          if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
         }
       } catch { /* bad selector */ }
     }
 
-    // ── Strategy 4: largest rendered LinkedIn media image ─────────────────────
-    // Nav avatar is ~32×32; profile photo is ≥400×400 at full resolution.
-    // We prefer naturalWidth (actual pixel data) over layout size.
+    // ── Strategy 3: <picture> elements anywhere, guarded by aspect ratio ──────
+    // Skip strategy until we've excluded the banner: banners are wide (4:1+),
+    // profile photos are square.  We use the rendered <img> size as the signal.
+    for (const picture of document.querySelectorAll("picture")) {
+      const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
+      if (!src || !isValidPhoto(src)) continue
+      const img = picture.querySelector("img")
+      if (img && !isSquarishImage(img)) continue  // skip banners
+      return upgradePhotoUrl(src)
+    }
+
+    // ── Strategy 4: largest squarish rendered LinkedIn media image ─────────────
+    // Nav avatar is ~32×32; profile photo is ≥ 200×200 at minimum.
+    // Banners are excluded by the aspect-ratio guard.
     let bestSrc = null, bestArea = 0
     for (const img of document.querySelectorAll("img")) {
       const src = imgSrc(img)
       if (!isValidPhoto(src)) continue
-      // Prefer naturalWidth; fall back to layout width (getBoundingClientRect)
-      const w = img.naturalWidth || img.getBoundingClientRect().width || img.width || 0
+      if (!isSquarishImage(img)) continue  // skip banners
+      const w = img.naturalWidth  || img.getBoundingClientRect().width  || img.width  || 0
       const h = img.naturalHeight || img.getBoundingClientRect().height || img.height || 0
       const area = w * h
       if (area > bestArea) { bestArea = area; bestSrc = src }
     }
-    // Only accept if large enough to be a profile photo (>= 400×400 = 160,000 px²)
-    if (bestSrc && bestArea >= 160000) return upgradePhotoUrl(bestSrc)
+    if (bestSrc && bestArea >= 40000) return upgradePhotoUrl(bestSrc)  // ≥ 200×200
+
+    // ── Strategy 5 (last resort): og:image ────────────────────────────────────
+    // In LinkedIn's SPA, og:image may not update on client-side navigation and
+    // can reflect a stale page.  Only use it if nothing else worked, and only
+    // if the URL looks like a profile photo (not a background image).
+    const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
+    if (og) {
+      const src = og.content || og.getAttribute("content") || ""
+      if (isValidPhoto(src) && src.includes("displayphoto")) return upgradePhotoUrl(src)
+    }
 
     return null
   }
 
   function isValidPhoto(src) {
     if (!src || src.length < 10) return false
-    // Exclude background images, ghost placeholders, static icons, and data URIs
+    // Exclude background/banner images — multiple URL patterns across LinkedIn versions
     if (
-      src.includes("profile-displaybackgroundimage") ||
+      src.includes("background") ||   // catches all banner URL variants
+      src.includes("displaybackgroundimage") ||
       src.includes("ghost") ||
       src.includes("placeholder") ||
       src.includes("static.licdn") ||
@@ -216,43 +238,70 @@
 
   function scrapeHeadline() {
     // Prefer scoping to the top-card to avoid grabbing unrelated .text-body-medium nodes
-    const topCard = document.querySelector(".pv-top-card, .scaffold-layout__main > section, main section")
+    const topCard = document.querySelector(
+      ".pv-top-card, .scaffold-layout__main > section:first-of-type, main section"
+    )
     if (topCard) {
       for (const sel of [
         ".text-body-medium.break-words",
         "[data-field='headline']",
         ".text-body-medium",
+        // 2024/2025 LinkedIn uses div with these combined classes
+        "div.text-body-medium",
+        "span.text-body-medium",
       ]) {
         try {
-          const el = topCard.querySelector(sel)
-          const t = el?.textContent?.trim()
-          // Skip short/generic text (connection count, degree badges, etc.)
-          if (t && t.length > 5 && !t.match(/^\d+/) && !t.includes("connection")) return t
+          for (const el of topCard.querySelectorAll(sel)) {
+            const t = el?.textContent?.trim()
+            // Skip short/generic text (connection count, degree badges, etc.)
+            if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection") && !t.includes("follower")) {
+              return t
+            }
+          }
         } catch { /* skip */ }
       }
     }
-    // Fallback: document-wide
-    return text([".text-body-medium.break-words", "[data-field='headline']"])
+    // Fallback: document-wide, pick the first plausible headline
+    for (const el of document.querySelectorAll(".text-body-medium.break-words, [data-field='headline']")) {
+      const t = el?.textContent?.trim()
+      if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection")) return t
+    }
+    return null
   }
 
   function scrapeLocation() {
-    // LinkedIn's location span in the top card uses these combined classes
-    const specific = text([
+    // LinkedIn's location span — try several selector forms used across versions
+    for (const sel of [
       ".text-body-small.inline.t-black--light.break-words",
+      "span.text-body-small.inline.t-black--light",
       ".pv-top-card--list-bullet li",
       "[data-field='location']",
-    ])
-    if (specific && !specific.match(/^\d/) && !specific.toLowerCase().includes("connection")) return specific
+      // 2025 LinkedIn: location sits directly in a <span class="text-body-small"> near the top card
+      ".mt2 .text-body-small",
+    ]) {
+      try {
+        for (const el of document.querySelectorAll(sel)) {
+          const t = (el.textContent ?? "").trim()
+          if (
+            t.length > 3 && t.length < 100 &&
+            !t.match(/^\d/) &&
+            !t.includes("connection") && !t.includes("follower") &&
+            !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
+            !t.includes("·")
+          ) return t
+        }
+      } catch { /* skip */ }
+    }
 
     // Broad fallback: scan all small-body text, skipping numeric/badge strings
     for (const el of document.querySelectorAll(".text-body-small")) {
       const t = (el.textContent ?? "").trim()
       if (
-        t.length > 3 && t.length < 80 &&
+        t.length > 3 && t.length < 100 &&
         !t.match(/^\d/) &&
         !t.includes("connection") && !t.includes("follower") &&
         !t.includes("1st") && !t.includes("2nd") && !t.includes("3rd") &&
-        (t.includes(",") || /\b(Area|Region|Greater|Metropolitan)\b/.test(t))
+        (t.includes(",") || /\b(Area|Region|Greater|Metropolitan|City|County)\b/i.test(t))
       ) return t
     }
     return null
@@ -521,12 +570,20 @@
         ? `<span class="sd-empty">${p.commonConnections} mutual (scroll profile to load names)</span>`
         : `<span class="sd-empty">None found</span>`
 
+    // Show a hint if the profile loaded with almost nothing — likely the page
+    // wasn't fully rendered yet.  Prompts the user to scroll then hit ↻ Refresh.
+    const isEmpty = !p.headline && p.experience.length === 0 && p.education.length === 0
+    const emptyHint = isEmpty
+      ? `<div id="sd-empty-hint">⚠ Profile not fully loaded — scroll down then click ↻ Refresh</div>`
+      : ""
+
     panel.innerHTML = `
       <div id="sd-panel-header">
         <h2>Save to 6Degrees</h2>
         <button id="sd-refresh" title="Re-scrape after scrolling the profile">↻</button>
         <button id="sd-close" title="Close">×</button>
       </div>
+      ${emptyHint}
       <div id="sd-panel-body">
         <div class="sd-profile-header">
           ${avatarHtml}
@@ -609,7 +666,9 @@
 
   function init() {
     if (!window.location.pathname.startsWith("/in/")) return
-    setTimeout(injectFab, 1500)
+    // Wait 3 seconds — LinkedIn's SPA lazily renders the profile sections and
+    // the 1.5 s delay was too short for slower connections / large profiles.
+    setTimeout(injectFab, 3000)
   }
 
   let lastPath = location.pathname
