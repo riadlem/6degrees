@@ -330,11 +330,14 @@
       }
 
       // 2) Fallback: the 2nd "real" line after the name (headline, then location).
-      //    Skip pronouns, degree badges, and separator lines.
+      //    Skip pronouns, degree badges, separator lines, AND mutual-connection lines
+      //    (which can appear between headline and location in the DOM text).
       const kept = []
-      for (const line of lines.slice(1, 15)) {
+      for (const line of lines.slice(1, 20)) {
         if (/^(He|She|They|Il|Elle)\/(Him|Her|Them|Lui|Elle)$/i.test(line)) continue
         if (/^·?\s*(1er|2e|3e|1st|2nd|3rd)\b/.test(line)) continue
+        if (/\bconnection|\bfollower|\brelation\b|\bsuivi/i.test(line)) continue
+        if (/^\d+\s+mutual/i.test(line)) continue
         if (line === "·") continue
         if (!line.includes("@") && !/^\d/.test(line)) kept.push(line)
         if (kept.length >= 2) break
@@ -596,7 +599,7 @@
         ${mutualHtml
           ? `<div class="sd-section"><p class="sd-section-title">Mutual connections</p>${mutualHtml}</div>`
           : ""}
-        <p class="sd-empty" style="font-size:11px;margin-top:8px">Will be tagged <strong>Followed</strong></p>
+        ${p.degree !== "1" ? '<p class="sd-empty" style="font-size:11px;margin-top:8px">Will be tagged <strong>Followed</strong></p>' : ''}
       </div>
       <div id="sd-panel-footer">
         <button id="sd-save-btn">Save contact</button>
@@ -671,8 +674,10 @@
 
     let result
     try {
-      // Always tag contacts saved via the extension as "Followed"
-      const payload = { ...currentProfile, photoUrl, addLabels: ["Followed"] }
+      // Tag as "Followed" only for non-1st-degree contacts.
+      // 1st-degree = already connected on LinkedIn — "Followed" doesn't apply.
+      const addLabels = currentProfile.degree !== "1" ? ["Followed"] : []
+      const payload = { ...currentProfile, photoUrl, addLabels }
 
       result = await Promise.race([
         new Promise((resolve, reject) => {
