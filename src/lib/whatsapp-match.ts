@@ -46,23 +46,52 @@ export async function matchChatNameToContact(
 }
 
 async function directNameMatch(userId: string, name: string): Promise<string | null> {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length < 2) return null
+  // Strip common noise suffixes that appear in phone address books but are not
+  // part of the person's actual name, e.g.:
+  //   "Romain (Nuvei)"  → "Romain"
+  //   "Romain - Nuvei"  → "Romain"
+  //   "Romain | Nuvei"  → "Romain"
+  //   "Alice 🏢"        → "Alice"
+  const cleaned = name
+    .trim()
+    .replace(/[\(\[\{].*?[\)\]\}]/g, "")   // remove anything in brackets
+    .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "") // strip " - Company" suffixes (capital-letter word after dash/pipe/slash)
+    .replace(/\s+[\p{Emoji_Presentation}\p{Extended_Pictographic}].*/gu, "") // strip trailing emoji
+    .trim()
 
-  const firstName = parts[0]
-  const lastName = parts[parts.length - 1]
+  const parts = cleaned.split(/\s+/).filter(Boolean)
 
-  const matches = await prisma.contact.findMany({
-    where: {
-      userId,
-      firstName: { equals: firstName, mode: "insensitive" },
-      lastName: { equals: lastName, mode: "insensitive" },
-    },
-    select: { id: true },
-    take: 2,
-  })
+  // Two-or-more word name: match firstName + lastName exactly
+  if (parts.length >= 2) {
+    const firstName = parts[0]
+    const lastName  = parts[parts.length - 1]
 
-  return matches.length === 1 ? matches[0].id : null
+    const matches = await prisma.contact.findMany({
+      where: {
+        userId,
+        firstName: { equals: firstName, mode: "insensitive" },
+        lastName:  { equals: lastName,  mode: "insensitive" },
+      },
+      select: { id: true },
+      take: 2,
+    })
+    if (matches.length === 1) return matches[0].id
+  }
+
+  // Single-word name (e.g. "Romain" or a nickname): try first-name-only match.
+  // Only accept if exactly ONE contact has that first name — avoids false positives
+  // for common names like "David" or "Sarah".
+  if (parts.length === 1) {
+    const firstName = parts[0]
+    const matches = await prisma.contact.findMany({
+      where: { userId, firstName: { equals: firstName, mode: "insensitive" } },
+      select: { id: true },
+      take: 2,
+    })
+    if (matches.length === 1) return matches[0].id
+  }
+
+  return null
 }
 
 export async function enrichContactFromPhoneBook(
