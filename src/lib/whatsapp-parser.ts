@@ -15,6 +15,13 @@ const SYSTEM_PATTERNS = [
   /^‎/, // left-to-right mark prefix (WhatsApp system messages in some locales)
   /^<Media omitted>$/,
   /^ /, // narrow no-break space (some locale system messages)
+  // WhatsApp encryption key-change notifications
+  /\bcode de sécurité avec .+ a changé\b/i,
+  /\bsecurity code with .+ changed\b/i,
+  /\bvotre code de sécurité\b/i,
+  /\byour security code\b/i,
+  /\ben savoir plus\b/i,               // "En savoir plus" footer on WA system bubbles
+  /\btap to learn more\b/i,
 ]
 
 // OTP / security-code messages — automated, never count as real interaction.

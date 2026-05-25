@@ -528,8 +528,8 @@ function SettingsPageInner() {
       type ChatPayload = { chatName: string; messages: [number, number][] }
       const chats: ChatPayload[] = []
 
-      // OTP / security-code filter — same patterns as whatsapp-parser.ts
-      const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
+      // OTP / security-code / WhatsApp system notification filter
+      const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|votre code de s[eé]curit[eé]|your security code|en savoir plus|tap to learn more|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
 
       for (const [pk, chatName] of sessions.values) {
         // Include ZTEXT so we can filter OTP/security-code messages client-side
@@ -537,7 +537,7 @@ function SettingsPageInner() {
         const msgs = db.exec(`
           SELECT ZMESSAGEDATE, ZISFROMME, ZTEXT FROM ZWAMESSAGE
           WHERE ZCHATSESSION = ${pk}
-            AND ZMESSAGETYPE != 6
+            AND ZMESSAGETYPE NOT IN (6, 10, 12, 14, 15)
             AND ZMESSAGEDATE > ${cutoff}
           ORDER BY ZMESSAGEDATE DESC
           LIMIT 600
