@@ -16,20 +16,17 @@ export async function OPTIONS() {
 //                           only need a reload in chrome://extensions.
 //
 const VERSION_INFO = {
-  latest:                "1.2.5",
-  reinstallRequiredBelow: null as string | null,
-  reloadRequiredBelow:   "1.2.5",
+  latest:                "1.3.1",
+  reinstallRequiredBelow: "1.3.0" as string | null,
+  reloadRequiredBelow:   "1.3.1" as string | null,
   notes: [
-    "v1.2.5: Port proven photo + location logic from export_list.py script.",
-    "        Photo: positive 'profile-displayphoto' URL filter + largest srcset",
-    "        width ≥ 200px — same algorithm that worked for 1500+ profiles.",
-    "        Location: text-based scan of main.innerText anchored on 'Contact info'",
-    "        marker (any locale) — immune to CSS class churn.",
-    "v1.2.4: Banner exclusion by aspect ratio + 'background' URL check.",
-    "v1.2.3: Photo quality upgrade — 400px CDN URL rewriting.",
-    "v1.2.2: Improve photo scraping with 5 ordered strategies.",
-    "v1.2.1: Fix token verification in popup.",
-    "v1.2.0: Fix photo picking logged-in user's nav avatar.",
+    "v1.3.1: Simplify scraper — collect same data as export_list.py script.",
+    "        Photo · location · mutual connections · name · headline.",
+    "        Removed experience/education scraping (unreliable, not needed).",
+    "        Panel is now compact and always shows correct data.",
+    "v1.3.0: Import LinkedIn follows from /mynetwork/following/ page.",
+    "        ⚠ Reinstall required if upgrading from < 1.3.0.",
+    "v1.2.5: Port proven photo + location logic from export_list.py.",
   ].join("\n"),
 }
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,7 +1,15 @@
 ;(function () {
   "use strict"
 
-  if (!window.location.pathname.startsWith("/in/")) return
+  const path = window.location.pathname
+
+  // ─── Following-page importer ─────────────────────────────────────────────────
+  if (path.startsWith("/mynetwork/network-manager/following")) {
+    initFollowsImporter()
+    return
+  }
+
+  if (!path.startsWith("/in/")) return
 
   // ─── Shadow DOM host ──────────────────────────────────────────────────────────
   // We render the FAB and panel inside a shadow root so:
@@ -249,7 +257,27 @@
   }
 
   function scrapeHeadline() {
-    // Prefer scoping to the top-card to avoid grabbing unrelated .text-body-medium nodes
+    // ── Text-based (locale-immune, ported from export_list.py) ────────────────
+    // The headline is always the 1st "real" line after the name in main's text.
+    // Skip pronouns, degree badges, and separators.
+    const mainEl = document.querySelector("main")
+    if (mainEl) {
+      const lines = (mainEl.innerText || mainEl.textContent || "")
+        .split("\n").map((l) => l.trim()).filter(Boolean)
+
+      for (const line of lines.slice(1, 10)) {
+        if (/^(He|She|They|Il|Elle)\/(Him|Her|Them|Lui|Elle)$/i.test(line)) continue
+        if (/^·?\s*(1er|2e|3e|1st|2nd|3rd)\b/.test(line)) continue
+        if (line === "·" || line.length < 6) continue
+        if (/^\d/.test(line)) continue
+        if (/\bconnection|\bfollower|\brelation/i.test(line)) continue
+        // A headline is typically > 8 chars and doesn't look like a location
+        // (we'll pick up location separately) — accept the first qualifying line
+        if (line.length > 8 && line.length < 220) return line
+      }
+    }
+
+    // ── CSS fallback ──────────────────────────────────────────────────────────
     const topCard = document.querySelector(
       ".pv-top-card, .scaffold-layout__main > section:first-of-type, main section"
     )
@@ -257,26 +285,18 @@
       for (const sel of [
         ".text-body-medium.break-words",
         "[data-field='headline']",
-        ".text-body-medium",
-        // 2024/2025 LinkedIn uses div with these combined classes
         "div.text-body-medium",
         "span.text-body-medium",
       ]) {
         try {
           for (const el of topCard.querySelectorAll(sel)) {
             const t = el?.textContent?.trim()
-            // Skip short/generic text (connection count, degree badges, etc.)
             if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection") && !t.includes("follower")) {
               return t
             }
           }
         } catch { /* skip */ }
       }
-    }
-    // Fallback: document-wide, pick the first plausible headline
-    for (const el of document.querySelectorAll(".text-body-medium.break-words, [data-field='headline']")) {
-      const t = el?.textContent?.trim()
-      if (t && t.length > 8 && !t.match(/^\d+/) && !t.includes("connection")) return t
     }
     return null
   }
@@ -386,99 +406,9 @@
     return results
   }
 
-  function scrapeSection(id, heading) {
-    return (
-      document.getElementById(id) ??
-      [...document.querySelectorAll("section")].find(
-        (s) => s.querySelector("h2")?.textContent?.trim().toLowerCase().includes(heading.toLowerCase())
-      ) ??
-      null
-    )
-  }
-
-  function parseDateRange(str) {
-    if (!str) return null
-    const cleaned = str.replace(/·.*$/, "").trim()
-    const parts = cleaned.split(/–|—/)
-    return { start: parts[0]?.trim() || null, end: parts[1]?.trim() || null }
-  }
-
-  // LinkedIn shows "Company Name · Full-time" or "City, Country · On-site" — strip the suffix
-  function cleanDotSuffix(s) {
-    return s ? s.split("·")[0].trim() : null
-  }
-
-  // Employment-type keywords that may appear fused into the company span
-  const EMP_TYPE_RE = /^(Full-time|Part-time|Self-employed|Freelance|Contract|Internship|Apprenticeship|Seasonal)$/i
-
-  function scrapeExperience() {
-    const section = scrapeSection("experience", "Experience")
-    if (!section) return []
-    const items = []
-    const durationRe = /yr|mo|Present/i
-    const dateStartRe = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|\d{4})/
-
-    section.querySelectorAll("li.artdeco-list__item, li[class*='pvs-list__item']").forEach((li) => {
-      const allSpans = [...li.querySelectorAll("span[aria-hidden='true']")]
-        .map((s) => s.textContent.trim()).filter(Boolean)
-      const dateSpans = allSpans.filter((s) => durationRe.test(s) || dateStartRe.test(s))
-      // Strip employment-type-only spans and date spans from text candidates
-      const textSpans = allSpans.filter(
-        (s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1 && !EMP_TYPE_RE.test(s)
-      )
-      if (textSpans.length === 0) return
-
-      const nested = li.querySelectorAll("li.artdeco-list__item, li[class*='pvs-list__item']")
-      if (nested.length > 0) {
-        // Multi-role group: first textSpan is the company
-        const company = cleanDotSuffix(textSpans[0])
-        nested.forEach((role) => {
-          const rs = [...role.querySelectorAll("span[aria-hidden='true']")].map((s) => s.textContent.trim()).filter(Boolean)
-          const rd = rs.filter((s) => durationRe.test(s) || dateStartRe.test(s))
-          const rt = rs.filter((s) => !durationRe.test(s) && !dateStartRe.test(s) && s.length > 1 && !EMP_TYPE_RE.test(s))
-          if (rt[0]) items.push({ title: rt[0], company, location: cleanDotSuffix(rt[1]) ?? null, ...parseDateRange(rd[0]) })
-        })
-      } else {
-        items.push({
-          title: textSpans[0],
-          company: cleanDotSuffix(textSpans[1]) ?? null,
-          location: cleanDotSuffix(textSpans[2]) ?? null,
-          ...parseDateRange(dateSpans[0]),
-        })
-      }
-    })
-    return items.filter((e) => e.title)
-  }
-
-  function scrapeIndustry() {
-    // LinkedIn shows industry on the profile page in a few different places
-    const fromAttr = text(["[data-field='industry']", "[aria-label*='industry' i]"])
-    if (fromAttr) return fromAttr
-    // Some layouts surface it as a small text near the top card
-    for (const el of document.querySelectorAll(".text-body-small, .text-body-medium")) {
-      const t = (el.textContent ?? "").trim()
-      // LinkedIn industry values are typically 1–4 words, no numbers, no "·"
-      if (t && t.length > 3 && t.length < 60 && !t.includes("·") && !t.match(/\d/) &&
-          el.closest("[data-section='industryName'], .pv-top-card-section__industry")) return t
-    }
-    return null
-  }
-
-  function scrapeEducation() {
-    const section = scrapeSection("education", "Education")
-    if (!section) return []
-    const items = []
-    section.querySelectorAll("li.artdeco-list__item, li[class*='pvs-list__item']").forEach((li) => {
-      const allSpans = [...li.querySelectorAll("span[aria-hidden='true']")].map((s) => s.textContent.trim()).filter(Boolean)
-      const yearRe = /^\d{4}/
-      const dateSpans = allSpans.filter((s) => yearRe.test(s) && s.length < 20)
-      const textSpans = allSpans.filter((s) => !(yearRe.test(s) && s.length < 20) && s.length > 1)
-      if (textSpans.length === 0) return
-      items.push({ school: textSpans[0], degree: textSpans[1] ?? null, field: textSpans[2] ?? null, ...parseDateRange(dateSpans[0]) })
-    })
-    return items.filter((e) => e.school)
-  }
-
+  // Same data as export_list.py: photo · location · mutual connections.
+  // Plus name + headline which the extension needs for new contacts.
+  // Experience / education removed — too fragile, not needed for core use-case.
   function extractCityCountry(location) {
     if (!location) return { city: null, country: null }
     const parts = location.split(",").map((p) => p.trim())
@@ -502,12 +432,9 @@
       location,
       city,
       country,
-      industry: scrapeIndustry(),
       degree: scrapeConnectionDegree(),
       commonConnections: scrapeMutualConnections(),
       sharedConnections: scrapeSharedConnections(),
-      experience: scrapeExperience(),
-      education: scrapeEducation(),
     }
 
     console.debug("[6Degrees] scraped profile:", profile)
@@ -582,59 +509,35 @@
       : `<div class="sd-avatar-initials">${esc(initials(p.firstName, p.lastName))}</div>`
 
     const degreeBadge = p.degree ? `<span class="sd-badge">${esc(p.degree)}°</span>` : ""
-    const industryBadge = p.industry ? `<span class="sd-badge">${esc(p.industry)}</span>` : ""
-
-    const expHtml = p.experience.length > 0
-      ? `<ul class="sd-list">${p.experience.map((e) => `
-          <li>
-            <span class="sd-list-title">${esc(e.title ?? "")}</span>
-            ${e.company ? `<span class="sd-list-sub">${esc(e.company)}</span>` : ""}
-            ${e.start ? `<span class="sd-list-sub">${esc(e.start)}${e.end ? " – " + esc(e.end) : ""}</span>` : ""}
-          </li>`).join("")}</ul>`
-      : `<p class="sd-empty">Not found — scroll the full profile first</p>`
-
-    const eduHtml = p.education.length > 0
-      ? `<ul class="sd-list">${p.education.map((e) => `
-          <li>
-            <span class="sd-list-title">${esc(e.school ?? "")}</span>
-            ${e.degree ? `<span class="sd-list-sub">${esc(e.degree)}${e.field ? " · " + esc(e.field) : ""}</span>` : ""}
-            ${e.start ? `<span class="sd-list-sub">${esc(e.start)}${e.end ? " – " + esc(e.end) : ""}</span>` : ""}
-          </li>`).join("")}</ul>`
-      : `<p class="sd-empty">Not found — scroll the full profile first</p>`
 
     const mutualHtml = p.sharedConnections.length > 0
       ? p.sharedConnections.slice(0, 8).map((sc) => `<span class="sd-badge">${esc(sc.name)}</span>`).join("") +
         (p.sharedConnections.length > 8 ? `<span class="sd-empty"> +${p.sharedConnections.length - 8} more</span>` : "")
       : p.commonConnections
-        ? `<span class="sd-empty">${p.commonConnections} mutual (scroll profile to load names)</span>`
+        ? `<span class="sd-empty">${p.commonConnections} mutual connection${p.commonConnections !== 1 ? "s" : ""}</span>`
         : `<span class="sd-empty">None found</span>`
-
-    // Show a hint if the profile loaded with almost nothing — likely the page
-    // wasn't fully rendered yet.  Prompts the user to scroll then hit ↻ Refresh.
-    const isEmpty = !p.headline && p.experience.length === 0 && p.education.length === 0
-    const emptyHint = isEmpty
-      ? `<div id="sd-empty-hint">⚠ Profile not fully loaded — scroll down then click ↻ Refresh</div>`
-      : ""
 
     panel.innerHTML = `
       <div id="sd-panel-header">
         <h2>Save to 6Degrees</h2>
-        <button id="sd-refresh" title="Re-scrape after scrolling the profile">↻</button>
+        <button id="sd-refresh" title="Re-scrape">↻</button>
         <button id="sd-close" title="Close">×</button>
       </div>
-      ${emptyHint}
       <div id="sd-panel-body">
         <div class="sd-profile-header">
           ${avatarHtml}
           <div>
             <p class="sd-name">${esc((p.firstName ?? "") + " " + (p.lastName ?? "")).trim()}</p>
             ${p.headline ? `<p class="sd-headline">${esc(p.headline)}</p>` : ""}
-            <div class="sd-meta">${degreeBadge}${industryBadge}${p.location ? esc(p.location) : ""}${p.commonConnections != null ? ` · ${p.commonConnections} mutual` : ""}</div>
+            <div class="sd-meta">
+              ${degreeBadge}
+              ${p.location ? `<span>${esc(p.location)}</span>` : ""}
+            </div>
           </div>
         </div>
-        <div class="sd-section"><p class="sd-section-title">Experience</p>${expHtml}</div>
-        <div class="sd-section"><p class="sd-section-title">Education</p>${eduHtml}</div>
-        <div class="sd-section"><p class="sd-section-title">Mutual connections</p>${mutualHtml}</div>
+        ${p.sharedConnections.length > 0 || p.commonConnections
+          ? `<div class="sd-section"><p class="sd-section-title">Mutual connections</p>${mutualHtml}</div>`
+          : ""}
       </div>
       <div id="sd-panel-footer">
         <button id="sd-save-btn">Save contact</button>
@@ -723,3 +626,197 @@
 
   init()
 })()
+
+// ─── Following-page importer (runs when initFollowsImporter() is called) ──────
+// Defined outside the main IIFE because the main IIFE returns early for
+// non-profile pages; this function is invoked before that return.
+function initFollowsImporter() {
+  "use strict"
+
+  // Inject a floating banner at the top of the LinkedIn following page.
+  // Uses an inline <style> tag so it works even before shadow root is available.
+  const banner = document.createElement("div")
+  banner.id = "sd-follows-banner"
+  banner.style.cssText = [
+    "position:fixed", "top:0", "left:0", "right:0", "z-index:2147483641",
+    "background:#0A66C2", "color:#fff",
+    "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+    "font-size:14px", "font-weight:500",
+    "display:flex", "align-items:center", "gap:12px",
+    "padding:10px 20px", "box-shadow:0 2px 8px rgba(0,0,0,.25)",
+  ].join(";")
+
+  banner.innerHTML = `
+    <span style="flex:1" id="sd-follows-msg">
+      6Degrees · Import people you follow into your contacts
+    </span>
+    <button id="sd-follows-btn" style="
+      background:#fff;color:#0A66C2;border:none;border-radius:8px;
+      padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap
+    ">Import follows</button>
+    <button id="sd-follows-close" style="
+      background:transparent;border:none;color:#fff;font-size:20px;
+      cursor:pointer;line-height:1;padding:0 4px;opacity:.8
+    ">×</button>
+  `
+  document.body.prepend(banner)
+  document.body.style.paddingTop = "44px"
+
+  banner.querySelector("#sd-follows-close").addEventListener("click", () => {
+    banner.remove()
+    document.body.style.paddingTop = ""
+  })
+
+  banner.querySelector("#sd-follows-btn").addEventListener("click", runImport)
+
+  async function runImport() {
+    const btn = document.getElementById("sd-follows-btn")
+    const msg = document.getElementById("sd-follows-msg")
+    if (!btn || !msg) return
+    btn.disabled = true
+    btn.textContent = "Scrolling…"
+
+    // ── Step 1: auto-scroll to load all follows ──────────────────────────────
+    msg.textContent = "Scrolling to load all follows…"
+    await autoScrollFollows(msg)
+
+    // ── Step 2: harvest all /in/ links ──────────────────────────────────────
+    msg.textContent = "Collecting profiles…"
+    const follows = harvestFollows()
+
+    if (follows.length === 0) {
+      msg.textContent = "⚠ No profiles found. Try scrolling manually first, then click again."
+      btn.disabled = false
+      btn.textContent = "Retry"
+      return
+    }
+
+    // ── Step 3: send to 6Degrees API ─────────────────────────────────────────
+    msg.textContent = `Importing ${follows.length} profiles…`
+    btn.textContent = "Importing…"
+
+    try {
+      const { apiUrl, apiToken } = await new Promise((resolve) =>
+        chrome.storage.local.get(["apiUrl", "apiToken"], resolve)
+      )
+      if (!apiUrl || !apiToken) {
+        msg.textContent = "⚠ Not configured — open the 6Degrees extension popup and save your URL + token first."
+        btn.disabled = false
+        btn.textContent = "Retry"
+        return
+      }
+
+      const res = await fetch(`${apiUrl}/api/linkedin/follows`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({ follows }),
+      })
+
+      if (res.status === 401) {
+        msg.textContent = "⚠ Invalid token — regenerate it in 6Degrees Settings."
+        btn.disabled = false; btn.textContent = "Retry"
+        return
+      }
+      if (!res.ok) {
+        msg.textContent = `⚠ Server error (${res.status}) — try again.`
+        btn.disabled = false; btn.textContent = "Retry"
+        return
+      }
+
+      const data = await res.json()
+      msg.textContent = `✓ Done! ${data.created} new contacts, ${data.updated} updated (${follows.length} total)`
+      btn.textContent = "Close"
+      btn.disabled = false
+      btn.addEventListener("click", () => {
+        banner.remove()
+        document.body.style.paddingTop = ""
+      }, { once: true })
+    } catch (err) {
+      msg.textContent = `⚠ Network error — check your 6Degrees URL. (${err.message})`
+      btn.disabled = false
+      btn.textContent = "Retry"
+    }
+  }
+
+  async function autoScrollFollows(msgEl) {
+    return new Promise((resolve) => {
+      let prevHeight = -1
+      let stableRounds = 0
+
+      function tick() {
+        window.scrollTo(0, document.body.scrollHeight)
+        const n = document.querySelectorAll('a[href*="/in/"]').length
+        if (msgEl) msgEl.textContent = `Scrolling to load all follows… (${n} found so far)`
+        const h = document.body.scrollHeight
+        if (h === prevHeight) {
+          stableRounds++
+          if (stableRounds >= 3) { resolve(); return }
+        } else {
+          stableRounds = 0
+        }
+        prevHeight = h
+        setTimeout(tick, 1800)
+      }
+      tick()
+    })
+  }
+
+  function harvestFollows() {
+    const seen = new Set()
+    const follows = []
+
+    for (const a of document.querySelectorAll('a[href*="/in/"]')) {
+      const href = (a.href || "").split("?")[0].split("#")[0]
+      const m = href.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+      if (!m) continue
+      const slug = m[1]
+      if (seen.has(slug)) continue
+
+      // Skip the "Me" nav link (your own profile) and other nav elements
+      if (a.closest("nav, header, #global-nav, .global-nav")) continue
+
+      // Name: LinkedIn consistently puts visible text in span[aria-hidden="true"]
+      const nameEl = a.querySelector("span[aria-hidden='true']") ||
+                     a.querySelector("span:not([class*='visually-hidden'])") ||
+                     a
+      const full = (nameEl.textContent || "").trim().replace(/\s+/g, " ")
+      if (!full || full.length > 80 || full.toLowerCase().includes("linkedin")) continue
+
+      const parts = full.split(/\s+/).filter(Boolean)
+      if (parts.length === 0) continue
+
+      seen.add(slug)
+
+      const profileUrl = `https://www.linkedin.com/in/${slug}/`
+      const firstName = parts[0]
+      const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null
+
+      // Headline: look in the surrounding card for a subtitle line
+      const card = a.closest("li, article, [class*='result'], [class*='card'], [class*='member']")
+      let headline = null
+      if (card) {
+        for (const el of card.querySelectorAll("span[aria-hidden='true'], div, p")) {
+          if (el === nameEl || nameEl.contains(el) || a.contains(el)) continue
+          const t = (el.textContent || "").trim().replace(/\s+/g, " ")
+          if (
+            t.length > 5 && t.length < 150 &&
+            !t.toLowerCase().includes("follow") &&
+            !t.toLowerCase().includes("connect") &&
+            !t.toLowerCase().includes("message") &&
+            !t.includes("·")
+          ) {
+            headline = t
+            break
+          }
+        }
+      }
+
+      follows.push({ profileUrl, firstName, lastName, headline })
+    }
+
+    return follows
+  }
+}
