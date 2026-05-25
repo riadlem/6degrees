@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
-import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2 } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
@@ -713,6 +713,42 @@ function ContactsContent() {
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+          {/* Sortable column headers — list view only */}
+          <div className="hidden sm:grid items-center gap-3 px-3 py-2 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide"
+               style={{ gridTemplateColumns: "2.5rem 2.5rem 10rem 1fr 11rem 8rem 6rem" }}>
+            <div /> {/* checkbox */}
+            <div /> {/* avatar */}
+            {([
+              { label: "Name",        sort: "name",      sortDesc: "name_desc"     },
+              { label: "Position",    sort: null,         sortDesc: null            },
+              { label: "Company",     sort: "company",    sortDesc: null            },
+              { label: "Location",    sort: "location",   sortDesc: null            },
+              { label: "Connections", sort: "mutual",     sortDesc: "mutual_asc"    },
+            ] as const).map(({ label, sort: s, sortDesc }) => (
+              <button
+                key={label}
+                disabled={!s}
+                onClick={() => {
+                  if (!s) return
+                  const isCurrent = filters.sort === s || filters.sort === sortDesc
+                  const isAsc = filters.sort === s
+                  if (!isCurrent) handleFilterChange({ sort: s })
+                  else handleFilterChange({ sort: isAsc && sortDesc ? sortDesc : s })
+                }}
+                className={cn(
+                  "flex items-center gap-1 text-left transition-colors",
+                  s ? "hover:text-gray-600 cursor-pointer" : "cursor-default"
+                )}
+              >
+                {label}
+                {s && (
+                  filters.sort === s ? <ArrowUp size={10} className="text-blue-500 shrink-0" /> :
+                  filters.sort === sortDesc ? <ArrowDown size={10} className="text-blue-500 shrink-0" /> :
+                  <ArrowUpDown size={9} className="opacity-30 shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
           {(() => {
             const groupKey = filters.sort === "country" || filters.sort === "country_desc" ? "country"
               : filters.sort === "industry" || filters.sort === "industry_desc" ? "industry"

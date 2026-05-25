@@ -5,7 +5,8 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
-  ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap
+  ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap,
+  ArrowUpDown, ArrowUp, ArrowDown
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ShareModal from "@/components/ShareModal"
@@ -55,6 +56,17 @@ function ListDetailContent() {
   const [nameValue, setNameValue] = useState("")
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [sortCol, setSortCol] = useState<"name" | "company" | "location" | "connections" | "added">("name")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+
+  function cycleSort(col: "name" | "company" | "location" | "connections" | "added") {
+    if (sortCol === col) {
+      setSortDir((d) => d === "asc" ? "desc" : "asc")
+    } else {
+      setSortCol(col)
+      setSortDir("asc")
+    }
+  }
 
   function copyContactId(contactId: string) {
     navigator.clipboard.writeText(contactId).catch(() => {})
@@ -157,6 +169,24 @@ function ListDetailContent() {
 
   if (!list) return null
 
+  const sortedMembers = [...(list?.members ?? [])].sort((a, b) => {
+    const dir = sortDir === "asc" ? 1 : -1
+    switch (sortCol) {
+      case "name":
+        return dir * (`${a.contact.firstName} ${a.contact.lastName}`).localeCompare(`${b.contact.firstName} ${b.contact.lastName}`)
+      case "company":
+        return dir * (a.contact.company ?? "").localeCompare(b.contact.company ?? "")
+      case "location":
+        return dir * (a.contact.location ?? "").localeCompare(b.contact.location ?? "")
+      case "connections":
+        return dir * ((a.contact.commonConnections ?? 0) - (b.contact.commonConnections ?? 0))
+      case "added":
+        return dir * (a.addedAt).localeCompare(b.addedAt)
+      default:
+        return 0
+    }
+  })
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Back */}
@@ -248,15 +278,26 @@ function ListDetailContent() {
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-100 text-xs font-medium text-gray-400 uppercase tracking-wide">
+          <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide">
             <div className="w-10" />
-            <div>Name</div>
-            <div>Company</div>
-            <div>Location</div>
+            {(["name", "company", "location"] as const).map((col) => (
+              <button
+                key={col}
+                onClick={() => cycleSort(col)}
+                className="flex items-center gap-1 hover:text-gray-600 transition-colors text-left"
+              >
+                {col === "name" ? "Name" : col === "company" ? "Company" : "Location"}
+                {sortCol === col ? (
+                  sortDir === "asc" ? <ArrowUp size={11} className="text-blue-500" /> : <ArrowDown size={11} className="text-blue-500" />
+                ) : (
+                  <ArrowUpDown size={10} className="opacity-30" />
+                )}
+              </button>
+            ))}
             <div className="w-20" />
           </div>
 
-          {list.members.map(({ id: memberId, contact }) => {
+          {sortedMembers.map(({ id: memberId, contact }) => {
             const fullName = `${contact.firstName} ${contact.lastName}`
             const inits = initials(contact.firstName, contact.lastName)
             return (
