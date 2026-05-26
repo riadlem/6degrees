@@ -647,6 +647,33 @@
         if (company && company.length > 1 && company.length < 80 && !isGeo(company)) return company
       }
     }
+
+    // ── Strategy 4: full-page logo scan in <main> (experience section proper) ──
+    // Strategies 2 & 3 are scoped to the top-card section only. The Experience
+    // section further down the page (separate from the top card) contains the most
+    // reliable company logos: <img alt="Newblack logo">. Search the full <main>
+    // element, skipping <aside> (sidebar: PYMK, mutual connections, ads).
+    // The experience section appears before the education section in the DOM, so
+    // the first matching logo is typically the current employer.
+    const mainEl2 = document.querySelector("main")
+    if (mainEl2) {
+      for (const img of mainEl2.querySelectorAll("img[alt]")) {
+        if (img.closest("aside")) continue  // skip sidebar
+        const alt = (img.getAttribute("alt") ?? "").trim()
+        if (
+          alt.toLowerCase().endsWith(" logo") &&
+          alt.length > 6 &&
+          alt.length < 80 &&
+          !img.closest("[class*='profile-picture']") &&
+          !img.closest("[class*='profile-photo']") &&
+          !img.closest("[class*='photo-wrapper']")
+        ) {
+          const company = alt.replace(/\s*logo$/i, "").trim()
+          if (company.length > 1 && !isGeo(company)) return company
+        }
+      }
+    }
+
     return null
   }
 
