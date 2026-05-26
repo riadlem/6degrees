@@ -145,3 +145,169 @@ function showStatus(msg, type) {
   statusEl.className = `status ${type}`
   setTimeout(() => { statusEl.textContent = ""; statusEl.className = "status" }, 3000)
 }
+
+// ─── Profile debug panel ──────────────────────────────────────────────────────
+// When the popup opens on a LinkedIn /in/ page, automatically run the scraper
+// via a message to the content script and display the results — no DevTools needed.
+
+const profilePanel   = document.getElementById("profilePanel")
+const scrapeStatusEl = document.getElementById("scrapeStatus")
+const dbgName        = document.getElementById("dbg-name")
+const dbgCompany     = document.getElementById("dbg-company")
+const dbgRole        = document.getElementById("dbg-role")
+const dbgPhoto       = document.getElementById("dbg-photo")
+const dbgHeadline    = document.getElementById("dbg-headline")
+const dbgLogEl       = document.getElementById("dbg-log")
+const toggleLogBtn   = document.getElementById("toggleLog")
+const copyDebugBtn   = document.getElementById("copy-debug")
+const copyAllBtn     = document.getElementById("copy-all")
+const rescrapeBtn    = document.getElementById("rescrape-btn")
+
+let lastDebugLines = []
+let lastProfile = null
+let activeTabId = null
+
+toggleLogBtn?.addEventListener("click", () => {
+  const visible = dbgLogEl.style.display !== "none"
+  dbgLogEl.style.display = visible ? "none" : "block"
+  toggleLogBtn.textContent = (visible ? "▶" : "▼") + " raw log"
+})
+
+function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + "…" : (s || "—") }
+
+function populatePanel(profile, debugLines, error) {
+  lastDebugLines = debugLines || []
+  lastProfile = profile
+
+  if (error && !profile) {
+    scrapeStatusEl.textContent = "error"
+    dbgName.textContent = "Error: " + error
+    dbgName.className = "dbg-val err"
+    return
+  }
+
+  scrapeStatusEl.textContent = ""
+
+  if (profile) {
+    const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ")
+    dbgName.textContent = name || "—"
+    dbgName.className = "dbg-val"
+
+    // Company: extract strategy number from debug log for quick reference
+    let companyStrategy = ""
+    for (const line of lastDebugLines) {
+      const m = line.match(/\[6D company\] Strategy (\d+)[^:]*:\s*(.+)/)
+      if (m) companyStrategy = `  [via strategy ${m[1]}]`
+    }
+    dbgCompany.textContent = (profile.company || "—") + companyStrategy
+    dbgCompany.className = "dbg-val" + (profile.company ? "" : " warn")
+
+    dbgRole.textContent = truncate(profile.position, 70)
+    dbgRole.className = "dbg-val"
+
+    // Photo: show strategy + truncated URL
+    let photoStrategy = ""
+    for (const line of lastDebugLines) {
+      const m = line.match(/\[6D photo\] Strategy (\d+) (win|hit)/)
+      if (m) { photoStrategy = ` [s${m[1]}]`; break }
+    }
+    if (profile.photoUrl) {
+      dbgPhoto.textContent = "✓" + photoStrategy + "  " + profile.photoUrl.slice(0, 55) + "…"
+      dbgPhoto.className = "dbg-val ok"
+    } else {
+      dbgPhoto.textContent = "✗ not found"
+      dbgPhoto.className = "dbg-val err"
+    }
+
+    dbgHeadline.textContent = truncate(profile.headline, 80)
+  }
+
+  dbgLogEl.value = lastDebugLines.join("\n")
+  // Auto-expand log if there's content
+  if (lastDebugLines.length > 0) {
+    dbgLogEl.style.display = "block"
+    toggleLogBtn.textContent = "▼ raw log"
+  }
+}
+
+function runScrape(tabId) {
+  scrapeStatusEl.textContent = "scraping…"
+  dbgName.textContent = "—"
+  dbgCompany.textContent = "—"
+  dbgRole.textContent = "—"
+  dbgPhoto.textContent = "—"
+  dbgHeadline.textContent = "—"
+  dbgLogEl.value = ""
+
+  chrome.tabs.sendMessage(tabId, { type: "SCRAPE_DEBUG" }, (response) => {
+    if (chrome.runtime.lastError) {
+      scrapeStatusEl.textContent = "error"
+      dbgName.textContent = chrome.runtime.lastError.message || "content script not ready"
+      dbgName.className = "dbg-val err"
+      return
+    }
+    if (!response) {
+      scrapeStatusEl.textContent = "no response"
+      dbgName.textContent = "Page may still be loading — try re-scrape"
+      dbgName.className = "dbg-val warn"
+      return
+    }
+    populatePanel(response.profile, response.debugLines, response.error)
+  })
+}
+
+// Auto-run when popup opens on a LinkedIn /in/ page
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  const tab = tabs[0]
+  if (!tab || !tab.url) return
+  if (!tab.url.includes("linkedin.com/in/")) return
+
+  activeTabId = tab.id
+  profilePanel.style.display = "block"
+  runScrape(tab.id)
+})
+
+rescrapeBtn?.addEventListener("click", () => {
+  if (activeTabId) runScrape(activeTabId)
+})
+
+copyDebugBtn?.addEventListener("click", () => {
+  const text = dbgLogEl.value
+  if (!text) return
+  navigator.clipboard.writeText(text).then(() => {
+    copyDebugBtn.textContent = "Copied!"
+    setTimeout(() => { copyDebugBtn.textContent = "Copy log" }, 1500)
+  }).catch(() => {
+    dbgLogEl.select()
+    document.execCommand("copy")
+    copyDebugBtn.textContent = "Copied!"
+    setTimeout(() => { copyDebugBtn.textContent = "Copy log" }, 1500)
+  })
+})
+
+copyAllBtn?.addEventListener("click", () => {
+  if (!lastProfile) return
+  const p = lastProfile
+  const lines = [
+    `Name:     ${[p.firstName, p.lastName].filter(Boolean).join(" ")}`,
+    `Company:  ${p.company || "(none)"}`,
+    `Role:     ${p.position || "(none)"}`,
+    `Photo:    ${p.photoUrl || "(none)"}`,
+    `Headline: ${p.headline || "(none)"}`,
+    `Location: ${p.location || "(none)"}`,
+    `URL:      ${p.profileUrl || "(none)"}`,
+    "",
+    "=== DEBUG LOG ===",
+    ...lastDebugLines,
+  ].join("\n")
+  navigator.clipboard.writeText(lines).then(() => {
+    copyAllBtn.textContent = "Copied!"
+    setTimeout(() => { copyAllBtn.textContent = "Copy all fields" }, 1500)
+  }).catch(() => {
+    dbgLogEl.value = lines
+    dbgLogEl.select()
+    document.execCommand("copy")
+    copyAllBtn.textContent = "Copied!"
+    setTimeout(() => { copyAllBtn.textContent = "Copy all fields" }, 1500)
+  })
+})
