@@ -311,3 +311,50 @@ copyAllBtn?.addEventListener("click", () => {
     setTimeout(() => { copyAllBtn.textContent = "Copy all fields" }, 1500)
   })
 })
+
+// ─── Copy test fixture ────────────────────────────────────────────────────────
+const copyFixtureBtn = document.getElementById("copy-fixture")
+copyFixtureBtn?.addEventListener("click", () => {
+  if (!activeTabId) {
+    copyFixtureBtn.textContent = "Not on a LinkedIn profile"
+    setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy test fixture" }, 2000)
+    return
+  }
+  copyFixtureBtn.textContent = "Capturing…"
+  chrome.tabs.sendMessage(activeTabId, { type: "CAPTURE_FIXTURE" }, (response) => {
+    if (chrome.runtime.lastError || !response) {
+      copyFixtureBtn.textContent = "Error — reload page"
+      setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy test fixture" }, 2000)
+      return
+    }
+    const p = response.profile ?? {}
+    // Build the fixture JSON — "expected" is pre-filled from current scrape result.
+    // Edit the expected values if the scrape is wrong before committing the fixture.
+    const fixture = {
+      name: [p.firstName, p.lastName].filter(Boolean).join(" ") || response.slug,
+      slug: response.slug,
+      title: response.title,
+      url: response.url,
+      expected: {
+        firstName: p.firstName ?? null,
+        lastName: p.lastName ?? null,
+        company: p.company ?? null,
+        hasPhoto: !!p.photoUrl,
+        photoIdContains: p.photoUrl
+          ? (p.photoUrl.match(/\/([A-Za-z0-9_-]{20,})\//)?.[1] ?? null)
+          : null,
+      },
+      // mainHtml is large — paste this JSON into tests/scraper/fixtures/<name>.json
+      // then verify "expected" values match ground truth before committing.
+      mainHtml: response.mainHtml,
+    }
+    const json = JSON.stringify(fixture, null, 2)
+    navigator.clipboard.writeText(json).then(() => {
+      copyFixtureBtn.textContent = "✓ Fixture copied!"
+      setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy test fixture" }, 2000)
+    }).catch(() => {
+      copyFixtureBtn.textContent = "Error — check console"
+      setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy test fixture" }, 2000)
+    })
+  })
+})

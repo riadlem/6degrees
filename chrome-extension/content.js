@@ -740,9 +740,11 @@
     // Returns true if element is inside a post/article (shared/republished content).
     // LinkedIn wraps feed posts and featured articles in <article> or role="article".
     // Experience badges are plain divs — never inside articles.
+    // NOTE: We intentionally do NOT check data-view-name* patterns — they are too
+    // broad (e.g. "profile-updates" wraps activity but may also wrap other sections)
+    // and excluding them causes all company links to disappear on some profiles.
     function isInsideArticle(el) {
-      return !!(el.closest("article") || el.closest("[role='article']") ||
-                el.closest("[data-view-name*='update']") || el.closest("[data-view-name*='post']"))
+      return !!(el.closest("article") || el.closest("[role='article']"))
     }
     function findCompanyLink(searchRoot) {
       if (!searchRoot) return null
@@ -1219,6 +1221,25 @@
 
     sendResponse({ profile, debugLines, error })
     return false // sendResponse called synchronously
+  })
+
+  // ─── Test fixture capture ─────────────────────────────────────────────────
+  // Responds to CAPTURE_FIXTURE with the main element's HTML + current scrape
+  // result so the popup can write a test fixture file.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "CAPTURE_FIXTURE") return false
+    let profile = null, error = null
+    try { profile = scrapeProfile() } catch (e) { error = e.message }
+    const mainHtml = document.querySelector("main")?.innerHTML ?? ""
+    sendResponse({
+      profile,
+      error,
+      mainHtml,
+      title: document.title,
+      url: window.location.href,
+      slug: window.location.pathname.replace(/^\/in\//, "").replace(/\/$/, "").split("/")[0],
+    })
+    return false
   })
 
   // ─── SPA navigation detection ─────────────────────────────────────────────

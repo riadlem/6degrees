@@ -24,6 +24,11 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.13: Fix isInsideArticle() over-exclusion: removed data-view-name*=update/post",
+    "         checks (too broad — matched profile sections, excluded all company links).",
+    "         Now only excludes links inside <article> or role=article elements.",
+    "         Add CAPTURE_FIXTURE message + 'Copy test fixture' button in popup for",
+    "         building regression test fixtures (tests/scraper/).",
     "v1.4.12: Skip company links inside <article> / role=article / data-view-name*=post.",
     "         LinkedIn renders republished/shared posts as articles — company tags in",
     "         those posts (e.g. TSYS in a reshared post) were beating the real employer",
