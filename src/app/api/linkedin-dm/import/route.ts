@@ -13,6 +13,43 @@ function stripAccents(str: string): string {
   return str.normalize("NFD").replace(/\p{Mn}/gu, "")
 }
 
+type NameVariant = { normFirst: string; normLast: string }
+
+/**
+ * Return all (normFirst, normLast) candidate pairs for a chat name.
+ * Fixes two bugs from the original implementation:
+ *   1. Strip ALL emoji — the old regex only stripped emoji preceded by a space,
+ *      so "Hernandez🌺" (no space) leaked through into the key.
+ *   2. Compound last names — "Carla de Preval" → generate BOTH candidates:
+ *        (carla, preval)     [last word only — some DBs store it trimmed]
+ *        (carla, de preval)  [full remainder — handles noble particles de/van/di/…]
+ */
+function nameVariants(chatName: string): NameVariant[] {
+  const cleaned = chatName
+    .trim()
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Emoji_Modifier}️‍]/gu, "")
+    .replace(/[\(\[\{].*?[\)\]\}]/g, "")
+    .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+
+  const parts = cleaned.split(" ").filter(Boolean)
+  if (parts.length === 0) return []
+
+  const nf = stripAccents(parts[0]).toLowerCase()
+
+  if (parts.length === 1) return [{ normFirst: nf, normLast: "" }]
+  if (parts.length === 2) return [{ normFirst: nf, normLast: stripAccents(parts[1]).toLowerCase() }]
+
+  // 3+ parts: two candidates (last-word-only first — more selective against the DB)
+  const variants: NameVariant[] = [
+    { normFirst: nf, normLast: stripAccents(parts[parts.length - 1]).toLowerCase() },
+  ]
+  const fullRest = stripAccents(parts.slice(1).join(" ")).toLowerCase()
+  if (fullRest !== variants[0].normLast) variants.push({ normFirst: nf, normLast: fullRest })
+  return variants
+}
+
 export const maxDuration = 300
 
 function sseEvent(data: unknown): string {
@@ -88,80 +125,51 @@ async function batchResolveContacts(
     }
   }
 
-  // ── Step 3 + 4 + 5: Name matching for still-unresolved conversations ────
+  // ── Step 3: Name matching (accent-normalised + compound surnames) ──────────
+  // For each unresolved conversation compute all name variant keys (handles:
+  //   • accents on first/last name
+  //   • emoji glued to the name without a space
+  //   • compound last names like "de Preval", "van der Berg"
+  // One DB query per first-char bucket covers all cases.
+
   const unresolvedByName = convs.filter((c) => !result.has(c.conversationId))
 
-  type NameEntry = { firstName: string; lastName: string; normFirst: string; normLast: string; convIds: string[] }
-  const twoWordMap = new Map<string, NameEntry>()  // "normFirst\0normLast" → entry
-  const oneWordMap = new Map<string, NameEntry>()  // "normFirst" → entry
+  // convId → ordered list of keys to try (first match wins)
+  const convVariantKeys = new Map<string, string[]>()
+  const allFirstChars = new Set<string>()
 
   for (const c of unresolvedByName) {
-    const cleaned = c.chatName
-      .trim()
-      .replace(/[\(\[\{].*?[\)\]\}]/g, "")
-      .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
-      .replace(/\s+[\p{Emoji_Presentation}\p{Extended_Pictographic}].*/gu, "")
-      .trim()
-    const parts = cleaned.split(/\s+/).filter(Boolean)
-    if (parts.length === 0) { result.set(c.conversationId, null); continue }
-
-    const nf = stripAccents(parts[0]).toLowerCase()
-    const nl = parts.length >= 2 ? stripAccents(parts[parts.length - 1]).toLowerCase() : ""
-
-    if (parts.length >= 2) {
-      const key = `${nf}\0${nl}`
-      if (!twoWordMap.has(key)) twoWordMap.set(key, { firstName: parts[0], lastName: parts[parts.length - 1], normFirst: nf, normLast: nl, convIds: [] })
-      twoWordMap.get(key)!.convIds.push(c.conversationId)
-    } else {
-      if (!oneWordMap.has(nf)) oneWordMap.set(nf, { firstName: parts[0], lastName: "", normFirst: nf, normLast: "", convIds: [] })
-      oneWordMap.get(nf)!.convIds.push(c.conversationId)
-    }
+    const variants = nameVariants(c.chatName)
+    if (variants.length === 0) { result.set(c.conversationId, null); continue }
+    const keys = variants.map((v) => `${v.normFirst}\0${v.normLast}`)
+    convVariantKeys.set(c.conversationId, keys)
+    allFirstChars.add(variants[0].normFirst.charAt(0))
   }
 
-  // Exact + accent-normalized two-word name batch
-  if (twoWordMap.size > 0) {
-    const pairs = [...twoWordMap.values()]
-    // Fetch candidates by first char of first name (covers accent-normalized too)
-    const firstChars = [...new Set(pairs.map((p) => p.normFirst.charAt(0)))]
-    const candidates = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
+  if (allFirstChars.size > 0) {
+    const firstChars = [...allFirstChars]
+    const pool = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
       SELECT id, "firstName", "lastName"
       FROM "Contact"
       WHERE "userId" = ${userId}
         AND LOWER(LEFT("firstName", 1)) = ANY(${firstChars}::text[])
     `
     // Build lookup: normFirst\0normLast → [contactId]
-    const nameHits = new Map<string, string[]>()
-    for (const c of candidates) {
+    const lookup = new Map<string, string[]>()
+    for (const c of pool) {
       const k = `${stripAccents(c.firstName ?? "").toLowerCase()}\0${stripAccents(c.lastName ?? "").toLowerCase()}`
-      if (!nameHits.has(k)) nameHits.set(k, [])
-      nameHits.get(k)!.push(c.id)
+      if (!lookup.has(k)) lookup.set(k, [])
+      lookup.get(k)!.push(c.id)
     }
-    for (const [key, { convIds }] of twoWordMap) {
-      const hits = nameHits.get(key) ?? []
-      const contactId = hits.length === 1 ? hits[0] : null  // discard ambiguous
-      for (const convId of convIds) result.set(convId, contactId)
-    }
-  }
 
-  // Single-word name batch (unique first-name match only)
-  if (oneWordMap.size > 0) {
-    const firstChars = [...new Set([...oneWordMap.values()].map((e) => e.normFirst.charAt(0)))]
-    const candidates = await prisma.$queryRaw<{ id: string; firstName: string }[]>`
-      SELECT id, "firstName"
-      FROM "Contact"
-      WHERE "userId" = ${userId}
-        AND LOWER(LEFT("firstName", 1)) = ANY(${firstChars}::text[])
-    `
-    const nameHits = new Map<string, string[]>()
-    for (const c of candidates) {
-      const k = stripAccents(c.firstName ?? "").toLowerCase()
-      if (!nameHits.has(k)) nameHits.set(k, [])
-      nameHits.get(k)!.push(c.id)
-    }
-    for (const [key, { convIds }] of oneWordMap) {
-      const hits = nameHits.get(key) ?? []
-      const contactId = hits.length === 1 ? hits[0] : null
-      for (const convId of convIds) result.set(convId, contactId)
+    for (const [convId, keys] of convVariantKeys) {
+      let matched: string | null = null
+      for (const key of keys) {
+        const hits = lookup.get(key) ?? []
+        if (hits.length === 1) { matched = hits[0]; break }
+        // ambiguous (2+) → try next variant (might be more specific)
+      }
+      result.set(convId, matched)
     }
   }
 
