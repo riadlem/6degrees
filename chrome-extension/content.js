@@ -170,51 +170,33 @@
       if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
     }
 
-    // ── Strategy 1: profile-displayphoto positive filter + largest srcset ─────
+    // ── Strategy 1: profile-displayphoto — pick the topmost on the page ────────
     // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
-    // Banners always contain 'displaybackgroundimage'. Using a positive filter
-    // (rather than just excluding banners) is far more reliable across DOM changes.
-    //
-    // IMPORTANT: search within the top-card section only, NOT all of mainEl.
-    // The right sidebar (mutual connections, "People also viewed", PYMK) also
-    // contains profile-displayphoto thumbnails. If any sidebar thumbnail has a
-    // higher srcset width than the top-card photo (e.g. when Open to Work badge
-    // causes LinkedIn to downscale the main photo srcset), the wrong person's
-    // photo gets captured. Scoping to the top card eliminates sidebar noise.
+    // The key invariant: the actual profile photo is ALWAYS the topmost
+    // profile-displayphoto image on the page. Mutual connection thumbnails, PYMK
+    // cards, Featured posts, and sidebar photos all appear below the fold.
+    // Picking by vertical position (not largest srcset) avoids the bug where a
+    // mutual-connection or Open-to-Work thumbnail has a larger srcset and wins.
     if (mainEl) {
-      // Target the top-card section as tightly as possible.
-      // .pv-top-card is the most reliable; otherwise use the first direct-child
-      // section of main's inner scaffold (not a deeply nested one).
-      const topCard =
-        mainEl.querySelector(".pv-top-card") ||
-        mainEl.querySelector(".scaffold-layout__main > section") ||
-        mainEl.querySelector(".scaffold-layout__main > div > section") ||
-        mainEl.querySelector("section:first-of-type") ||
-        mainEl
-
-      const profileImgs = [...topCard.querySelectorAll("img")].filter((img) => {
+      const pdImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
+        if (img.closest("aside")) return false  // exclude sidebar
         const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
-        if (!/profile-displayphoto/i.test(s)) return false
-        if (/displaybackgroundimage/i.test(s)) return false
-        // Extra guard: reject sidebar thumbnails by requiring squarish aspect ratio
-        return isSquarishImage(img)
+        return /profile-displayphoto/i.test(s) &&
+               !/displaybackgroundimage/i.test(s) &&
+               isSquarishImage(img)
       })
 
-      let bestUrl = "", bestW = 0
-      for (const img of profileImgs) {
-        const ss = bestSrcset(img)
-        if (ss && ss.width > bestW) { bestW = ss.width; bestUrl = ss.url }
-      }
-      if (bestW >= 100 && bestUrl) return upgradePhotoUrl(bestUrl)
-
-      // srcset absent (rare) — fall back to dedicated class or first filtered img
-      const tc = topCard.querySelector(".pv-top-card-profile-picture__image")
-      if (tc) {
-        const src = tc.currentSrc || tc.src || ""
-        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
-      }
-      if (profileImgs.length > 0) {
-        const src = profileImgs[0].currentSrc || profileImgs[0].src || ""
+      if (pdImgs.length > 0) {
+        // Sort by absolute document position — profile photo is always topmost.
+        pdImgs.sort((a, b) => {
+          const ay = a.getBoundingClientRect().top + (window.scrollY || 0)
+          const by = b.getBoundingClientRect().top + (window.scrollY || 0)
+          return ay - by
+        })
+        const top = pdImgs[0]
+        const ss = bestSrcset(top)
+        if (ss && ss.width >= 100 && isValidPhoto(ss.url)) return upgradePhotoUrl(ss.url)
+        const src = top.currentSrc || top.src || ""
         if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
       }
     }
@@ -647,6 +629,33 @@
         if (company && company.length > 1 && company.length < 80 && !isGeo(company)) return company
       }
     }
+
+    // ── Strategy 4: full-page logo scan in <main> (experience section proper) ──
+    // Strategies 2 & 3 are scoped to the top-card section only. The Experience
+    // section further down the page (separate from the top card) contains the most
+    // reliable company logos: <img alt="Newblack logo">. Search the full <main>
+    // element, skipping <aside> (sidebar: PYMK, mutual connections, ads).
+    // The experience section appears before the education section in the DOM, so
+    // the first matching logo is typically the current employer.
+    const mainEl2 = document.querySelector("main")
+    if (mainEl2) {
+      for (const img of mainEl2.querySelectorAll("img[alt]")) {
+        if (img.closest("aside")) continue  // skip sidebar
+        const alt = (img.getAttribute("alt") ?? "").trim()
+        if (
+          alt.toLowerCase().endsWith(" logo") &&
+          alt.length > 6 &&
+          alt.length < 80 &&
+          !img.closest("[class*='profile-picture']") &&
+          !img.closest("[class*='profile-photo']") &&
+          !img.closest("[class*='photo-wrapper']")
+        ) {
+          const company = alt.replace(/\s*logo$/i, "").trim()
+          if (company.length > 1 && !isGeo(company)) return company
+        }
+      }
+    }
+
     return null
   }
 
