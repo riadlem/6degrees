@@ -632,9 +632,11 @@
 
     // Use :has(h1) to target the profile card section — the <h1> holds the person's
     // name and only appears in the profile card, not in Activity or other sections.
-    // This prevents picking up company links/logos from LinkedIn Activity posts.
+    // For LinkedIn SDUI v2 (2024+) profiles the name is in an <h2> — fall back to
+    // section[componentkey*='Topcard'] which LinkedIn consistently uses for the
+    // profile-card container regardless of locale.
     const root = document.querySelector(
-      "main section:has(h1), section.artdeco-card:has(h1), .pv-top-card, .scaffold-layout__main > section, main > section"
+      "main section:has(h1), section.artdeco-card:has(h1), .pv-top-card, section[componentkey*='Topcard'], .scaffold-layout__main > section, main > section"
     ) ?? document
 
     // ── Strategy 2: company logo img alt text ─────────────────────────────────
@@ -738,13 +740,15 @@
     // secondary/old company first (e.g. TSYS before FIS when both are listed as
     // current), because the experience section sorts by start date descending.
     // Returns true if element is inside a post/article (shared/republished content).
-    // LinkedIn wraps feed posts and featured articles in <article> or role="article".
-    // Experience badges are plain divs — never inside articles.
-    // NOTE: We intentionally do NOT check data-view-name* patterns — they are too
-    // broad (e.g. "profile-updates" wraps activity but may also wrap other sections)
-    // and excluding them causes all company links to disappear on some profiles.
+    // LinkedIn wraps feed posts in <article>, [role='article'], or — in the SDUI v2
+    // layout — inside section[data-testid='carousel'] (the Activity feed carousel).
+    // Experience badges are plain divs, never inside any of these containers.
     function isInsideArticle(el) {
-      return !!(el.closest("article") || el.closest("[role='article']"))
+      return !!(
+        el.closest("article") ||
+        el.closest("[role='article']") ||
+        el.closest("section[data-testid='carousel']")  // SDUI v2 Activity carousel
+      )
     }
     function findCompanyLink(searchRoot) {
       if (!searchRoot) return null
@@ -798,6 +802,40 @@
       if (co5) {
         console.debug("[6D company] Strategy 5 (/company/ link):", co5, `(${label})`)
         return co5
+      }
+    }
+
+    // ── Strategy 6: Topcard plain-text company ──────────────────────────────────
+    // LinkedIn SDUI v2 (2024+) sometimes renders the company name as a plain <p>
+    // element in the topcard rather than as a /company/ link — typically right after
+    // the headline.  Layout: [h2: Name] → [p: Headline] → [p: Company] → [p: Location]
+    // This fires only when Strategies 1–5 all returned null.
+    {
+      const topcardEl = document.querySelector("section[componentkey*='Topcard']") ||
+        (root !== document ? root : null)
+      if (topcardEl) {
+        const SKIP6 = /^(connexions?|connections?|followers?|suivis?|abonnés?|voir\s+plus|show\s+more|open\s+to\s+work|disponible|afficher|message|coordonn|contact\s+info|plus\s+de)/i
+        let seenHeadline = false
+        for (const p of topcardEl.querySelectorAll("p")) {
+          const t = (p.textContent ?? "").trim()
+          if (t.length < 2) continue
+          if (/^[·•]/.test(t) || t === "·") continue  // degree indicator / separator
+          if (/^\d/.test(t)) continue                  // "500+ connections" etc.
+          if (SKIP6.test(t)) continue
+          if (/connection|follower|relation|commun|mutual/i.test(t)) continue
+          if (!seenHeadline) {
+            // First long text (>20 chars) = headline — mark seen and skip
+            if (t.length > 20) seenHeadline = true
+            continue
+          }
+          // After headline: first short (<60 chars), non-geo, non-pipe text = company
+          if (t.length <= 60 && !isGeo(t) && !t.includes("|")) {
+            console.debug("[6D company] Strategy 6 (topcard plain text):", t)
+            return t
+          }
+          // Location follows company in the topcard layout — stop here
+          if (isGeo(t) || t.includes(",")) break
+        }
       }
     }
 

@@ -24,6 +24,13 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.14: Fix company for LinkedIn SDUI v2 profiles (2024+ layout, no <h1> in DOM).",
+    "         Add section[componentkey*='Topcard'] as root fallback so the profile card",
+    "         is correctly scoped even when the name is in an <h2> instead of <h1>.",
+    "         Exclude Activity carousel (section[data-testid='carousel']) from company",
+    "         link search — fixes false TSYS/EPAM picks from republished Activity posts.",
+    "         Add Strategy 6: read company from topcard plain text when no /company/",
+    "         link exists in the profile card (e.g. Keith Morrison → FIS).",
     "v1.4.13: Fix isInsideArticle() over-exclusion: removed data-view-name*=update/post",
     "         checks (too broad — matched profile sections, excluded all company links).",
     "         Now only excludes links inside <article> or role=article elements.",
