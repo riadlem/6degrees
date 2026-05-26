@@ -104,6 +104,24 @@ function SettingsPageInner() {
   const waFileRef = useRef<HTMLInputElement>(null)
   const waDbRef = useRef<HTMLInputElement>(null)
 
+  // ── LinkedIn Direct Messages ─────────────────────────────────────────────────
+  type LiDMStatus = { importedAt: string | null; totalMessages: number; totalChats: number }
+  type UnmatchedLiDMChat = { chatName: string; messageCount: number; firstAt: string | null; lastAt: string | null; profileUrl: string | null; suggestions: { contactId: string; name: string; company: string | null }[] }
+  const [liDMStatus, setLiDMStatus] = useState<LiDMStatus | null>(null)
+  const [liDMImporting, setLiDMImporting] = useState(false)
+  const [liDMProgress, setLiDMProgress] = useState<string | null>(null)
+  const [liDMResult, setLiDMResult] = useState<{ synced: number; chats: number; matched: number } | null>(null)
+  const liDMFileRef = useRef<HTMLInputElement>(null)
+  const [liDMUnmatchedOpen, setLiDMUnmatchedOpen] = useState(false)
+  const [liDMUnmatched, setLiDMUnmatched] = useState<UnmatchedLiDMChat[]>([])
+  const [liDMUnmatchedTotal, setLiDMUnmatchedTotal] = useState(0)
+  const [liDMUnmatchedPage, setLiDMUnmatchedPage] = useState(0)
+  const [liDMUnmatchedLoading, setLiDMUnmatchedLoading] = useState(false)
+  const [liDMAssigningFor, setLiDMAssigningFor] = useState<string | null>(null)
+  const [liDMSearchQuery, setLiDMSearchQuery] = useState("")
+  const [liDMSearchResults, setLiDMSearchResults] = useState<ContactResult[]>([])
+  const [liDMAssigning, setLiDMAssigning] = useState<string | null>(null)
+
   const [phoneBookCount, setPhoneBookCount] = useState(0)
   const [phoneBookWithPhotos, setPhoneBookWithPhotos] = useState(0)
   const [phoneBookWithBirthdays, setPhoneBookWithBirthdays] = useState(0)
@@ -159,6 +177,14 @@ function SettingsPageInner() {
       fetch("/api/whatsapp/unmatched?page=0")
         .then((r) => r.ok ? r.json() : null)
         .then((d) => { if (d) { setWaUnmatchedTotal(d.total); setWaUnmatched(d.chats ?? []) } })
+
+      fetch("/api/linkedin-dm/status")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => d && setLiDMStatus(d))
+
+      fetch("/api/linkedin-dm/unmatched?page=0")
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d) { setLiDMUnmatchedTotal(d.total); setLiDMUnmatched(d.chats ?? []) } })
 
       fetch("/api/user/emails")
         .then((r) => r.ok ? r.json() : [])
@@ -615,6 +641,98 @@ function SettingsPageInner() {
     } finally {
       setWaImporting(false)
       if (waDbRef.current) waDbRef.current.value = ""
+    }
+  }
+
+  // ── LinkedIn DM functions ────────────────────────────────────────────────────
+
+  async function importLinkedInDM(file: File) {
+    setLiDMImporting(true)
+    setLiDMProgress("Preparing…")
+    setLiDMResult(null)
+    const formData = new FormData()
+    formData.append("file", file)
+    try {
+      const res = await fetch("/api/linkedin-dm/import", { method: "POST", body: formData })
+      if (!res.ok || !res.body) { setLiDMProgress("Import failed"); return }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === "status") setLiDMProgress(event.message)
+            else if (event.type === "progress") setLiDMProgress(`${event.file}: ${event.synced} messages${event.matched ? " ✓" : " (no match)"}`)
+            else if (event.type === "done") {
+              setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched })
+              setLiDMProgress(null)
+              setLiDMStatus((prev) => ({
+                importedAt: new Date().toISOString(),
+                totalMessages: (prev?.totalMessages ?? 0) + event.synced,
+                totalChats: (prev?.totalChats ?? 0) + event.chats,
+              }))
+              loadLiDMUnmatched(0)
+            } else if (event.type === "error") {
+              setLiDMProgress(`Error: ${event.message}`)
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } finally {
+      setLiDMImporting(false)
+      if (liDMFileRef.current) liDMFileRef.current.value = ""
+    }
+  }
+
+  async function loadLiDMUnmatched(page = 0) {
+    setLiDMUnmatchedLoading(true)
+    try {
+      const res = await fetch(`/api/linkedin-dm/unmatched?page=${page}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setLiDMUnmatched((prev) => page === 0 ? data.chats : [...prev, ...data.chats])
+      setLiDMUnmatchedTotal(data.total)
+      setLiDMUnmatchedPage(page)
+    } finally {
+      setLiDMUnmatchedLoading(false)
+    }
+  }
+
+  async function searchLiDMContacts(q: string) {
+    setLiDMSearchQuery(q)
+    if (!q.trim()) { setLiDMSearchResults([]); return }
+    const res = await fetch(`/api/contacts?q=${encodeURIComponent(q)}&limit=6`)
+    if (!res.ok) return
+    const data = await res.json()
+    setLiDMSearchResults(data.contacts ?? [])
+  }
+
+  async function assignLiDMMatch(chatName: string, contactId: string) {
+    setLiDMAssigning(chatName)
+    try {
+      const res = await fetch("/api/linkedin-dm/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatName, contactId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { alert(data.error ?? `Failed to assign match (${res.status})`); return }
+      setLiDMUnmatched((prev) => prev.filter((c) => c.chatName !== chatName))
+      setLiDMUnmatchedTotal((t) => t - 1)
+      setLiDMAssigningFor(null)
+      setLiDMSearchQuery("")
+      setLiDMSearchResults([])
+    } catch {
+      alert("Network error — could not assign match. Please try again.")
+    } finally {
+      setLiDMAssigning(null)
     }
   }
 
@@ -1886,6 +2004,226 @@ function SettingsPageInner() {
                 </div>
               )}
             </div>
+        </div>
+      </div>
+
+      {/* LinkedIn Direct Messages */}
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+            {/* LinkedIn icon */}
+            <svg viewBox="0 0 24 24" fill="currentColor" className="w-4.5 h-4.5 text-blue-600" width={18} height={18}>
+              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+            </svg>
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900">LinkedIn Messages</h2>
+            <p className="text-xs text-gray-500">Import your LinkedIn message history to boost relationship scores</p>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">
+              {liDMStatus?.importedAt
+                ? `Last import: ${new Date(liDMStatus.importedAt).toLocaleString()} · ${liDMStatus.totalMessages.toLocaleString()} messages across ${liDMStatus.totalChats} conversations`
+                : "No data imported yet"}
+            </p>
+            <button
+              onClick={async () => {
+                if (!confirm("Delete all imported LinkedIn message data and reset?")) return
+                const res = await fetch("/api/linkedin-dm/reset", { method: "DELETE" })
+                if (res.ok) {
+                  const data = await res.json()
+                  setLiDMStatus(null)
+                  setLiDMResult(null)
+                  setLiDMUnmatched([])
+                  setLiDMUnmatchedTotal(0)
+                  if (data.deleted > 0) alert(`Cleared ${data.deleted.toLocaleString()} messages.`)
+                } else {
+                  alert("Failed to clear LinkedIn DM data.")
+                }
+              }}
+              className="shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors font-medium"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          {liDMResult && (
+            <div className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+              Imported {liDMResult.synced.toLocaleString()} messages from {liDMResult.chats} conversation{liDMResult.chats !== 1 ? "s" : ""} — {liDMResult.matched} matched to contacts
+            </div>
+          )}
+
+          {liDMProgress && (
+            <div className="flex items-center gap-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+              <Loader2 size={12} className="animate-spin" />
+              {liDMProgress}
+            </div>
+          )}
+
+          {/* How to export */}
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-800">How to export from LinkedIn</p>
+            <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
+              <li>Go to <strong>linkedin.com/mypreferences/d/data-privacy</strong> → <strong>Get a copy of your data</strong></li>
+              <li>Select <strong>Messages</strong> only, click <strong>Request archive</strong></li>
+              <li>LinkedIn emails you a download link (usually within minutes)</li>
+              <li>Download the ZIP → extract → upload <strong>messages.csv</strong> below</li>
+            </ol>
+            <input
+              ref={liDMFileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && importLinkedInDM(e.target.files[0])}
+            />
+            <button
+              onClick={() => liDMFileRef.current?.click()}
+              disabled={liDMImporting}
+              className="flex items-center gap-2 text-sm bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              <Upload size={13} />
+              {liDMImporting ? "Importing…" : "Upload messages.csv"}
+            </button>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Only contact names, timestamps, and LinkedIn URLs are stored. Message content is never imported.
+          </p>
+
+          {/* Unmatched LinkedIn DM conversations */}
+          <div className="border border-gray-100 rounded-xl overflow-hidden">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+              onClick={() => {
+                const next = !liDMUnmatchedOpen
+                setLiDMUnmatchedOpen(next)
+                if (next && liDMUnmatched.length === 0) loadLiDMUnmatched(0)
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <UserCheck size={14} className="text-gray-500" />
+                <span className="text-xs font-medium text-gray-700">
+                  Review unmatched conversations
+                  {liDMUnmatchedTotal > 0 && (
+                    <span className="ml-2 bg-amber-100 text-amber-700 text-xs rounded-full px-2 py-0.5">{liDMUnmatchedTotal}</span>
+                  )}
+                </span>
+              </div>
+              {liDMUnmatchedOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+            </button>
+
+            {liDMUnmatchedOpen && (
+              <div className="border-t border-gray-100">
+                {liDMUnmatchedLoading && liDMUnmatched.length === 0 ? (
+                  <div className="flex items-center justify-center py-6">
+                    <Loader2 size={16} className="animate-spin text-gray-400" />
+                  </div>
+                ) : liDMUnmatched.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-6">All conversations matched ✓</p>
+                ) : (
+                  <>
+                    <ul className="divide-y divide-gray-50">
+                      {liDMUnmatched.map((chat) => (
+                        <li key={chat.chatName} className="px-4 py-3 space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-gray-800 truncate">{chat.chatName}</p>
+                              <p className="text-xs text-gray-400">
+                                {chat.messageCount} message{chat.messageCount !== 1 ? "s" : ""}
+                                {chat.lastAt ? ` · last ${new Date(chat.lastAt).toLocaleDateString()}` : ""}
+                                {chat.profileUrl && (
+                                  <a href={chat.profileUrl} target="_blank" rel="noreferrer" className="ml-2 text-blue-500 hover:text-blue-700">
+                                    <ExternalLink size={10} className="inline" />
+                                  </a>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Suggestions */}
+                          {chat.suggestions.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {chat.suggestions.map((s) => (
+                                <button
+                                  key={s.contactId}
+                                  disabled={liDMAssigning === chat.chatName}
+                                  onClick={() => assignLiDMMatch(chat.chatName, s.contactId)}
+                                  className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 rounded-lg px-2.5 py-1 hover:bg-blue-100 disabled:opacity-50 transition-colors"
+                                >
+                                  {liDMAssigning === chat.chatName ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                  {s.name}
+                                  {s.company && <span className="text-blue-500 ml-0.5">({s.company})</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Manual search */}
+                          {liDMAssigningFor === chat.chatName ? (
+                            <div className="relative">
+                              <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5">
+                                <Search size={12} className="text-gray-400 shrink-0" />
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={liDMSearchQuery}
+                                  onChange={(e) => searchLiDMContacts(e.target.value)}
+                                  placeholder="Search contacts…"
+                                  className="flex-1 text-xs outline-none bg-transparent"
+                                />
+                                <button onClick={() => { setLiDMAssigningFor(null); setLiDMSearchQuery(""); setLiDMSearchResults([]) }}>
+                                  <X size={12} className="text-gray-400" />
+                                </button>
+                              </div>
+                              {liDMSearchResults.length > 0 && (
+                                <ul className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+                                  {liDMSearchResults.map((c) => (
+                                    <li key={c.id}>
+                                      <button
+                                        disabled={liDMAssigning === chat.chatName}
+                                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                                        onClick={() => assignLiDMMatch(chat.chatName, c.id)}
+                                      >
+                                        {liDMAssigning === chat.chatName && <Loader2 size={10} className="animate-spin text-blue-500" />}
+                                        <span className="font-medium">{c.firstName} {c.lastName}</span>
+                                        {c.company && <span className="text-gray-400 ml-1.5">{c.company}</span>}
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => { setLiDMAssigningFor(chat.chatName); setLiDMSearchQuery(""); setLiDMSearchResults([]) }}
+                              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                              + Assign manually
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {liDMUnmatched.length < liDMUnmatchedTotal && (
+                      <div className="px-4 py-3 border-t border-gray-50">
+                        <button
+                          onClick={() => loadLiDMUnmatched(liDMUnmatchedPage + 1)}
+                          disabled={liDMUnmatchedLoading}
+                          className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                        >
+                          {liDMUnmatchedLoading ? "Loading…" : `Load more (${liDMUnmatchedTotal - liDMUnmatched.length} remaining)`}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
