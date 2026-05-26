@@ -203,14 +203,18 @@
       if (pdImgs.length > 0) {
         // Score each candidate:
         //   +200 if URL contains "-cr-" (circular crop = the actual profile headshot)
-        //   + best srcset width (larger = higher-res = real profile photo, not thumbnail)
-        // DOM order is only a tiebreaker; mutual-connection thumbnails in the top card
-        // can appear before the real headshot in the HTML source.
+        //   + best srcset width (higher resolution = main profile photo, not thumbnail)
+        //   + rendered display width (profile photo ~96-120px; mutual connection thumbnail ~24-48px)
+        // The rendered width is the key tiebreaker when srcset is absent (some profiles
+        // lazy-load without srcset). DOM order is used only as the final tiebreaker.
         const scored = pdImgs.map((img, domIdx) => {
           const ss = bestSrcset(img)
           const combined = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
           const isCrop = /-cr[-/]/.test(combined)
-          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0)
+          // getBoundingClientRect().width is reliable for visible elements (popup opens
+          // on an already-loaded page). Off-screen elements return 0, which is fine.
+          const renderedW = Math.round(img.getBoundingClientRect().width) || img.naturalWidth || 0
+          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0) + renderedW
           const url = (ss && ss.width >= 100) ? ss.url : (img.currentSrc || img.src || "")
           return { url, score, domIdx }
         }).filter(({ url }) => isValidPhoto(url))
@@ -626,31 +630,38 @@
       } catch { /* ignore */ }
     }
 
+    // Use :has(h1) to target the profile card section — the <h1> holds the person's
+    // name and only appears in the profile card, not in Activity or other sections.
+    // This prevents picking up company links/logos from LinkedIn Activity posts.
     const root = document.querySelector(
-      "section.artdeco-card, .pv-top-card, .scaffold-layout__main > section, main > section"
+      "main section:has(h1), section.artdeco-card:has(h1), .pv-top-card, .scaffold-layout__main > section, main > section"
     ) ?? document
 
     // ── Strategy 2: company logo img alt text ─────────────────────────────────
-    // LinkedIn renders <img alt="Acme Corp logo"> next to each experience item.
-    // The " logo" suffix distinguishes company logos from other images.
+    // LinkedIn renders logo alt text in locale-specific formats:
+    //   English:  "Shiseido logo"
+    //   French:   "Logo de Shiseido"
+    //   German:   "Logo von Shiseido"
+    //   Italian:  "Logo di Shiseido"
     // Scan ALL logo alt texts for debugging before returning the first match.
     const logoAlts2 = []
     for (const img of root.querySelectorAll("img[alt]")) {
       const alt = (img.getAttribute("alt") ?? "").trim()
       if (/\blogo\b/i.test(alt)) logoAlts2.push(alt)
+      // Match "Company logo" (English) or "Logo de/von/di/del/do/da Company" (localized)
+      const enMatch = alt.match(/^(.+?)\s+logo$/i)
+      const l10nMatch = alt.match(/^logo\s+(?:de|von|di|del|do|da|d[''])\s+(.+)$/i)
+      const company = ((enMatch?.[1] || l10nMatch?.[1]) ?? "").trim()
       if (
-        alt.toLowerCase().endsWith(" logo") &&
-        alt.length > 6 &&
-        alt.length < 80 &&
+        company.length > 1 &&
+        company.length < 80 &&
+        !isGeo(company) &&
         !img.closest("[class*='profile-picture']") &&
         !img.closest("[class*='profile-photo']") &&
         !img.closest("[class*='photo-wrapper']")
       ) {
-        const company = alt.replace(/\s*logo$/i, "").trim()
-        if (company.length > 1 && !isGeo(company)) {
-          console.debug("[6D company] Strategy 2 (top-card logo alt):", company)
-          return company
-        }
+        console.debug("[6D company] Strategy 2 (top-card logo alt):", company)
+        return company
       }
     }
     console.debug("[6D company] Strategy 2: no match. All logo alts in root:", logoAlts2)
@@ -697,38 +708,96 @@
         if (img.closest("aside")) continue  // skip sidebar
         const alt = (img.getAttribute("alt") ?? "").trim()
         if (/\blogo\b/i.test(alt)) logoAlts4.push(alt)
+        // Same locale-aware matching as Strategy 2
+        const enMatch = alt.match(/^(.+?)\s+logo$/i)
+        const l10nMatch = alt.match(/^logo\s+(?:de|von|di|del|do|da|d[''])\s+(.+)$/i)
+        const company = ((enMatch?.[1] || l10nMatch?.[1]) ?? "").trim()
         if (
-          alt.toLowerCase().endsWith(" logo") &&
-          alt.length > 6 &&
-          alt.length < 80 &&
+          company.length > 1 &&
+          company.length < 80 &&
+          !isGeo(company) &&
           !img.closest("[class*='profile-picture']") &&
           !img.closest("[class*='profile-photo']") &&
           !img.closest("[class*='photo-wrapper']")
         ) {
-          const company = alt.replace(/\s*logo$/i, "").trim()
-          if (company.length > 1 && !isGeo(company)) {
-            console.debug("[6D company] Strategy 4 (main logo scan):", company)
-            return company
-          }
+          console.debug("[6D company] Strategy 4 (main logo scan):", company)
+          return company
         }
       }
       console.debug("[6D company] Strategy 4: no match. All logo alts in main:", logoAlts4)
     }
 
-    // ── Strategy 5: /company/ links in <main> ────────────────────────────────────
-    // LinkedIn has stopped using alt="Company logo" on most profiles since 2024,
-    // making Strategies 2 & 4 return empty arrays. However, LinkedIn always wraps
-    // the company name in an <a href="/company/..."> link in the experience / top-card
-    // section. The first such link (outside <aside>) is the current employer.
-    if (mainEl2) {
-      for (const a of mainEl2.querySelectorAll("a[href*='/company/']")) {
-        if (a.closest("aside")) continue  // skip sidebar (PYMK, ads)
+    // ── Strategy 5: /company/ links ─────────────────────────────────────────────
+    // Priority order (most reliable → least):
+    //   5a. Experience section — job entry with "Present" date (= confirmed current employer)
+    //   5b. Profile card (root) — experience badge for current positions
+    //   5c. Experience section — first company link (usually most recent, even if date unclear)
+    //   5d. Full <main> — last resort (includes Activity posts, sidebar, etc.)
+    //
+    // "Present" check solves the case where the profile card badge shows a
+    // secondary/old company first (e.g. TSYS before FIS when both are listed as
+    // current), because the experience section sorts by start date descending.
+    // Returns true if element is inside a post/article (shared/republished content).
+    // LinkedIn wraps feed posts and featured articles in <article> or role="article".
+    // Experience badges are plain divs — never inside articles.
+    // NOTE: We intentionally do NOT check data-view-name* patterns — they are too
+    // broad (e.g. "profile-updates" wraps activity but may also wrap other sections)
+    // and excluding them causes all company links to disappear on some profiles.
+    function isInsideArticle(el) {
+      return !!(el.closest("article") || el.closest("[role='article']"))
+    }
+    function findCompanyLink(searchRoot) {
+      if (!searchRoot) return null
+      for (const a of searchRoot.querySelectorAll("a[href*='/company/']")) {
+        if (a.closest("aside")) continue  // skip sidebar
+        if (isInsideArticle(a)) continue  // skip republished posts / featured articles
         const nameEl = a.querySelector("span[aria-hidden='true']") || a
         const name = (nameEl.textContent ?? "").trim()
-        if (name.length > 1 && name.length < 80 && !isGeo(name)) {
-          console.debug("[6D company] Strategy 5 (/company/ link):", name)
-          return name
+        if (name.length > 1 && name.length < 80 && !isGeo(name)) return name
+      }
+      return null
+    }
+    // Find the experience section by data attribute or localized heading text.
+    function findExperienceSection() {
+      const byAttr = document.querySelector("section[data-view-name*='experience']")
+      if (byAttr) return byAttr
+      for (const s of document.querySelectorAll("main section")) {
+        const h = s.querySelector("h2, h3")
+        if (!h) continue
+        if (/^exp[eé]ri|^ervar|^erfahrung|^esperien|^experiencia|^do[sś]wiad/i.test(h.textContent.trim())) return s
+      }
+      return null
+    }
+    // Find the first company in the experience section that has a "currently working here"
+    // date indicator.  LinkedIn uses locale-specific words for the end of an open date range.
+    const PRESENT_RE = /\b(present|aujourd'hui|heute|heden|ahora|attuale|maintenant|현재|現在|сейчас|جاري)\b/i
+    function findCurrentCompanyByPresent(expRoot) {
+      if (!expRoot) return null
+      // Each experience entry is typically an <li> or a pvs-entity div
+      for (const item of expRoot.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+        if (!PRESENT_RE.test(item.textContent)) continue
+        for (const a of item.querySelectorAll("a[href*='/company/']")) {
+          if (a.closest("aside")) continue
+          if (isInsideArticle(a)) continue  // skip posts inside experience section too
+          const nameEl = a.querySelector("span[aria-hidden='true']") || a
+          const name = (nameEl.textContent ?? "").trim()
+          if (name.length > 1 && name.length < 80 && !isGeo(name)) return name
         }
+      }
+      return null
+    }
+    const expSection = findExperienceSection()
+    const sources5 = [
+      [() => findCurrentCompanyByPresent(expSection), "experience(present)"],
+      [() => findCompanyLink(root),                   "profile-card"],
+      [() => findCompanyLink(expSection),             "experience-section"],
+      [() => findCompanyLink(mainEl2),                "main"],
+    ]
+    for (const [fn, label] of sources5) {
+      const co5 = fn()
+      if (co5) {
+        console.debug("[6D company] Strategy 5 (/company/ link):", co5, `(${label})`)
+        return co5
       }
     }
 
@@ -1152,6 +1221,25 @@
 
     sendResponse({ profile, debugLines, error })
     return false // sendResponse called synchronously
+  })
+
+  // ─── Test fixture capture ─────────────────────────────────────────────────
+  // Responds to CAPTURE_FIXTURE with the main element's HTML + current scrape
+  // result so the popup can write a test fixture file.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "CAPTURE_FIXTURE") return false
+    let profile = null, error = null
+    try { profile = scrapeProfile() } catch (e) { error = e.message }
+    const mainHtml = document.querySelector("main")?.innerHTML ?? ""
+    sendResponse({
+      profile,
+      error,
+      mainHtml,
+      title: document.title,
+      url: window.location.href,
+      slug: window.location.pathname.replace(/^\/in\//, "").replace(/\/$/, "").split("/")[0],
+    })
+    return false
   })
 
   // ─── SPA navigation detection ─────────────────────────────────────────────

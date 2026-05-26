@@ -832,7 +832,11 @@ function SettingsPageInner() {
           try {
             const event = JSON.parse(line.slice(6))
             if (event.type === "status") setLiDMProgress(event.message)
-            else if (event.type === "progress") setLiDMProgress(`${event.file}: ${event.synced} messages${event.matched ? " ✓" : " (no match)"}`)
+            else if (event.type === "progress") {
+              const counter = event.totalConvs ? ` (${event.convIdx}/${event.totalConvs})` : ""
+              const partial = event.partial ? `… ${event.synced}` : `${event.synced}`
+              setLiDMProgress(`${event.file}: ${partial} messages${event.matched ? " ✓" : " (no match)"}${counter}`)
+            }
             else if (event.type === "done") {
               setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched })
               setLiDMProgress(null)
