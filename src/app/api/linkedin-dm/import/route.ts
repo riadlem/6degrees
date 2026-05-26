@@ -1,7 +1,6 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { parseLinkedInDMExport } from "@/lib/linkedin-dm-parser"
 import { matchLinkedInDMToContact } from "@/lib/linkedin-dm-match"
 import { recomputeScores } from "@/lib/reconnect-score"
 
@@ -11,21 +10,35 @@ function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
 }
 
+// Pre-parsed conversation shape sent by the client-side parser in settings/page.tsx.
+// The browser parses the CSV fully, strips message bodies, and sends only metadata.
+// This avoids Vercel's 4.5 MB body limit regardless of export size.
+type ClientConversation = {
+  conversationId: string
+  chatName: string
+  profileUrl: string | null
+  messages: Array<{
+    sentAt: string       // ISO 8601 date string
+    isOutbound: boolean
+    senderName: string
+  }>
+}
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  let formData: FormData
+  // Accept JSON body (pre-parsed by client-side parser in settings/page.tsx)
+  let conversations: ClientConversation[]
   try {
-    formData = await req.formData()
+    const body = await req.json()
+    if (!body?.conversations || !Array.isArray(body.conversations)) {
+      return new Response("Expected { conversations: [] }", { status: 400 })
+    }
+    conversations = body.conversations
   } catch {
-    return new Response("Invalid form data", { status: 400 })
-  }
-
-  const file = formData.get("file") as File | null
-  if (!file) {
-    return new Response("No file provided", { status: 400 })
+    return new Response("Invalid JSON body", { status: 400 })
   }
 
   const encoder = new TextEncoder()
@@ -44,31 +57,22 @@ export async function POST(req: Request) {
       }
 
       try {
-        send({ type: "status", message: "Processing LinkedIn DM export…" })
+        send({ type: "status", message: "Processing LinkedIn DM conversations…" })
 
         let totalSynced = 0
         let totalChats = 0
         let totalMatched = 0
 
-        // Only import messages from the last 4 years — older interactions
-        // have negligible score weight and bloat the table unnecessarily.
-        const FOUR_YEARS_AGO = new Date(Date.now() - 4 * 365.25 * 24 * 60 * 60 * 1000)
-
-        const text = await file.text()
-        const conversations = parseLinkedInDMExport(text)
-
-        for (const { chatName, profileUrl, messages: allMessages } of conversations) {
-          const messages = allMessages.filter((m) => m.sentAt >= FOUR_YEARS_AGO)
-          if (messages.length === 0) {
+        for (const conv of conversations) {
+          const { conversationId, chatName, profileUrl, messages } = conv
+          if (!messages || messages.length === 0) {
             send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0 })
             continue
           }
 
-          const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl)
+          const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl ?? null)
           totalChats++
-          if (contactId) {
-            totalMatched++
-          }
+          if (contactId) totalMatched++
 
           // Upsert messages in chunks of 200
           let synced = 0
@@ -80,10 +84,10 @@ export async function POST(req: Request) {
               data: chunk.map((m) => ({
                 userId,
                 contactId: contactId ?? null,
-                conversationId: m.conversationId,
-                chatName: m.chatName,
-                profileUrl: m.profileUrl,
-                sentAt: m.sentAt,
+                conversationId,
+                chatName,
+                profileUrl: profileUrl ?? null,
+                sentAt: new Date(m.sentAt),
                 isOutbound: m.isOutbound,
                 senderName: m.senderName,
               })),
@@ -94,15 +98,7 @@ export async function POST(req: Request) {
           }
 
           totalSynced += synced
-
-          send({
-            type: "progress",
-            file: chatName,
-            matched: !!contactId,
-            messages: messages.length,
-            synced,
-            skipped,
-          })
+          send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped })
         }
 
         // Update sync record
@@ -113,15 +109,10 @@ export async function POST(req: Request) {
             totalMessages: { increment: totalSynced },
             totalChats: { increment: totalChats },
           },
-          create: {
-            userId,
-            importedAt: new Date(),
-            totalMessages: totalSynced,
-            totalChats,
-          },
+          create: { userId, importedAt: new Date(), totalMessages: totalSynced, totalChats },
         })
 
-        // Recompute scores in the background — don't block the SSE stream
+        // Recompute scores in the background
         recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched })
