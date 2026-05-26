@@ -3,6 +3,53 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { recomputeScores } from "@/lib/reconnect-score"
 
+/** Extract the vanity slug from any linkedin.com/in/... URL, lowercased. */
+function extractKey(url: string): string | null {
+  const m = url.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+  return m ? decodeURIComponent(m[1]).toLowerCase() : null
+}
+
+function stripAccents(str: string): string {
+  return str.normalize("NFD").replace(/\p{Mn}/gu, "")
+}
+
+type NameVariant = { normFirst: string; normLast: string }
+
+/**
+ * Return all (normFirst, normLast) candidate pairs for a chat name.
+ * Fixes two bugs from the original implementation:
+ *   1. Strip ALL emoji — the old regex only stripped emoji preceded by a space,
+ *      so "Hernandez🌺" (no space) leaked through into the key.
+ *   2. Compound last names — "Carla de Preval" → generate BOTH candidates:
+ *        (carla, preval)     [last word only — some DBs store it trimmed]
+ *        (carla, de preval)  [full remainder — handles noble particles de/van/di/…]
+ */
+function nameVariants(chatName: string): NameVariant[] {
+  const cleaned = chatName
+    .trim()
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Emoji_Modifier}️‍]/gu, "")
+    .replace(/[\(\[\{].*?[\)\]\}]/g, "")
+    .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+
+  const parts = cleaned.split(" ").filter(Boolean)
+  if (parts.length === 0) return []
+
+  const nf = stripAccents(parts[0]).toLowerCase()
+
+  if (parts.length === 1) return [{ normFirst: nf, normLast: "" }]
+  if (parts.length === 2) return [{ normFirst: nf, normLast: stripAccents(parts[1]).toLowerCase() }]
+
+  // 3+ parts: two candidates (last-word-only first — more selective against the DB)
+  const variants: NameVariant[] = [
+    { normFirst: nf, normLast: stripAccents(parts[parts.length - 1]).toLowerCase() },
+  ]
+  const fullRest = stripAccents(parts.slice(1).join(" ")).toLowerCase()
+  if (fullRest !== variants[0].normLast) variants.push({ normFirst: nf, normLast: fullRest })
+  return variants
+}
+
 export const maxDuration = 300
 
 function sseEvent(data: unknown): string {
@@ -22,20 +69,26 @@ type ClientConversation = {
 }
 
 // ─── Batch contact resolution ─────────────────────────────────────────────────
-// Resolves contacts for ALL conversations with just 2-3 DB queries instead of
+// Resolves contacts for ALL conversations with 3-4 DB queries instead of
 // one per conversation. Returns Map<conversationId, contactId | null>.
+//
+// Strategy (in order, stopping when matched):
+//   1. URL key → Contact.linkedinKey  (IN query, most reliable)
+//   2. URL key → Contact.profileUrl   (catches renamed/changed vanity URLs)
+//   3. Exact first+last name           (OR batch query)
+//   4. Accent-normalised name          (in-memory after fetching by first char)
+//   5. Single first name (unique only)
 async function batchResolveContacts(
   userId: string,
   convs: ClientConversation[],
 ): Promise<Map<string, string | null>> {
   const result = new Map<string, string | null>()
 
-  // ── Step 1: Batch LinkedIn URL key match (1 query) ──────────────────────
-  const keyToConvIds = new Map<string, string[]>()
+  // ── Step 1: Batch LinkedIn URL key → linkedinKey match ──────────────────
+  const keyToConvIds = new Map<string, string[]>()  // normalised key → [conversationId]
   for (const c of convs) {
-    const m = c.profileUrl?.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
-    if (m) {
-      const key = m[1]
+    const key = c.profileUrl ? extractKey(c.profileUrl) : null
+    if (key) {
       if (!keyToConvIds.has(key)) keyToConvIds.set(key, [])
       keyToConvIds.get(key)!.push(c.conversationId)
     }
@@ -46,92 +99,77 @@ async function batchResolveContacts(
       select: { id: true, linkedinKey: true },
     })
     for (const c of contacts) {
-      for (const convId of keyToConvIds.get(c.linkedinKey) ?? []) {
+      for (const convId of keyToConvIds.get(c.linkedinKey.toLowerCase()) ?? []) {
         result.set(convId, c.id)
       }
     }
   }
 
-  // ── Step 2: Batch name match for URL-unresolved conversations (1 query) ─
-  const unresolved = convs.filter((c) => !result.has(c.conversationId))
-
-  type NameEntry = { firstName: string; lastName: string; convIds: string[] }
-  const twoWordMap  = new Map<string, NameEntry>()  // firstName\0lastName → entry
-  const oneWordMap  = new Map<string, NameEntry>()  // firstName → entry
-
-  for (const c of unresolved) {
-    const cleaned = c.chatName
-      .trim()
-      .replace(/[\(\[\{].*?[\)\]\}]/g, "")
-      .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
-      .replace(/\s+[\p{Emoji_Presentation}\p{Extended_Pictographic}].*/gu, "")
-      .trim()
-    const parts = cleaned.split(/\s+/).filter(Boolean)
-    if (parts.length === 0) { result.set(c.conversationId, null); continue }
-
-    if (parts.length >= 2) {
-      const firstName = parts[0]
-      const lastName  = parts[parts.length - 1]
-      const key = `${firstName.toLowerCase()}\0${lastName.toLowerCase()}`
-      if (!twoWordMap.has(key)) twoWordMap.set(key, { firstName, lastName, convIds: [] })
-      twoWordMap.get(key)!.convIds.push(c.conversationId)
-    } else {
-      const firstName = parts[0]
-      const key = firstName.toLowerCase()
-      if (!oneWordMap.has(key)) oneWordMap.set(key, { firstName, lastName: "", convIds: [] })
-      oneWordMap.get(key)!.convIds.push(c.conversationId)
+  // ── Step 2: URL key → Contact.profileUrl fallback ───────────────────────
+  // Catches contacts whose vanity key changed after they were imported.
+  // Load ALL contacts that have a profileUrl; match keys in-memory.
+  const unresolvedWithUrl = convs.filter((c) => !result.has(c.conversationId) && c.profileUrl)
+  if (unresolvedWithUrl.length > 0) {
+    const contactsWithUrl = await prisma.contact.findMany({
+      where: { userId, profileUrl: { not: null } },
+      select: { id: true, profileUrl: true },
+    })
+    const profileKeyMap = new Map<string, string>()  // normalised key → contactId
+    for (const c of contactsWithUrl) {
+      const k = c.profileUrl ? extractKey(c.profileUrl) : null
+      if (k && !profileKeyMap.has(k)) profileKeyMap.set(k, c.id)
+    }
+    for (const c of unresolvedWithUrl) {
+      const key = extractKey(c.profileUrl!)
+      if (key && profileKeyMap.has(key)) result.set(c.conversationId, profileKeyMap.get(key)!)
     }
   }
 
-  // Two-word names batch
-  if (twoWordMap.size > 0) {
-    const pairs = [...twoWordMap.values()]
-    const contacts = await prisma.contact.findMany({
-      where: {
-        userId,
-        OR: pairs.map(({ firstName, lastName }) => ({
-          firstName: { equals: firstName, mode: "insensitive" as const },
-          lastName:  { equals: lastName,  mode: "insensitive" as const },
-        })),
-      },
-      select: { id: true, firstName: true, lastName: true },
-    })
-    // Group: lowerfirst\0lowerlast → [contactId, ...]
-    const nameHits = new Map<string, string[]>()
-    for (const c of contacts) {
-      const k = `${(c.firstName ?? "").toLowerCase()}\0${(c.lastName ?? "").toLowerCase()}`
-      if (!nameHits.has(k)) nameHits.set(k, [])
-      nameHits.get(k)!.push(c.id)
-    }
-    for (const [key, { convIds }] of twoWordMap) {
-      const hits = nameHits.get(key) ?? []
-      const contactId = hits.length === 1 ? hits[0] : null  // discard ambiguous
-      for (const convId of convIds) result.set(convId, contactId)
-    }
+  // ── Step 3: Name matching (accent-normalised + compound surnames) ──────────
+  // For each unresolved conversation compute all name variant keys (handles:
+  //   • accents on first/last name
+  //   • emoji glued to the name without a space
+  //   • compound last names like "de Preval", "van der Berg"
+  // One DB query per first-char bucket covers all cases.
+
+  const unresolvedByName = convs.filter((c) => !result.has(c.conversationId))
+
+  // convId → ordered list of keys to try (first match wins)
+  const convVariantKeys = new Map<string, string[]>()
+  const allFirstChars = new Set<string>()
+
+  for (const c of unresolvedByName) {
+    const variants = nameVariants(c.chatName)
+    if (variants.length === 0) { result.set(c.conversationId, null); continue }
+    const keys = variants.map((v) => `${v.normFirst}\0${v.normLast}`)
+    convVariantKeys.set(c.conversationId, keys)
+    allFirstChars.add(variants[0].normFirst.charAt(0))
   }
 
-  // Single-word names batch
-  if (oneWordMap.size > 0) {
-    const names = [...oneWordMap.values()]
-    const contacts = await prisma.contact.findMany({
-      where: {
-        userId,
-        OR: names.map(({ firstName }) => ({
-          firstName: { equals: firstName, mode: "insensitive" as const },
-        })),
-      },
-      select: { id: true, firstName: true },
-    })
-    const nameHits = new Map<string, string[]>()
-    for (const c of contacts) {
-      const k = (c.firstName ?? "").toLowerCase()
-      if (!nameHits.has(k)) nameHits.set(k, [])
-      nameHits.get(k)!.push(c.id)
+  if (allFirstChars.size > 0) {
+    const firstChars = [...allFirstChars]
+    const pool = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
+      SELECT id, "firstName", "lastName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ANY(${firstChars}::text[])
+    `
+    // Build lookup: normFirst\0normLast → [contactId]
+    const lookup = new Map<string, string[]>()
+    for (const c of pool) {
+      const k = `${stripAccents(c.firstName ?? "").toLowerCase()}\0${stripAccents(c.lastName ?? "").toLowerCase()}`
+      if (!lookup.has(k)) lookup.set(k, [])
+      lookup.get(k)!.push(c.id)
     }
-    for (const [key, { convIds }] of oneWordMap) {
-      const hits = nameHits.get(key) ?? []
-      const contactId = hits.length === 1 ? hits[0] : null
-      for (const convId of convIds) result.set(convId, contactId)
+
+    for (const [convId, keys] of convVariantKeys) {
+      let matched: string | null = null
+      for (const key of keys) {
+        const hits = lookup.get(key) ?? []
+        if (hits.length === 1) { matched = hits[0]; break }
+        // ambiguous (2+) → try next variant (might be more specific)
+      }
+      result.set(convId, matched)
     }
   }
 

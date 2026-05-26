@@ -2291,25 +2291,45 @@ function SettingsPageInner() {
 
           {/* Unmatched LinkedIn DM conversations */}
           <div className="border border-gray-100 rounded-xl overflow-hidden">
-            <button
-              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-              onClick={() => {
-                const next = !liDMUnmatchedOpen
-                setLiDMUnmatchedOpen(next)
-                if (next && liDMUnmatched.length === 0) loadLiDMUnmatched(0)
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <UserCheck size={14} className="text-gray-500" />
-                <span className="text-xs font-medium text-gray-700">
-                  Review unmatched conversations
-                  {liDMUnmatchedTotal > 0 && (
-                    <span className="ml-2 bg-amber-100 text-amber-700 text-xs rounded-full px-2 py-0.5">{liDMUnmatchedTotal}</span>
-                  )}
-                </span>
-              </div>
-              {liDMUnmatchedOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
-            </button>
+            <div className="flex items-center">
+              <button
+                className="flex-1 flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                onClick={() => {
+                  const next = !liDMUnmatchedOpen
+                  setLiDMUnmatchedOpen(next)
+                  if (next && liDMUnmatched.length === 0) loadLiDMUnmatched(0)
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <UserCheck size={14} className="text-gray-500" />
+                  <span className="text-xs font-medium text-gray-700">
+                    Review unmatched conversations
+                    {liDMUnmatchedTotal > 0 && (
+                      <span className="ml-2 bg-amber-100 text-amber-700 text-xs rounded-full px-2 py-0.5">{liDMUnmatchedTotal}</span>
+                    )}
+                  </span>
+                </div>
+                {liDMUnmatchedOpen ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+              </button>
+              {liDMUnmatchedTotal > 0 && (
+                <button
+                  className="shrink-0 px-3 py-3 text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors border-l border-gray-100"
+                  title="Re-run automatic matching on all unmatched conversations"
+                  onClick={async () => {
+                    const res = await fetch("/api/linkedin-dm/match", { method: "PUT" })
+                    if (res.ok) {
+                      const data = await res.json()
+                      if (data.fixed > 0) {
+                        loadLiDMUnmatched(0)
+                        setLiDMUnmatchedTotal((t) => Math.max(0, t - data.fixed))
+                      }
+                    }
+                  }}
+                >
+                  <RefreshCw size={13} />
+                </button>
+              )}
+            </div>
 
             {liDMUnmatchedOpen && (
               <div className="border-t border-gray-100">
