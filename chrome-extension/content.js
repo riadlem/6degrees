@@ -728,14 +728,15 @@
     }
 
     // ── Strategy 5: /company/ links ─────────────────────────────────────────────
-    // Priority: (a) profile card → (b) experience section → (c) full <main>.
+    // Priority order (most reliable → least):
+    //   5a. Experience section — job entry with "Present" date (= confirmed current employer)
+    //   5b. Profile card (root) — experience badge for current positions
+    //   5c. Experience section — first company link (usually most recent, even if date unclear)
+    //   5d. Full <main> — last resort (includes Activity posts, sidebar, etc.)
     //
-    // The Activity section (posts, articles that tag companies) and the sidebar
-    // can contain /company/ links for unrelated companies. By searching in order
-    // of reliability we avoid picking up a company from a news post.
-    //
-    // `root` is now scoped with :has(h1) to the profile card, so it only contains
-    // the current employer experience badges — not Activity posts.
+    // "Present" check solves the case where the profile card badge shows a
+    // secondary/old company first (e.g. TSYS before FIS when both are listed as
+    // current), because the experience section sorts by start date descending.
     function findCompanyLink(searchRoot) {
       if (!searchRoot) return null
       for (const a of searchRoot.querySelectorAll("a[href*='/company/']")) {
@@ -746,8 +747,7 @@
       }
       return null
     }
-    // Find the experience section by data attribute or by section heading text
-    // (headings like "Experience" / "Expérience" don't change with CSS updates).
+    // Find the experience section by data attribute or localized heading text.
     function findExperienceSection() {
       const byAttr = document.querySelector("section[data-view-name*='experience']")
       if (byAttr) return byAttr
@@ -758,10 +758,32 @@
       }
       return null
     }
+    // Find the first company in the experience section that has a "currently working here"
+    // date indicator.  LinkedIn uses locale-specific words for the end of an open date range.
+    const PRESENT_RE = /\b(present|aujourd'hui|heute|heden|ahora|attuale|maintenant|현재|現在|сейчас|جاري)\b/i
+    function findCurrentCompanyByPresent(expRoot) {
+      if (!expRoot) return null
+      // Each experience entry is typically an <li> or a pvs-entity div
+      for (const item of expRoot.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+        if (!PRESENT_RE.test(item.textContent)) continue
+        for (const a of item.querySelectorAll("a[href*='/company/']")) {
+          if (a.closest("aside")) continue
+          const nameEl = a.querySelector("span[aria-hidden='true']") || a
+          const name = (nameEl.textContent ?? "").trim()
+          if (name.length > 1 && name.length < 80 && !isGeo(name)) return name
+        }
+      }
+      return null
+    }
     const expSection = findExperienceSection()
-    const sources5 = [[root, "profile-card"], [expSection, "experience-section"], [mainEl2, "main"]]
-    for (const [searchRoot, label] of sources5) {
-      const co5 = findCompanyLink(searchRoot)
+    const sources5 = [
+      [() => findCurrentCompanyByPresent(expSection), "experience(present)"],
+      [() => findCompanyLink(root),                   "profile-card"],
+      [() => findCompanyLink(expSection),             "experience-section"],
+      [() => findCompanyLink(mainEl2),                "main"],
+    ]
+    for (const [fn, label] of sources5) {
+      const co5 = fn()
       if (co5) {
         console.debug("[6D company] Strategy 5 (/company/ link):", co5, `(${label})`)
         return co5

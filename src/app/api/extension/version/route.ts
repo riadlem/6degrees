@@ -24,6 +24,11 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.11: Fix company when multiple current positions exist (e.g. FIS + TSYS):",
+    "         Strategy 5 now checks the experience section for a job entry with",
+    "         a 'Present' date first — that's the confirmed current employer.",
+    "         Profile-card badge order is unreliable when multiple current roles",
+    "         are listed; experience section sort is always newest-first.",
     "v1.4.10: Fix company: use main section:has(h1) to scope root to profile card,",
     "         avoiding Activity posts that tag companies. Strategy 5 now searches",
     "         profile card → experience section → full page (in that order), so",
