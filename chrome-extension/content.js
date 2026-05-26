@@ -737,10 +737,18 @@
     // "Present" check solves the case where the profile card badge shows a
     // secondary/old company first (e.g. TSYS before FIS when both are listed as
     // current), because the experience section sorts by start date descending.
+    // Returns true if element is inside a post/article (shared/republished content).
+    // LinkedIn wraps feed posts and featured articles in <article> or role="article".
+    // Experience badges are plain divs — never inside articles.
+    function isInsideArticle(el) {
+      return !!(el.closest("article") || el.closest("[role='article']") ||
+                el.closest("[data-view-name*='update']") || el.closest("[data-view-name*='post']"))
+    }
     function findCompanyLink(searchRoot) {
       if (!searchRoot) return null
       for (const a of searchRoot.querySelectorAll("a[href*='/company/']")) {
         if (a.closest("aside")) continue  // skip sidebar
+        if (isInsideArticle(a)) continue  // skip republished posts / featured articles
         const nameEl = a.querySelector("span[aria-hidden='true']") || a
         const name = (nameEl.textContent ?? "").trim()
         if (name.length > 1 && name.length < 80 && !isGeo(name)) return name
@@ -768,6 +776,7 @@
         if (!PRESENT_RE.test(item.textContent)) continue
         for (const a of item.querySelectorAll("a[href*='/company/']")) {
           if (a.closest("aside")) continue
+          if (isInsideArticle(a)) continue  // skip posts inside experience section too
           const nameEl = a.querySelector("span[aria-hidden='true']") || a
           const name = (nameEl.textContent ?? "").trim()
           if (name.length > 1 && name.length < 80 && !isGeo(name)) return name

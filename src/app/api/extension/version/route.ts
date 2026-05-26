@@ -24,6 +24,10 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.12: Skip company links inside <article> / role=article / data-view-name*=post.",
+    "         LinkedIn renders republished/shared posts as articles — company tags in",
+    "         those posts (e.g. TSYS in a reshared post) were beating the real employer",
+    "         (FIS in an experience badge, which is never inside an article).",
     "v1.4.11: Fix company when multiple current positions exist (e.g. FIS + TSYS):",
     "         Strategy 5 now checks the experience section for a job entry with",
     "         a 'Present' date first — that's the confirmed current employer.",
