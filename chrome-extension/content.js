@@ -203,14 +203,18 @@
       if (pdImgs.length > 0) {
         // Score each candidate:
         //   +200 if URL contains "-cr-" (circular crop = the actual profile headshot)
-        //   + best srcset width (larger = higher-res = real profile photo, not thumbnail)
-        // DOM order is only a tiebreaker; mutual-connection thumbnails in the top card
-        // can appear before the real headshot in the HTML source.
+        //   + best srcset width (higher resolution = main profile photo, not thumbnail)
+        //   + rendered display width (profile photo ~96-120px; mutual connection thumbnail ~24-48px)
+        // The rendered width is the key tiebreaker when srcset is absent (some profiles
+        // lazy-load without srcset). DOM order is used only as the final tiebreaker.
         const scored = pdImgs.map((img, domIdx) => {
           const ss = bestSrcset(img)
           const combined = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
           const isCrop = /-cr[-/]/.test(combined)
-          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0)
+          // getBoundingClientRect().width is reliable for visible elements (popup opens
+          // on an already-loaded page). Off-screen elements return 0, which is fine.
+          const renderedW = Math.round(img.getBoundingClientRect().width) || img.naturalWidth || 0
+          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0) + renderedW
           const url = (ss && ss.width >= 100) ? ss.url : (img.currentSrc || img.src || "")
           return { url, score, domIdx }
         }).filter(({ url }) => isValidPhoto(url))
@@ -626,31 +630,38 @@
       } catch { /* ignore */ }
     }
 
+    // Use :has(h1) to target the profile card section — the <h1> holds the person's
+    // name and only appears in the profile card, not in Activity or other sections.
+    // This prevents picking up company links/logos from LinkedIn Activity posts.
     const root = document.querySelector(
-      "section.artdeco-card, .pv-top-card, .scaffold-layout__main > section, main > section"
+      "main section:has(h1), section.artdeco-card:has(h1), .pv-top-card, .scaffold-layout__main > section, main > section"
     ) ?? document
 
     // ── Strategy 2: company logo img alt text ─────────────────────────────────
-    // LinkedIn renders <img alt="Acme Corp logo"> next to each experience item.
-    // The " logo" suffix distinguishes company logos from other images.
+    // LinkedIn renders logo alt text in locale-specific formats:
+    //   English:  "Shiseido logo"
+    //   French:   "Logo de Shiseido"
+    //   German:   "Logo von Shiseido"
+    //   Italian:  "Logo di Shiseido"
     // Scan ALL logo alt texts for debugging before returning the first match.
     const logoAlts2 = []
     for (const img of root.querySelectorAll("img[alt]")) {
       const alt = (img.getAttribute("alt") ?? "").trim()
       if (/\blogo\b/i.test(alt)) logoAlts2.push(alt)
+      // Match "Company logo" (English) or "Logo de/von/di/del/do/da Company" (localized)
+      const enMatch = alt.match(/^(.+?)\s+logo$/i)
+      const l10nMatch = alt.match(/^logo\s+(?:de|von|di|del|do|da|d[''])\s+(.+)$/i)
+      const company = ((enMatch?.[1] || l10nMatch?.[1]) ?? "").trim()
       if (
-        alt.toLowerCase().endsWith(" logo") &&
-        alt.length > 6 &&
-        alt.length < 80 &&
+        company.length > 1 &&
+        company.length < 80 &&
+        !isGeo(company) &&
         !img.closest("[class*='profile-picture']") &&
         !img.closest("[class*='profile-photo']") &&
         !img.closest("[class*='photo-wrapper']")
       ) {
-        const company = alt.replace(/\s*logo$/i, "").trim()
-        if (company.length > 1 && !isGeo(company)) {
-          console.debug("[6D company] Strategy 2 (top-card logo alt):", company)
-          return company
-        }
+        console.debug("[6D company] Strategy 2 (top-card logo alt):", company)
+        return company
       }
     }
     console.debug("[6D company] Strategy 2: no match. All logo alts in root:", logoAlts2)
@@ -697,38 +708,63 @@
         if (img.closest("aside")) continue  // skip sidebar
         const alt = (img.getAttribute("alt") ?? "").trim()
         if (/\blogo\b/i.test(alt)) logoAlts4.push(alt)
+        // Same locale-aware matching as Strategy 2
+        const enMatch = alt.match(/^(.+?)\s+logo$/i)
+        const l10nMatch = alt.match(/^logo\s+(?:de|von|di|del|do|da|d[''])\s+(.+)$/i)
+        const company = ((enMatch?.[1] || l10nMatch?.[1]) ?? "").trim()
         if (
-          alt.toLowerCase().endsWith(" logo") &&
-          alt.length > 6 &&
-          alt.length < 80 &&
+          company.length > 1 &&
+          company.length < 80 &&
+          !isGeo(company) &&
           !img.closest("[class*='profile-picture']") &&
           !img.closest("[class*='profile-photo']") &&
           !img.closest("[class*='photo-wrapper']")
         ) {
-          const company = alt.replace(/\s*logo$/i, "").trim()
-          if (company.length > 1 && !isGeo(company)) {
-            console.debug("[6D company] Strategy 4 (main logo scan):", company)
-            return company
-          }
+          console.debug("[6D company] Strategy 4 (main logo scan):", company)
+          return company
         }
       }
       console.debug("[6D company] Strategy 4: no match. All logo alts in main:", logoAlts4)
     }
 
-    // ── Strategy 5: /company/ links in <main> ────────────────────────────────────
-    // LinkedIn has stopped using alt="Company logo" on most profiles since 2024,
-    // making Strategies 2 & 4 return empty arrays. However, LinkedIn always wraps
-    // the company name in an <a href="/company/..."> link in the experience / top-card
-    // section. The first such link (outside <aside>) is the current employer.
-    if (mainEl2) {
-      for (const a of mainEl2.querySelectorAll("a[href*='/company/']")) {
-        if (a.closest("aside")) continue  // skip sidebar (PYMK, ads)
+    // ── Strategy 5: /company/ links ─────────────────────────────────────────────
+    // Priority: (a) profile card → (b) experience section → (c) full <main>.
+    //
+    // The Activity section (posts, articles that tag companies) and the sidebar
+    // can contain /company/ links for unrelated companies. By searching in order
+    // of reliability we avoid picking up a company from a news post.
+    //
+    // `root` is now scoped with :has(h1) to the profile card, so it only contains
+    // the current employer experience badges — not Activity posts.
+    function findCompanyLink(searchRoot) {
+      if (!searchRoot) return null
+      for (const a of searchRoot.querySelectorAll("a[href*='/company/']")) {
+        if (a.closest("aside")) continue  // skip sidebar
         const nameEl = a.querySelector("span[aria-hidden='true']") || a
         const name = (nameEl.textContent ?? "").trim()
-        if (name.length > 1 && name.length < 80 && !isGeo(name)) {
-          console.debug("[6D company] Strategy 5 (/company/ link):", name)
-          return name
-        }
+        if (name.length > 1 && name.length < 80 && !isGeo(name)) return name
+      }
+      return null
+    }
+    // Find the experience section by data attribute or by section heading text
+    // (headings like "Experience" / "Expérience" don't change with CSS updates).
+    function findExperienceSection() {
+      const byAttr = document.querySelector("section[data-view-name*='experience']")
+      if (byAttr) return byAttr
+      for (const s of document.querySelectorAll("main section")) {
+        const h = s.querySelector("h2, h3")
+        if (!h) continue
+        if (/^exp[eé]ri|^ervar|^erfahrung|^esperien|^experiencia|^do[sś]wiad/i.test(h.textContent.trim())) return s
+      }
+      return null
+    }
+    const expSection = findExperienceSection()
+    const sources5 = [[root, "profile-card"], [expSection, "experience-section"], [mainEl2, "main"]]
+    for (const [searchRoot, label] of sources5) {
+      const co5 = findCompanyLink(searchRoot)
+      if (co5) {
+        console.debug("[6D company] Strategy 5 (/company/ link):", co5, `(${label})`)
+        return co5
       }
     }
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "6Degrees for LinkedIn",
-  "version": "1.4.9",
+  "version": "1.4.10",
   "description": "Capture LinkedIn profiles and enrich your 6Degrees contacts",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
