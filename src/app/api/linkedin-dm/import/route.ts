@@ -1,7 +1,6 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { matchLinkedInDMToContact } from "@/lib/linkedin-dm-match"
 import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
@@ -11,8 +10,6 @@ function sseEvent(data: unknown): string {
 }
 
 // Pre-parsed conversation shape sent by the client-side parser in settings/page.tsx.
-// The browser parses the CSV fully, strips message bodies, and sends only metadata.
-// This avoids Vercel's 4.5 MB body limit regardless of export size.
 type ClientConversation = {
   conversationId: string
   chatName: string
@@ -24,12 +21,152 @@ type ClientConversation = {
   }>
 }
 
+// ─── Batch contact resolution ─────────────────────────────────────────────────
+// Resolves contacts for ALL conversations with just 2-3 DB queries instead of
+// one per conversation. Returns Map<conversationId, contactId | null>.
+async function batchResolveContacts(
+  userId: string,
+  convs: ClientConversation[],
+): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>()
+
+  // ── Step 1: Batch LinkedIn URL key match (1 query) ──────────────────────
+  const keyToConvIds = new Map<string, string[]>()
+  for (const c of convs) {
+    const m = c.profileUrl?.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+    if (m) {
+      const key = m[1]
+      if (!keyToConvIds.has(key)) keyToConvIds.set(key, [])
+      keyToConvIds.get(key)!.push(c.conversationId)
+    }
+  }
+  if (keyToConvIds.size > 0) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId, linkedinKey: { in: [...keyToConvIds.keys()] } },
+      select: { id: true, linkedinKey: true },
+    })
+    for (const c of contacts) {
+      for (const convId of keyToConvIds.get(c.linkedinKey) ?? []) {
+        result.set(convId, c.id)
+      }
+    }
+  }
+
+  // ── Step 2: Batch name match for URL-unresolved conversations (1 query) ─
+  const unresolved = convs.filter((c) => !result.has(c.conversationId))
+
+  type NameEntry = { firstName: string; lastName: string; convIds: string[] }
+  const twoWordMap  = new Map<string, NameEntry>()  // firstName\0lastName → entry
+  const oneWordMap  = new Map<string, NameEntry>()  // firstName → entry
+
+  for (const c of unresolved) {
+    const cleaned = c.chatName
+      .trim()
+      .replace(/[\(\[\{].*?[\)\]\}]/g, "")
+      .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
+      .replace(/\s+[\p{Emoji_Presentation}\p{Extended_Pictographic}].*/gu, "")
+      .trim()
+    const parts = cleaned.split(/\s+/).filter(Boolean)
+    if (parts.length === 0) { result.set(c.conversationId, null); continue }
+
+    if (parts.length >= 2) {
+      const firstName = parts[0]
+      const lastName  = parts[parts.length - 1]
+      const key = `${firstName.toLowerCase()}\0${lastName.toLowerCase()}`
+      if (!twoWordMap.has(key)) twoWordMap.set(key, { firstName, lastName, convIds: [] })
+      twoWordMap.get(key)!.convIds.push(c.conversationId)
+    } else {
+      const firstName = parts[0]
+      const key = firstName.toLowerCase()
+      if (!oneWordMap.has(key)) oneWordMap.set(key, { firstName, lastName: "", convIds: [] })
+      oneWordMap.get(key)!.convIds.push(c.conversationId)
+    }
+  }
+
+  // Two-word names batch
+  if (twoWordMap.size > 0) {
+    const pairs = [...twoWordMap.values()]
+    const contacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: pairs.map(({ firstName, lastName }) => ({
+          firstName: { equals: firstName, mode: "insensitive" as const },
+          lastName:  { equals: lastName,  mode: "insensitive" as const },
+        })),
+      },
+      select: { id: true, firstName: true, lastName: true },
+    })
+    // Group: lowerfirst\0lowerlast → [contactId, ...]
+    const nameHits = new Map<string, string[]>()
+    for (const c of contacts) {
+      const k = `${(c.firstName ?? "").toLowerCase()}\0${(c.lastName ?? "").toLowerCase()}`
+      if (!nameHits.has(k)) nameHits.set(k, [])
+      nameHits.get(k)!.push(c.id)
+    }
+    for (const [key, { convIds }] of twoWordMap) {
+      const hits = nameHits.get(key) ?? []
+      const contactId = hits.length === 1 ? hits[0] : null  // discard ambiguous
+      for (const convId of convIds) result.set(convId, contactId)
+    }
+  }
+
+  // Single-word names batch
+  if (oneWordMap.size > 0) {
+    const names = [...oneWordMap.values()]
+    const contacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: names.map(({ firstName }) => ({
+          firstName: { equals: firstName, mode: "insensitive" as const },
+        })),
+      },
+      select: { id: true, firstName: true },
+    })
+    const nameHits = new Map<string, string[]>()
+    for (const c of contacts) {
+      const k = (c.firstName ?? "").toLowerCase()
+      if (!nameHits.has(k)) nameHits.set(k, [])
+      nameHits.get(k)!.push(c.id)
+    }
+    for (const [key, { convIds }] of oneWordMap) {
+      const hits = nameHits.get(key) ?? []
+      const contactId = hits.length === 1 ? hits[0] : null
+      for (const convId of convIds) result.set(convId, contactId)
+    }
+  }
+
+  // Ensure every conversation has an entry (null = unmatched)
+  for (const c of convs) {
+    if (!result.has(c.conversationId)) result.set(c.conversationId, null)
+  }
+
+  return result
+}
+
+// ─── Concurrency-limited parallel runner ────────────────────────────────────
+// Processes `items` in parallel, at most `concurrency` at a time.
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let i = 0
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++
+      await fn(items[idx])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  // Accept JSON body (pre-parsed by client-side parser in settings/page.tsx)
   let conversations: ClientConversation[]
   try {
     const body = await req.json()
@@ -50,7 +187,7 @@ export async function POST(req: Request) {
 
       let keepaliveTimer: ReturnType<typeof setInterval> | null = setInterval(() => {
         controller.enqueue(encoder.encode(": keepalive\n\n"))
-      }, 20_000)
+      }, 15_000)  // every 15s — faster than Vercel's idle timeout
 
       function cleanup() {
         if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null }
@@ -59,60 +196,64 @@ export async function POST(req: Request) {
       try {
         const totalConvs = conversations.length
 
-        // ── Resume support ──────────────────────────────────────────────────────
-        // Load the set of conversationIds that were fully imported in a prior run.
-        // Conversations in this set are skipped entirely — their messages are already
-        // in the DB and their LinkedInDMConversation record already exists.
+        // ── Resume: load already-completed conversations ──────────────────────
         const doneRows = await prisma.linkedInDMConversation.findMany({
           where: { userId },
           select: { conversationId: true },
         })
         const doneSet = new Set(doneRows.map((r) => r.conversationId))
-        const skippedConvs = conversations.filter((c) => doneSet.has(c.conversationId)).length
-        const pendingConvs = conversations.filter((c) => !doneSet.has(c.conversationId))
+        const pending = conversations.filter((c) => !doneSet.has(c.conversationId))
+        const skippedConvs = totalConvs - pending.length
 
-        send({ type: "status", message: `Processing ${pendingConvs.length} conversations (${skippedConvs} already imported)…` })
+        send({
+          type: "status",
+          message: `Resolving contacts for ${pending.length} conversations${skippedConvs > 0 ? ` (${skippedConvs} already imported, skipping)` : ""}…`,
+        })
 
-        let totalSynced = 0
-        let totalChats = 0
+        // ── Batch contact resolution (2-3 DB queries for ALL conversations) ──
+        const contactMap = await batchResolveContacts(userId, pending)
+        const resolvedCount = [...contactMap.values()].filter(Boolean).length
+        send({
+          type: "status",
+          message: `Processing ${pending.length} conversations (${resolvedCount} matched to contacts)…`,
+        })
+
+        // ── Shared counters (written atomically since JS is single-threaded) ─
+        let totalSynced  = 0
+        let totalChats   = 0
         let totalMatched = 0
-        let convIdx = 0 // index across ALL conversations (for progress display)
+        let completedIdx = 0
 
-        for (const conv of conversations) {
-          convIdx++
+        const CHUNK = 500  // messages per createMany call
+
+        // ── Process conversations in parallel (concurrency 8) ────────────────
+        await runWithConcurrency(pending, 8, async (conv) => {
           const { conversationId, chatName, profileUrl, messages } = conv
-
-          // Skip already-completed conversations
-          if (doneSet.has(conversationId)) {
-            send({ type: "progress", file: chatName, matched: false, messages: messages?.length ?? 0, synced: 0, skipped: messages?.length ?? 0, convIdx, totalConvs, resumed: true })
-            continue
-          }
+          const convIdx = ++completedIdx  // approximate — parallel so order varies
 
           if (!messages || messages.length === 0) {
-            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0, convIdx, totalConvs })
-            // Mark as done even if empty so we don't retry it
             await prisma.linkedInDMConversation.upsert({
               where: { userId_conversationId: { userId, conversationId } },
               update: { chatName, profileUrl: profileUrl ?? null, messageCount: 0, importedAt: new Date() },
               create: { userId, conversationId, chatName, profileUrl: profileUrl ?? null, messageCount: 0 },
             })
-            continue
+            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0, convIdx, totalConvs })
+            return
           }
 
-          const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl ?? null)
+          const contactId = contactMap.get(conversationId) ?? null
           totalChats++
           if (contactId) totalMatched++
 
-          // Upsert messages in chunks of 200; emit an intermediate event for large conversations
-          let synced = 0
+          // Insert messages in chunks
+          let synced  = 0
           let skipped = 0
-          const CHUNK = 200
           for (let i = 0; i < messages.length; i += CHUNK) {
             const chunk = messages.slice(i, i + CHUNK)
             const result = await prisma.linkedInDMMessage.createMany({
               data: chunk.map((m) => ({
                 userId,
-                contactId: contactId ?? null,
+                contactId,
                 conversationId,
                 chatName,
                 profileUrl: profileUrl ?? null,
@@ -122,55 +263,28 @@ export async function POST(req: Request) {
               })),
               skipDuplicates: true,
             })
-            synced += result.count
+            synced  += result.count
             skipped += chunk.length - result.count
-
-            // For large conversations (multiple chunks), emit intermediate progress so the UI
-            // doesn't appear frozen.  Only send every other chunk to avoid flooding.
-            if (messages.length > CHUNK && i + CHUNK < messages.length && (i / CHUNK) % 2 === 0) {
-              send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx, totalConvs, partial: true })
-            }
           }
-
           totalSynced += synced
 
-          // ── Mark conversation as fully imported ─────────────────────────────
-          // This is the key for resume support: once we write this row, future
-          // re-uploads will skip this conversation entirely.
+          // Mark conversation as fully imported (enables resume on next upload)
           await prisma.linkedInDMConversation.upsert({
             where: { userId_conversationId: { userId, conversationId } },
-            update: {
-              chatName,
-              profileUrl: profileUrl ?? null,
-              contactId: contactId ?? null,
-              messageCount: messages.length,
-              importedAt: new Date(),
-            },
-            create: {
-              userId,
-              conversationId,
-              chatName,
-              profileUrl: profileUrl ?? null,
-              contactId: contactId ?? null,
-              messageCount: messages.length,
-            },
+            update: { chatName, profileUrl: profileUrl ?? null, contactId, messageCount: messages.length, importedAt: new Date() },
+            create: { userId, conversationId, chatName, profileUrl: profileUrl ?? null, contactId, messageCount: messages.length },
           })
 
           send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx, totalConvs })
-        }
+        })
 
-        // Update sync record
+        // Update sync aggregate
         await prisma.linkedInDMSync.upsert({
           where: { userId },
-          update: {
-            importedAt: new Date(),
-            totalMessages: { increment: totalSynced },
-            totalChats: { increment: totalChats },
-          },
+          update: { importedAt: new Date(), totalMessages: { increment: totalSynced }, totalChats: { increment: totalChats } },
           create: { userId, importedAt: new Date(), totalMessages: totalSynced, totalChats },
         })
 
-        // Recompute scores in the background
         recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched, skippedConvs })
