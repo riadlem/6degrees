@@ -6,22 +6,32 @@ import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
+// POST /api/linkedin-dm/match
+// Link a conversation to a contact. Body: { conversationId, contactId }
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
   const body = await req.json().catch(() => null)
-  const { chatName, contactId } = body ?? {}
-  if (!chatName || !contactId) return Response.json({ error: "Missing chatName or contactId" }, { status: 400 })
+  const { conversationId, contactId } = body ?? {}
+  if (!conversationId || !contactId) {
+    return Response.json({ error: "Missing conversationId or contactId" }, { status: 400 })
+  }
 
   // Verify contact belongs to this user
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
   if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
-  // Link ALL messages from this chat to the contact (handles both initial match and re-assignment)
+  // Link ALL messages from this conversation to the contact
   const result = await prisma.linkedInDMMessage.updateMany({
-    where: { userId, chatName },
+    where: { userId, conversationId },
+    data: { contactId },
+  })
+
+  // Keep LinkedInDMConversation in sync
+  await prisma.linkedInDMConversation.updateMany({
+    where: { userId, conversationId },
     data: { contactId },
   })
 
@@ -31,34 +41,38 @@ export async function POST(req: Request) {
   return Response.json({ ok: true, updated: result.count })
 }
 
-// Re-run automatic matching on all currently-unmatched chats.
+// PUT /api/linkedin-dm/match
+// Re-run automatic matching on all currently-unmatched conversations.
 // Useful after updating the matching algorithm without re-importing.
-// PUT /api/linkedin-dm/match   (no body needed)
 export async function PUT(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  // Get all distinct unmatched chat names
-  const unmatched = await prisma.$queryRaw<{ chatName: string }[]>`
-    SELECT DISTINCT "chatName"
+  // Get all distinct unmatched conversations (by conversationId)
+  const unmatched = await prisma.$queryRaw<{ conversationId: string; chatName: string; profileUrl: string | null }[]>`
+    SELECT DISTINCT "conversationId", MAX("chatName") AS "chatName", MAX("profileUrl") AS "profileUrl"
     FROM "LinkedInDMMessage"
     WHERE "userId" = ${userId} AND "contactId" IS NULL
+    GROUP BY "conversationId"
   `
 
   let fixed = 0
-  for (const { chatName } of unmatched) {
-    const firstMsg = await prisma.linkedInDMMessage.findFirst({
-      where: { userId, chatName },
-      select: { profileUrl: true },
-    })
-    const profileUrl = firstMsg?.profileUrl ?? null
-    const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl)
+  for (const { conversationId, chatName, profileUrl } of unmatched) {
+    const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl ?? null)
     if (!contactId) continue
+
     await prisma.linkedInDMMessage.updateMany({
-      where: { userId, chatName, contactId: null },
+      where: { userId, conversationId, contactId: null },
       data: { contactId },
     })
+
+    // Sync the conversation record
+    await prisma.linkedInDMConversation.updateMany({
+      where: { userId, conversationId },
+      data: { contactId },
+    })
+
     fixed++
   }
 
@@ -69,18 +83,25 @@ export async function PUT(req: Request) {
   return Response.json({ ok: true, checked: unmatched.length, fixed })
 }
 
-// Unlink all messages for a chat (set contactId back to null)
+// DELETE /api/linkedin-dm/match
+// Unlink a conversation (set contactId back to null). Body: { conversationId }
 export async function DELETE(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
   const body = await req.json().catch(() => null)
-  const { chatName } = body ?? {}
-  if (!chatName) return Response.json({ error: "Missing chatName" }, { status: 400 })
+  const { conversationId } = body ?? {}
+  if (!conversationId) return Response.json({ error: "Missing conversationId" }, { status: 400 })
 
   const result = await prisma.linkedInDMMessage.updateMany({
-    where: { userId, chatName },
+    where: { userId, conversationId },
+    data: { contactId: null },
+  })
+
+  // Sync the conversation record
+  await prisma.linkedInDMConversation.updateMany({
+    where: { userId, conversationId },
     data: { contactId: null },
   })
 
