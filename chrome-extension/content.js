@@ -134,8 +134,41 @@
     return (w / h) < 2.5
   }
 
+  // Pick the best (widest) URL from an img element's srcset attribute.
+  function bestSrcset(img) {
+    let best = "", bestW = 0
+    for (const part of (img.srcset || "").split(",")) {
+      const [u, w] = part.trim().split(/\s+/)
+      const width = parseInt((w || "0").replace(/\D/g, ""), 10)
+      if (width > bestW) { bestW = width; best = u }
+    }
+    return bestW > 0 ? { url: best, width: bestW } : null
+  }
+
   function scrapePhoto() {
     const mainEl = document.querySelector("main")
+
+    // ── Strategy 0: exact profile-photo class selectors (most specific) ─────
+    // These class names / attributes are used only on the actual profile photo
+    // element and are safe on every profile layout, including Open to Work,
+    // Premium frames, and creator profiles.
+    const PHOTO_SELECTORS = [
+      ".pv-top-card-profile-picture__image--show",  // loaded state class
+      ".pv-top-card-profile-picture__image",         // general class
+      "img[data-anonymize='headshot-photo']",        // LinkedIn anon attribute
+      ".profile-photo-edit__preview",               // own profile (edit mode)
+      ".pv-top-card--photo img",
+      "div[class*='profile-picture'] img[class*='profile-picture__image']",
+    ]
+    for (const sel of PHOTO_SELECTORS) {
+      let img
+      try { img = document.querySelector(sel) } catch { continue }
+      if (!img) continue
+      const ss = bestSrcset(img)
+      if (ss && ss.width >= 100 && isValidPhoto(ss.url)) return upgradePhotoUrl(ss.url)
+      const src = img.currentSrc || img.src || ""
+      if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+    }
 
     // ── Strategy 1: profile-displayphoto positive filter + largest srcset ─────
     // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
@@ -149,26 +182,30 @@
     // causes LinkedIn to downscale the main photo srcset), the wrong person's
     // photo gets captured. Scoping to the top card eliminates sidebar noise.
     if (mainEl) {
-      // The top card is always the first <section> in <main> or a .pv-top-card element.
+      // Target the top-card section as tightly as possible.
+      // .pv-top-card is the most reliable; otherwise use the first direct-child
+      // section of main's inner scaffold (not a deeply nested one).
       const topCard =
         mainEl.querySelector(".pv-top-card") ||
+        mainEl.querySelector(".scaffold-layout__main > section") ||
+        mainEl.querySelector(".scaffold-layout__main > div > section") ||
         mainEl.querySelector("section:first-of-type") ||
         mainEl
 
       const profileImgs = [...topCard.querySelectorAll("img")].filter((img) => {
         const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
-        return /profile-displayphoto/i.test(s) && !/displaybackgroundimage/i.test(s)
+        if (!/profile-displayphoto/i.test(s)) return false
+        if (/displaybackgroundimage/i.test(s)) return false
+        // Extra guard: reject sidebar thumbnails by requiring squarish aspect ratio
+        return isSquarishImage(img)
       })
 
       let bestUrl = "", bestW = 0
       for (const img of profileImgs) {
-        for (const part of (img.srcset || "").split(",")) {
-          const [u, w] = part.trim().split(/\s+/)
-          const width = parseInt((w || "0").replace(/\D/g, ""), 10)
-          if (width > bestW) { bestW = width; bestUrl = u }
-        }
+        const ss = bestSrcset(img)
+        if (ss && ss.width > bestW) { bestW = ss.width; bestUrl = ss.url }
       }
-      if (bestW >= 200 && bestUrl) return upgradePhotoUrl(bestUrl)
+      if (bestW >= 100 && bestUrl) return upgradePhotoUrl(bestUrl)
 
       // srcset absent (rare) — fall back to dedicated class or first filtered img
       const tc = topCard.querySelector(".pv-top-card-profile-picture__image")
