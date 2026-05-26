@@ -24,6 +24,8 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.3.0" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.2: Fix company always scraped from DOM (JSON-LD/logo) first — headline parsing",
+    "        was overriding the real company when separator order was ambiguous.",
     "v1.4.1: Robust profile photo — exact photo-class Strategy 0, tighter topCard scope, squarish guard.",
     "v1.4.0: Fix company scraping: dot-separator direction detection (Company·Role vs Role·Company),",
     "        location guard (city/region no longer stored as company name).",
