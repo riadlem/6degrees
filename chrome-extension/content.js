@@ -170,13 +170,16 @@
       if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
     }
 
-    // ── Strategy 1: profile-displayphoto — pick the topmost on the page ────────
+    // ── Strategy 1: profile-displayphoto — first in DOM order ──────────────────
     // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
-    // The key invariant: the actual profile photo is ALWAYS the topmost
-    // profile-displayphoto image on the page. Mutual connection thumbnails, PYMK
-    // cards, Featured posts, and sidebar photos all appear below the fold.
-    // Picking by vertical position (not largest srcset) avoids the bug where a
-    // mutual-connection or Open-to-Work thumbnail has a larger srcset and wins.
+    // querySelectorAll returns elements in document tree order (depth-first).
+    // The top-card section (containing the profile photo) is always the FIRST
+    // major section in <main>, so pdImgs[0] in DOM order is always the headshot.
+    //
+    // NOTE: do NOT sort by getBoundingClientRect().top — lazy-loaded images that
+    // haven't entered the viewport yet report top=0, which sorts them *before*
+    // the already-visible profile photo, causing a mutual-connection thumbnail
+    // to win when scrollY=0.
     if (mainEl) {
       const pdImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
         if (img.closest("aside")) return false  // exclude sidebar
@@ -187,12 +190,7 @@
       })
 
       if (pdImgs.length > 0) {
-        // Sort by absolute document position — profile photo is always topmost.
-        pdImgs.sort((a, b) => {
-          const ay = a.getBoundingClientRect().top + (window.scrollY || 0)
-          const by = b.getBoundingClientRect().top + (window.scrollY || 0)
-          return ay - by
-        })
+        // Take the first in DOM order — that's always the actual profile headshot.
         const top = pdImgs[0]
         const ss = bestSrcset(top)
         if (ss && ss.width >= 100 && isValidPhoto(ss.url)) return upgradePhotoUrl(ss.url)

@@ -7,6 +7,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     chrome.storage.local.get(["apiUrl", "apiToken"], sendResponse)
     return true
   }
+  if (message.type === "BACKUP_TO_APP_TAB") {
+    // Forward a BACKUP_CREDENTIALS message to any open 6Degrees app tab
+    // so the localStorage backup is refreshed immediately after saving settings.
+    chrome.tabs.query({ url: "https://6degrees.aequus.money/*" }, (tabs) => {
+      for (const tab of tabs) {
+        chrome.tabs.sendMessage(tab.id, { type: "BACKUP_CREDENTIALS" }).catch(() => {})
+      }
+    })
+    return false
+  }
 })
 
 async function handleEnrich(data) {

@@ -21,9 +21,16 @@ export async function OPTIONS() {
 //
 const VERSION_INFO = {
   latest:                manifest.version,          // ← always in sync with manifest.json
-  reinstallRequiredBelow: "1.3.0" as string | null,
+  reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.6: Auto-save credentials — visiting 6degrees.aequus.money backs up your",
+    "        token to localStorage so reinstalling the extension reconnects",
+    "        automatically without re-entering the URL/token.",
+    "        ⚠ Reinstall required (new host permission for 6degrees.aequus.money).",
+    "v1.4.5: Fix wrong photo: use DOM order instead of getBoundingClientRect sort.",
+    "        Lazy-loaded thumbnails report top=0 (off-screen), sorting before the",
+    "        real profile photo. DOM order is always correct: top-card comes first.",
     "v1.4.4: Fix wrong photo (mutual connections / Open to Work): pick topmost",
     "        profile-displayphoto by vertical position, not widest srcset.",
     "v1.4.3: Fix company from experience section logos (Strategy 4 scans full <main>,",
