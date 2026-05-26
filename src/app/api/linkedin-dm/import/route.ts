@@ -57,16 +57,18 @@ export async function POST(req: Request) {
       }
 
       try {
-        send({ type: "status", message: "Processing LinkedIn DM conversations…" })
+        const totalConvs = conversations.length
+        send({ type: "status", message: `Processing ${totalConvs} conversations…` })
 
         let totalSynced = 0
         let totalChats = 0
         let totalMatched = 0
 
-        for (const conv of conversations) {
+        for (let convIdx = 0; convIdx < conversations.length; convIdx++) {
+          const conv = conversations[convIdx]
           const { conversationId, chatName, profileUrl, messages } = conv
           if (!messages || messages.length === 0) {
-            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0 })
+            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0, convIdx: convIdx + 1, totalConvs })
             continue
           }
 
@@ -74,7 +76,7 @@ export async function POST(req: Request) {
           totalChats++
           if (contactId) totalMatched++
 
-          // Upsert messages in chunks of 200
+          // Upsert messages in chunks of 200; emit an intermediate event for large conversations
           let synced = 0
           let skipped = 0
           const CHUNK = 200
@@ -95,10 +97,16 @@ export async function POST(req: Request) {
             })
             synced += result.count
             skipped += chunk.length - result.count
+
+            // For large conversations (multiple chunks), emit intermediate progress so the UI
+            // doesn't appear frozen.  Only send every other chunk to avoid flooding.
+            if (messages.length > CHUNK && i + CHUNK < messages.length && (i / CHUNK) % 2 === 0) {
+              send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx: convIdx + 1, totalConvs, partial: true })
+            }
           }
 
           totalSynced += synced
-          send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped })
+          send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx: convIdx + 1, totalConvs })
         }
 
         // Update sync record
