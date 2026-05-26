@@ -110,7 +110,7 @@ function SettingsPageInner() {
   const [liDMStatus, setLiDMStatus] = useState<LiDMStatus | null>(null)
   const [liDMImporting, setLiDMImporting] = useState(false)
   const [liDMProgress, setLiDMProgress] = useState<string | null>(null)
-  const [liDMResult, setLiDMResult] = useState<{ synced: number; chats: number; matched: number } | null>(null)
+  const [liDMResult, setLiDMResult] = useState<{ synced: number; chats: number; matched: number; filteredCount?: number } | null>(null)
   const liDMFileRef = useRef<HTMLInputElement>(null)
   const [liDMUnmatchedOpen, setLiDMUnmatchedOpen] = useState(false)
   const [liDMUnmatched, setLiDMUnmatched] = useState<UnmatchedLiDMChat[]>([])
@@ -658,6 +658,7 @@ function SettingsPageInner() {
       profileUrl: string | null
       messages: Array<{ sentAt: string; isOutbound: boolean; senderName: string }>
     }>
+    filteredCount: number
   } {
     // RFC-4180 state-machine parser
     const rows: string[][] = []
@@ -682,42 +683,55 @@ function SettingsPageInner() {
     }
     if (field || row.length > 0) { row.push(field); rows.push(row) }
 
-    if (rows.length < 2) return { conversations: [] }
+    if (rows.length < 2) return { conversations: [], filteredCount: 0 }
 
     // Find header row
     let headerIdx = -1
     for (let i = 0; i < rows.length; i++) {
       if (rows[i].some(c => c.trim().toUpperCase() === "CONVERSATION ID")) { headerIdx = i; break }
     }
-    if (headerIdx === -1) return { conversations: [] }
+    if (headerIdx === -1) return { conversations: [], filteredCount: 0 }
 
     const headers = rows[headerIdx].map(h => h.trim().toUpperCase())
     const col = (name: string) => headers.indexOf(name)
-    const COL_ID    = col("CONVERSATION ID")
-    const COL_TITLE = col("CONVERSATION TITLE")
-    const COL_FROM  = col("FROM")
-    const COL_URL   = col("SENDER PROFILE URL")
-    const COL_DATE  = col("DATE")
-    if (COL_ID === -1 || COL_FROM === -1 || COL_DATE === -1) return { conversations: [] }
+    const COL_ID     = col("CONVERSATION ID")
+    const COL_TITLE  = col("CONVERSATION TITLE")
+    const COL_FROM   = col("FROM")
+    const COL_URL    = col("SENDER PROFILE URL")
+    const COL_DATE   = col("DATE")
+    const COL_FOLDER = col("FOLDER")   // present in some exports: INBOX / SPAM / ARCHIVE
+    if (COL_ID === -1 || COL_FROM === -1 || COL_DATE === -1) return { conversations: [], filteredCount: 0 }
 
-    // Parse raw rows
+    // ── LinkedIn system / bot account names to always filter out ─────────────
+    // These are LinkedIn-owned accounts that generate system messages, sponsored
+    // InMails, or automated recruiter outreach — not real person-to-person DMs.
+    const LINKEDIN_SYSTEM_RE = /^linkedin\s*(member|career|talent|recruiter|job|jobs|news|learning|marketing|sales|career\s*advice|career\s*coach|messages?|notification|alert|team)$/i
+
+    // Spam folder values to skip (case-insensitive)
+    const SPAM_FOLDERS = new Set(["spam", "spammedfolder", "spam_folder"])
+
+    // Parse raw rows — skip rows in spam folders immediately
     type Raw = { conversationId: string; title: string; from: string; profileUrl: string; sentAt: Date }
     const raws: Raw[] = []
+    const spamConvIds = new Set<string>()  // conversationIds in spam folder
     for (let i = headerIdx + 1; i < rows.length; i++) {
       const r = rows[i]
       if (r.every(c => !c.trim())) continue
       const dateStr = (r[COL_DATE] ?? "").trim().replace(/\s+UTC$/i, "Z").replace(" ", "T")
       const d = new Date(dateStr)
       if (isNaN(d.getTime())) continue
+      const convId = (r[COL_ID] ?? "").trim()
+      const folder = COL_FOLDER !== -1 ? (r[COL_FOLDER] ?? "").trim().toLowerCase() : ""
+      if (folder && SPAM_FOLDERS.has(folder)) { spamConvIds.add(convId); continue }
       raws.push({
-        conversationId: (r[COL_ID] ?? "").trim(),
+        conversationId: convId,
         title:          (COL_TITLE !== -1 ? (r[COL_TITLE] ?? "") : "").trim(),
         from:           (r[COL_FROM] ?? "").trim(),
         profileUrl:     (COL_URL !== -1 ? (r[COL_URL] ?? "") : "").trim(),
         sentAt:         d,
       })
     }
-    if (raws.length === 0) return { conversations: [] }
+    if (raws.length === 0) return { conversations: [], filteredCount: 0 }
 
     // Auto-detect the exporting user: profile URL that appears in most distinct conversations
     const urlConvs = new Map<string, Set<string>>()
@@ -762,6 +776,7 @@ function SettingsPageInner() {
     }
 
     const conversations = []
+    let filteredCount = 0
     for (const [conversationId, msgs] of convMap) {
       let chatName: string | null = null
       let partnerUrl: string | null = null
@@ -773,6 +788,23 @@ function SettingsPageInner() {
         }
       }
       if (!chatName) continue
+
+      // ── Noise / spam filtering ─────────────────────────────────────────────
+      // 1. LinkedIn system accounts ("LinkedIn Member", "LinkedIn Talent", etc.)
+      if (LINKEDIN_SYSTEM_RE.test(chatName.trim())) { filteredCount++; continue }
+
+      // 2. Conversations flagged in the FOLDER column as spam
+      //    (spamConvIds already populated during row parsing)
+      if (spamConvIds.has(conversationId)) { filteredCount++; continue }
+
+      // 3. Sponsored / promotional InMail — heuristic:
+      //    ALL messages are inbound (user never replied) AND no partner profile URL
+      //    AND the conversation has ≤ 2 messages.
+      //    Real cold-outreach people sometimes send one unanswered message, so we
+      //    require BOTH "no URL" AND "≤ 2 messages" before filtering.
+      const allInbound = msgs.every(m => !isFromUser(m))
+      if (allInbound && !partnerUrl && msgs.length <= 2) { filteredCount++; continue }
+
       conversations.push({
         conversationId,
         chatName,
@@ -780,7 +812,7 @@ function SettingsPageInner() {
         messages: msgs.map(m => ({ sentAt: m.sentAt.toISOString(), isOutbound: isFromUser(m), senderName: m.from })),
       })
     }
-    return { conversations }
+    return { conversations, filteredCount }
   }
 
   async function importLinkedInDM(file: File) {
@@ -795,7 +827,8 @@ function SettingsPageInner() {
       const raw = await file.text()
       payload = parseLinkedInDMClientSide(raw)
       if (payload.conversations.length === 0) {
-        setLiDMProgress("Could not parse CSV — is this a LinkedIn DM messages.csv export?")
+        const filterNote = payload.filteredCount > 0 ? ` (${payload.filteredCount} spam/noise conversations filtered out)` : ""
+        setLiDMProgress(`Could not parse CSV — is this a LinkedIn DM messages.csv export?${filterNote}`)
         setLiDMImporting(false)
         return
       }
@@ -818,7 +851,8 @@ function SettingsPageInner() {
         setLiDMProgress(`Connection interrupted — auto-resuming (attempt ${attempt + 1}/${MAX_ATTEMPTS})…`)
         await new Promise((r) => setTimeout(r, 2000))
       } else {
-        setLiDMProgress(`Uploading ${payload.conversations.length} conversations…`)
+        const filterNote = payload.filteredCount > 0 ? ` (${payload.filteredCount} spam/noise filtered)` : ""
+        setLiDMProgress(`Uploading ${payload.conversations.length} conversations…${filterNote}`)
       }
 
       try {
@@ -856,8 +890,10 @@ function SettingsPageInner() {
               } else if (event.type === "done") {
                 gotDone = true
                 const resumeNote = event.skippedConvs > 0 ? `, ${event.skippedConvs} already imported` : ""
-                setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched })
+                const filterNote = payload.filteredCount > 0 ? `, ${payload.filteredCount} spam/noise filtered` : ""
+                setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched, filteredCount: payload.filteredCount })
                 setLiDMProgress(null)
+                void filterNote  // available for toast if desired
                 setLiDMStatus((prev) => ({
                   importedAt: new Date().toISOString(),
                   totalMessages: (prev?.totalMessages ?? 0) + event.synced,
@@ -2249,6 +2285,9 @@ function SettingsPageInner() {
           {liDMResult && (
             <div className="text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
               Imported {liDMResult.synced.toLocaleString()} messages from {liDMResult.chats} conversation{liDMResult.chats !== 1 ? "s" : ""} — {liDMResult.matched} matched to contacts
+              {(liDMResult.filteredCount ?? 0) > 0 && (
+                <span className="text-blue-500"> · {liDMResult.filteredCount} spam/noise filtered</span>
+              )}
             </div>
           )}
 
