@@ -124,6 +124,8 @@ saveBtn.addEventListener("click", async () => {
   showStatus("✓ Saved!", "ok")
   updateConnectionIndicator(apiUrl, apiToken)
   checkForUpdates(apiUrl)
+  // Tell any open 6Degrees tab to refresh the localStorage backup immediately.
+  chrome.runtime.sendMessage({ type: "BACKUP_TO_APP_TAB" })
   saveBtn.disabled = false
   saveBtn.textContent = "Save settings"
 })
