@@ -14,7 +14,14 @@ export async function GET(
     include: {
       members: {
         orderBy: { addedAt: "desc" },
-        include: { contact: { include: { notes: { take: 1, orderBy: { createdAt: "desc" } } } } },
+        include: {
+          contact: {
+            include: {
+              notes: { take: 1, orderBy: { createdAt: "desc" } },
+              labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+            },
+          },
+        },
       },
       _count: { select: { members: true } },
     },
@@ -28,7 +35,10 @@ export async function GET(
     const contacts = await prisma.contact.findMany({
       where: { userId: session.user.id, company: { equals: filterCompany, mode: "insensitive" } },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
-      include: { notes: { take: 1, orderBy: { createdAt: "desc" } } },
+      include: {
+        notes: { take: 1, orderBy: { createdAt: "desc" } },
+        labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+      },
     })
     return Response.json({
       ...list,

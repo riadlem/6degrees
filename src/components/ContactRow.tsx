@@ -3,7 +3,7 @@
 import { StickyNote, Plus, Mail, Sparkles, Users } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
-import { type ContactSummary, linkedinDegree } from "./ContactCard"
+import { type ContactSummary, LinkedInBadge } from "./ContactCard"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
@@ -22,7 +22,6 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
   const inits = initials(contact.firstName, contact.lastName)
   const { blurred } = usePrivacy()
   const emailKind = classifyEmail(contact.emailAddress, contact.company)
-  const degree = linkedinDegree(contact)
 
   return (
     <div
@@ -64,30 +63,15 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         )}
       </div>
 
+      {/* LinkedIn connection level — dedicated aligned column */}
+      <div className="w-6 shrink-0 flex items-center justify-center">
+        <LinkedInBadge contact={contact} size={13} />
+      </div>
+
       {/* Name + optional email */}
       <div className="w-40 shrink-0">
         <div className="flex items-center gap-1.5">
           <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
-          {degree === "1" && (
-            <span title="LinkedIn connection" className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold leading-none">1</span>
-          )}
-          {degree === "2" && (
-            <span title="Followed on LinkedIn (not connected)" className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full bg-amber-400 text-white text-[9px] font-bold leading-none">2</span>
-          )}
-          {contact.profileUrl && (
-            <a
-              href={contact.profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              title="Open LinkedIn profile"
-              className="shrink-0 text-[#0A66C2] hover:text-[#004182] transition-colors opacity-0 group-hover:opacity-100"
-            >
-              <svg viewBox="0 0 24 24" className="w-3 h-3 fill-current">
-                <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-              </svg>
-            </a>
-          )}
         </div>
         {emailKind && (
           <div className={cn("text-[10px] flex items-center gap-0.5", EMAIL_KIND_COLOR[emailKind])}

@@ -12,6 +12,7 @@ import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ShareModal from "@/components/ShareModal"
 import ContactDetail from "@/components/ContactDetail"
 import { usePrivacy } from "@/contexts/PrivacyContext"
+import { linkedinLevel, type ContactSummary } from "@/components/ContactCard"
 
 type Contact = {
   id: string
@@ -23,9 +24,11 @@ type Contact = {
   industry: string | null
   photoUrl: string | null
   profileUrl: string | null
+  outreachStatus: string | null
   commonConnections: number | null
   connectedOn: string | null
   notes: { id: string }[]
+  labels: { label: { id: string; name: string; color: string } }[]
 }
 
 type Member = { id: string; addedAt: string; contact: Contact }
@@ -169,6 +172,8 @@ function ListDetailContent() {
 
   if (!list) return null
 
+  const LI_ICON_PATH = "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+
   const sortedMembers = [...(list?.members ?? [])].sort((a, b) => {
     const dir = sortDir === "asc" ? 1 : -1
     switch (sortCol) {
@@ -278,8 +283,9 @@ function ListDetailContent() {
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide">
+          <div className="grid grid-cols-[auto_auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide">
             <div className="w-10" />
+            <div className="w-5" /> {/* LinkedIn level */}
             {(["name", "company", "location"] as const).map((col) => (
               <button
                 key={col}
@@ -300,10 +306,13 @@ function ListDetailContent() {
           {sortedMembers.map(({ id: memberId, contact }) => {
             const fullName = `${contact.firstName} ${contact.lastName}`
             const inits = initials(contact.firstName, contact.lastName)
+            const liLevel = linkedinLevel(contact as unknown as ContactSummary)
+            const liColor = liLevel === "connected" ? "#0A66C2" : liLevel === "pending" ? "#7C3AED" : liLevel === "followed" ? "#D97706" : null
+            const liTitle = liLevel === "connected" ? "1st-degree LinkedIn connection" : liLevel === "pending" ? "Pending LinkedIn connection request" : "Followed on LinkedIn (not connected)"
             return (
               <div
                 key={memberId}
-                className="grid grid-cols-[auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors items-center group cursor-pointer"
+                className="grid grid-cols-[auto_auto_1fr_1fr_1fr_auto] gap-4 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors items-center group cursor-pointer"
                 onClick={() => openContact(contact.id)}
               >
                 {/* Avatar */}
@@ -318,24 +327,33 @@ function ListDetailContent() {
                   )}
                 </div>
 
-                {/* Name + title + LinkedIn + ID */}
+                {/* LinkedIn connection level */}
+                <div className="w-5 flex items-center justify-center">
+                  {liColor && contact.profileUrl ? (
+                    <a
+                      href={contact.profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      title={liTitle}
+                    >
+                      <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: liColor }} className="block shrink-0">
+                        <path d={LI_ICON_PATH} />
+                      </svg>
+                    </a>
+                  ) : liColor ? (
+                    <span title={liTitle}>
+                      <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: liColor }} className="block shrink-0">
+                        <path d={LI_ICON_PATH} />
+                      </svg>
+                    </span>
+                  ) : null}
+                </div>
+
+                {/* Name + title + ID */}
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>{fullName}</p>
-                    {contact.profileUrl && (
-                      <a
-                        href={contact.profileUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        title="Open LinkedIn profile"
-                        className="shrink-0 text-[#0A66C2] hover:text-[#004182] transition-colors"
-                      >
-                        <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-current">
-                          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-                        </svg>
-                      </a>
-                    )}
                   </div>
                   {contact.position && (
                     <p className="text-xs text-gray-500 truncate">{contact.position}</p>
