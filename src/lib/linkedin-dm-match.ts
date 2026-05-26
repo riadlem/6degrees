@@ -8,6 +8,12 @@ function stripAccents(str: string): string {
   return str.normalize("NFD").replace(/\p{Mn}/gu, "")
 }
 
+/** Extract the vanity slug from any linkedin.com/in/... URL, lowercased. */
+function extractLinkedInKey(url: string): string | null {
+  const m = url.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+  return m ? decodeURIComponent(m[1]).toLowerCase() : null
+}
+
 /**
  * Attempt to match a display name to a Contact record for the given user.
  *
@@ -100,8 +106,9 @@ async function directNameMatch(userId: string, name: string): Promise<string | n
  * Match a LinkedIn DM conversation partner to a Contact in the database.
  *
  * Strategy (in priority order):
- *   1. LinkedIn profile URL → extract the vanity key → find by linkedinKey (globally unique)
- *   2. Name match via directNameMatch (exact + accent-normalised)
+ *   1. LinkedIn URL → extract vanity key → match Contact.linkedinKey  (exact, fastest)
+ *   2. LinkedIn URL → extract vanity key → match Contact.profileUrl   (catches renamed keys)
+ *   3. Name match via directNameMatch (exact + accent-normalised)
  *
  * Returns the Contact id, or null if no reliable match is found.
  */
@@ -110,19 +117,26 @@ export async function matchLinkedInDMToContact(
   chatName: string,
   profileUrl: string | null,
 ): Promise<string | null> {
-  // Step 1: LinkedIn URL key match — most reliable signal
   if (profileUrl) {
-    const keyMatch = profileUrl.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
-    if (keyMatch) {
-      const linkedinKey = keyMatch[1]
-      const contact = await prisma.contact.findFirst({
-        where: { userId, linkedinKey },
+    const key = extractLinkedInKey(profileUrl)
+    if (key) {
+      // Step 1: match via Contact.linkedinKey (most reliable — globally unique)
+      const byKey = await prisma.contact.findFirst({
+        where: { userId, linkedinKey: { equals: key, mode: "insensitive" } },
         select: { id: true },
       })
-      if (contact) return contact.id
+      if (byKey) return byKey.id
+
+      // Step 2: match via Contact.profileUrl — catches contacts whose vanity URL
+      // changed since they were imported (the stored profileUrl may differ from linkedinKey)
+      const byUrl = await prisma.contact.findFirst({
+        where: { userId, profileUrl: { contains: key, mode: "insensitive" } },
+        select: { id: true },
+      })
+      if (byUrl) return byUrl.id
     }
   }
 
-  // Step 2: Name match fallback
+  // Step 3: Name match fallback
   return directNameMatch(userId, chatName)
 }

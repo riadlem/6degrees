@@ -24,7 +24,7 @@ export async function GET(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const [contact, waAgg, waChatRow] = await Promise.all([
+  const [contact, waAgg, waChatRow, liDMAgg, liDMConv] = await Promise.all([
     prisma.contact.findFirst({
       where: { id: params.id, userId: session.user.id },
       include: {
@@ -43,6 +43,16 @@ export async function GET(
       where: { contactId: params.id },
       select: { chatName: true },
     }).catch(() => null),
+    prisma.linkedInDMMessage.aggregate({
+      where: { contactId: params.id },
+      _max: { sentAt: true },
+      _count: { _all: true },
+    }).catch(() => null),
+    prisma.linkedInDMConversation.findFirst({
+      where: { contactId: params.id },
+      select: { conversationId: true, chatName: true },
+      orderBy: { importedAt: "desc" },
+    }).catch(() => null),
   ])
 
   if (!contact) return new Response("Not found", { status: 404 })
@@ -55,6 +65,10 @@ export async function GET(
     whatsappLastAt: waAgg?._max.sentAt?.toISOString() ?? null,
     whatsappMessageCount: waAgg?._count._all ?? 0,
     whatsappChatName: waChatRow?.chatName ?? null,
+    linkedinDmLastAt: liDMAgg?._max.sentAt?.toISOString() ?? null,
+    linkedinDmMessageCount: liDMAgg?._count._all ?? 0,
+    linkedinDmConversationId: liDMConv?.conversationId ?? null,
+    linkedinDmChatName: liDMConv?.chatName ?? null,
   })
 }
 

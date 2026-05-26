@@ -3,6 +3,16 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { recomputeScores } from "@/lib/reconnect-score"
 
+/** Extract the vanity slug from any linkedin.com/in/... URL, lowercased. */
+function extractKey(url: string): string | null {
+  const m = url.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
+  return m ? decodeURIComponent(m[1]).toLowerCase() : null
+}
+
+function stripAccents(str: string): string {
+  return str.normalize("NFD").replace(/\p{Mn}/gu, "")
+}
+
 export const maxDuration = 300
 
 function sseEvent(data: unknown): string {
@@ -22,20 +32,26 @@ type ClientConversation = {
 }
 
 // ─── Batch contact resolution ─────────────────────────────────────────────────
-// Resolves contacts for ALL conversations with just 2-3 DB queries instead of
+// Resolves contacts for ALL conversations with 3-4 DB queries instead of
 // one per conversation. Returns Map<conversationId, contactId | null>.
+//
+// Strategy (in order, stopping when matched):
+//   1. URL key → Contact.linkedinKey  (IN query, most reliable)
+//   2. URL key → Contact.profileUrl   (catches renamed/changed vanity URLs)
+//   3. Exact first+last name           (OR batch query)
+//   4. Accent-normalised name          (in-memory after fetching by first char)
+//   5. Single first name (unique only)
 async function batchResolveContacts(
   userId: string,
   convs: ClientConversation[],
 ): Promise<Map<string, string | null>> {
   const result = new Map<string, string | null>()
 
-  // ── Step 1: Batch LinkedIn URL key match (1 query) ──────────────────────
-  const keyToConvIds = new Map<string, string[]>()
+  // ── Step 1: Batch LinkedIn URL key → linkedinKey match ──────────────────
+  const keyToConvIds = new Map<string, string[]>()  // normalised key → [conversationId]
   for (const c of convs) {
-    const m = c.profileUrl?.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/i)
-    if (m) {
-      const key = m[1]
+    const key = c.profileUrl ? extractKey(c.profileUrl) : null
+    if (key) {
       if (!keyToConvIds.has(key)) keyToConvIds.set(key, [])
       keyToConvIds.get(key)!.push(c.conversationId)
     }
@@ -46,20 +62,40 @@ async function batchResolveContacts(
       select: { id: true, linkedinKey: true },
     })
     for (const c of contacts) {
-      for (const convId of keyToConvIds.get(c.linkedinKey) ?? []) {
+      for (const convId of keyToConvIds.get(c.linkedinKey.toLowerCase()) ?? []) {
         result.set(convId, c.id)
       }
     }
   }
 
-  // ── Step 2: Batch name match for URL-unresolved conversations (1 query) ─
-  const unresolved = convs.filter((c) => !result.has(c.conversationId))
+  // ── Step 2: URL key → Contact.profileUrl fallback ───────────────────────
+  // Catches contacts whose vanity key changed after they were imported.
+  // Load ALL contacts that have a profileUrl; match keys in-memory.
+  const unresolvedWithUrl = convs.filter((c) => !result.has(c.conversationId) && c.profileUrl)
+  if (unresolvedWithUrl.length > 0) {
+    const contactsWithUrl = await prisma.contact.findMany({
+      where: { userId, profileUrl: { not: null } },
+      select: { id: true, profileUrl: true },
+    })
+    const profileKeyMap = new Map<string, string>()  // normalised key → contactId
+    for (const c of contactsWithUrl) {
+      const k = c.profileUrl ? extractKey(c.profileUrl) : null
+      if (k && !profileKeyMap.has(k)) profileKeyMap.set(k, c.id)
+    }
+    for (const c of unresolvedWithUrl) {
+      const key = extractKey(c.profileUrl!)
+      if (key && profileKeyMap.has(key)) result.set(c.conversationId, profileKeyMap.get(key)!)
+    }
+  }
 
-  type NameEntry = { firstName: string; lastName: string; convIds: string[] }
-  const twoWordMap  = new Map<string, NameEntry>()  // firstName\0lastName → entry
-  const oneWordMap  = new Map<string, NameEntry>()  // firstName → entry
+  // ── Step 3 + 4 + 5: Name matching for still-unresolved conversations ────
+  const unresolvedByName = convs.filter((c) => !result.has(c.conversationId))
 
-  for (const c of unresolved) {
+  type NameEntry = { firstName: string; lastName: string; normFirst: string; normLast: string; convIds: string[] }
+  const twoWordMap = new Map<string, NameEntry>()  // "normFirst\0normLast" → entry
+  const oneWordMap = new Map<string, NameEntry>()  // "normFirst" → entry
+
+  for (const c of unresolvedByName) {
     const cleaned = c.chatName
       .trim()
       .replace(/[\(\[\{].*?[\)\]\}]/g, "")
@@ -69,37 +105,34 @@ async function batchResolveContacts(
     const parts = cleaned.split(/\s+/).filter(Boolean)
     if (parts.length === 0) { result.set(c.conversationId, null); continue }
 
+    const nf = stripAccents(parts[0]).toLowerCase()
+    const nl = parts.length >= 2 ? stripAccents(parts[parts.length - 1]).toLowerCase() : ""
+
     if (parts.length >= 2) {
-      const firstName = parts[0]
-      const lastName  = parts[parts.length - 1]
-      const key = `${firstName.toLowerCase()}\0${lastName.toLowerCase()}`
-      if (!twoWordMap.has(key)) twoWordMap.set(key, { firstName, lastName, convIds: [] })
+      const key = `${nf}\0${nl}`
+      if (!twoWordMap.has(key)) twoWordMap.set(key, { firstName: parts[0], lastName: parts[parts.length - 1], normFirst: nf, normLast: nl, convIds: [] })
       twoWordMap.get(key)!.convIds.push(c.conversationId)
     } else {
-      const firstName = parts[0]
-      const key = firstName.toLowerCase()
-      if (!oneWordMap.has(key)) oneWordMap.set(key, { firstName, lastName: "", convIds: [] })
-      oneWordMap.get(key)!.convIds.push(c.conversationId)
+      if (!oneWordMap.has(nf)) oneWordMap.set(nf, { firstName: parts[0], lastName: "", normFirst: nf, normLast: "", convIds: [] })
+      oneWordMap.get(nf)!.convIds.push(c.conversationId)
     }
   }
 
-  // Two-word names batch
+  // Exact + accent-normalized two-word name batch
   if (twoWordMap.size > 0) {
     const pairs = [...twoWordMap.values()]
-    const contacts = await prisma.contact.findMany({
-      where: {
-        userId,
-        OR: pairs.map(({ firstName, lastName }) => ({
-          firstName: { equals: firstName, mode: "insensitive" as const },
-          lastName:  { equals: lastName,  mode: "insensitive" as const },
-        })),
-      },
-      select: { id: true, firstName: true, lastName: true },
-    })
-    // Group: lowerfirst\0lowerlast → [contactId, ...]
+    // Fetch candidates by first char of first name (covers accent-normalized too)
+    const firstChars = [...new Set(pairs.map((p) => p.normFirst.charAt(0)))]
+    const candidates = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
+      SELECT id, "firstName", "lastName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ANY(${firstChars}::text[])
+    `
+    // Build lookup: normFirst\0normLast → [contactId]
     const nameHits = new Map<string, string[]>()
-    for (const c of contacts) {
-      const k = `${(c.firstName ?? "").toLowerCase()}\0${(c.lastName ?? "").toLowerCase()}`
+    for (const c of candidates) {
+      const k = `${stripAccents(c.firstName ?? "").toLowerCase()}\0${stripAccents(c.lastName ?? "").toLowerCase()}`
       if (!nameHits.has(k)) nameHits.set(k, [])
       nameHits.get(k)!.push(c.id)
     }
@@ -110,21 +143,18 @@ async function batchResolveContacts(
     }
   }
 
-  // Single-word names batch
+  // Single-word name batch (unique first-name match only)
   if (oneWordMap.size > 0) {
-    const names = [...oneWordMap.values()]
-    const contacts = await prisma.contact.findMany({
-      where: {
-        userId,
-        OR: names.map(({ firstName }) => ({
-          firstName: { equals: firstName, mode: "insensitive" as const },
-        })),
-      },
-      select: { id: true, firstName: true },
-    })
+    const firstChars = [...new Set([...oneWordMap.values()].map((e) => e.normFirst.charAt(0)))]
+    const candidates = await prisma.$queryRaw<{ id: string; firstName: string }[]>`
+      SELECT id, "firstName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ANY(${firstChars}::text[])
+    `
     const nameHits = new Map<string, string[]>()
-    for (const c of contacts) {
-      const k = (c.firstName ?? "").toLowerCase()
+    for (const c of candidates) {
+      const k = stripAccents(c.firstName ?? "").toLowerCase()
       if (!nameHits.has(k)) nameHits.set(k, [])
       nameHits.get(k)!.push(c.id)
     }
