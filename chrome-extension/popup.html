@@ -113,6 +113,51 @@
     .update-banner a { color: inherit; font-weight: 600; }
 
     .version-line { font-size: 10px; color: #bbb; text-align: center; margin-top: 10px; }
+
+    /* ── Profile debug panel ── */
+    #profilePanel { margin-top: 4px; }
+    .panel-title {
+      font-size: 11px; font-weight: 700; color: #444;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+    .panel-title span { color: #0A66C2; }
+    .dbg-row {
+      display: flex; gap: 6px; margin-bottom: 4px; font-size: 12px; line-height: 1.4;
+    }
+    .dbg-label {
+      flex: 0 0 56px; font-weight: 600; color: #888; font-size: 11px;
+      padding-top: 1px;
+    }
+    .dbg-val {
+      flex: 1; color: #1a1a1a; word-break: break-word;
+    }
+    .dbg-val.ok { color: #16a34a; }
+    .dbg-val.err { color: #dc2626; }
+    .dbg-val.warn { color: #d97706; }
+    .dbg-log-wrap { margin-top: 8px; }
+    .dbg-log-toggle {
+      font-size: 11px; color: #0A66C2; cursor: pointer; background: none;
+      border: none; padding: 0; font-family: inherit;
+    }
+    #dbg-log {
+      display: none; width: 100%; margin-top: 6px;
+      border: 1.5px solid #e5e7eb; border-radius: 6px;
+      padding: 7px 8px; font-size: 10px; font-family: monospace;
+      color: #444; background: #fafafa; resize: none; line-height: 1.45;
+      box-sizing: border-box;
+    }
+    .copy-row { display: flex; gap: 6px; margin-top: 7px; }
+    .btn-sm {
+      flex: 1; background: #f3f4f6; color: #374151;
+      border: 1.5px solid #e5e7eb; border-radius: 7px;
+      padding: 6px 10px; font-size: 11px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    .btn-sm:hover { background: #e5e7eb; }
+    .btn-sm.primary { background: #0A66C2; color: #fff; border-color: #0A66C2; }
+    .btn-sm.primary:hover { background: #004182; }
+    #scrapeStatus { font-size: 11px; color: #888; font-style: italic; }
   </style>
 </head>
 <body>
@@ -162,6 +207,26 @@
     <div class="status" id="status"></div>
 
     <div class="divider"></div>
+
+    <!-- Profile debug panel — shown only when popup opens on a LinkedIn /in/ page -->
+    <div id="profilePanel" style="display:none">
+      <div class="panel-title">📋 Scraped on this page <span id="scrapeStatus"></span></div>
+      <div class="dbg-row"><span class="dbg-label">Name</span><span id="dbg-name" class="dbg-val">—</span></div>
+      <div class="dbg-row"><span class="dbg-label">Company</span><span id="dbg-company" class="dbg-val">—</span></div>
+      <div class="dbg-row"><span class="dbg-label">Role</span><span id="dbg-role" class="dbg-val">—</span></div>
+      <div class="dbg-row"><span class="dbg-label">Photo</span><span id="dbg-photo" class="dbg-val">—</span></div>
+      <div class="dbg-row"><span class="dbg-label">Headline</span><span id="dbg-headline" class="dbg-val">—</span></div>
+      <div class="dbg-log-wrap">
+        <button class="dbg-log-toggle" id="toggleLog">▶ raw log</button>
+        <textarea id="dbg-log" rows="7" readonly></textarea>
+      </div>
+      <div class="copy-row">
+        <button class="btn-sm" id="copy-debug">Copy log</button>
+        <button class="btn-sm" id="copy-all">Copy all fields</button>
+        <button class="btn-sm primary" id="rescrape-btn">↻ Re-scrape</button>
+      </div>
+      <div class="divider"></div>
+    </div>
 
     <p class="hint">
       Get your token at <strong>6Degrees → Settings</strong>.<br />

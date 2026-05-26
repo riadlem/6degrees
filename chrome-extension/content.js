@@ -1094,6 +1094,42 @@
     }, 3500)
   }
 
+  // ─── SCRAPE_DEBUG message handler ───────────────────────────────────────────
+  // The popup sends this to get a real-time profile scrape with captured debug
+  // output, without the user needing to open DevTools.
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "SCRAPE_DEBUG") return false
+
+    // Temporarily intercept console.debug to capture [6D ...] log lines
+    const debugLines = []
+    const origDebug = console.debug
+    console.debug = function (...args) {
+      try {
+        const line = args.map(a => {
+          if (a === null || a === undefined) return String(a)
+          if (typeof a === "object") { try { return JSON.stringify(a) } catch { return "[object]" } }
+          return String(a)
+        }).join(" ")
+        if (line.startsWith("[6D")) debugLines.push(line)
+      } catch { /* ignore capture errors */ }
+      origDebug.apply(console, args)
+    }
+
+    let profile = null
+    let error = null
+    try {
+      profile = scrapeProfile()
+    } catch (e) {
+      error = e.message
+      debugLines.push("[ERROR] " + e.message)
+    } finally {
+      console.debug = origDebug
+    }
+
+    sendResponse({ profile, debugLines, error })
+    return false // sendResponse called synchronously
+  })
+
   // ─── SPA navigation detection ─────────────────────────────────────────────
   // Uses subtree:true so any DOM mutation (not just direct body children) is
   // detected — required because LinkedIn's SPA sometimes mutates nested nodes.
