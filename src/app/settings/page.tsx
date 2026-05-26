@@ -646,66 +646,178 @@ function SettingsPageInner() {
 
   // ── LinkedIn DM functions ────────────────────────────────────────────────────
 
-  // ── Client-side CSV preprocessor ────────────────────────────────────────────
-  // LinkedIn DM exports can be 8+ MB because each row includes the full message
-  // body (CONTENT column). We strip CONTENT and SUBJECT before uploading so the
-  // payload fits within Vercel's 4.5 MB serverless body limit.
-  // Uses a proper RFC-4180 state-machine parser to handle quoted multi-line cells.
-  function stripLinkedInDMContent(csvText: string): string {
-    // RFC-4180 parser: returns array of rows, each row is array of cell strings
-    const records: string[][] = []
+  // ── Client-side LinkedIn DM parser ─────────────────────────────────────────
+  // Parse the CSV fully in the browser, then send only the metadata (timestamps +
+  // sender names, no message body) as compact JSON. This sidesteps Vercel's 4.5 MB
+  // serverless body limit regardless of how large the LinkedIn export is.
+  // Replicates the server-side RFC-4180 parser and auto-detection logic.
+  function parseLinkedInDMClientSide(csvText: string): {
+    conversations: Array<{
+      conversationId: string
+      chatName: string
+      profileUrl: string | null
+      messages: Array<{ sentAt: string; isOutbound: boolean; senderName: string }>
+    }>
+  } {
+    // RFC-4180 state-machine parser
+    const rows: string[][] = []
+    let row: string[] = []
     let field = ""
-    let fields: string[] = []
     let inQuotes = false
-    for (let i = 0; i < csvText.length; i++) {
-      const c = csvText[i]
-      const next = csvText[i + 1]
+    const text = csvText.startsWith("﻿") ? csvText.slice(1) : csvText
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      const next = text[i + 1]
       if (inQuotes) {
         if (c === '"' && next === '"') { field += '"'; i++ }
         else if (c === '"') inQuotes = false
         else field += c
       } else {
-        if (c === '"') inQuotes = true
-        else if (c === ',') { fields.push(field); field = "" }
-        else if (c === '\r' && next === '\n') { fields.push(field); records.push(fields); fields = []; field = ""; i++ }
-        else if (c === '\n') { fields.push(field); records.push(fields); fields = []; field = "" }
+        if (c === '"') { inQuotes = true }
+        else if (c === ',') { row.push(field); field = "" }
+        else if (c === '\r' && next === '\n') { row.push(field); rows.push(row); row = []; field = ""; i++ }
+        else if (c === '\n') { row.push(field); rows.push(row); row = []; field = "" }
         else field += c
       }
     }
-    if (field || fields.length > 0) { fields.push(field); records.push(fields) }
+    if (field || row.length > 0) { row.push(field); rows.push(row) }
 
-    if (records.length === 0) return csvText
-    const header = records[0].map(h => h.trim().toUpperCase())
-    // Columns we don't need (large or unused)
-    const DROP_COLS = new Set(["CONTENT", "SUBJECT", "FOLDER"].map(n => header.indexOf(n)).filter(i => i >= 0))
-    if (DROP_COLS.size === 0) return csvText  // nothing to strip
+    if (rows.length < 2) return { conversations: [] }
 
-    return records
-      .map(row => row.filter((_, i) => !DROP_COLS.has(i)).map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
-      .join("\n")
+    // Find header row
+    let headerIdx = -1
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].some(c => c.trim().toUpperCase() === "CONVERSATION ID")) { headerIdx = i; break }
+    }
+    if (headerIdx === -1) return { conversations: [] }
+
+    const headers = rows[headerIdx].map(h => h.trim().toUpperCase())
+    const col = (name: string) => headers.indexOf(name)
+    const COL_ID    = col("CONVERSATION ID")
+    const COL_TITLE = col("CONVERSATION TITLE")
+    const COL_FROM  = col("FROM")
+    const COL_URL   = col("SENDER PROFILE URL")
+    const COL_DATE  = col("DATE")
+    if (COL_ID === -1 || COL_FROM === -1 || COL_DATE === -1) return { conversations: [] }
+
+    // Parse raw rows
+    type Raw = { conversationId: string; title: string; from: string; profileUrl: string; sentAt: Date }
+    const raws: Raw[] = []
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.every(c => !c.trim())) continue
+      const dateStr = (r[COL_DATE] ?? "").trim().replace(/\s+UTC$/i, "Z").replace(" ", "T")
+      const d = new Date(dateStr)
+      if (isNaN(d.getTime())) continue
+      raws.push({
+        conversationId: (r[COL_ID] ?? "").trim(),
+        title:          (COL_TITLE !== -1 ? (r[COL_TITLE] ?? "") : "").trim(),
+        from:           (r[COL_FROM] ?? "").trim(),
+        profileUrl:     (COL_URL !== -1 ? (r[COL_URL] ?? "") : "").trim(),
+        sentAt:         d,
+      })
+    }
+    if (raws.length === 0) return { conversations: [] }
+
+    // Auto-detect the exporting user: profile URL that appears in most distinct conversations
+    const urlConvs = new Map<string, Set<string>>()
+    const urlMsgs  = new Map<string, number>()
+    for (const m of raws) {
+      if (!m.profileUrl) continue
+      if (!urlConvs.has(m.profileUrl)) urlConvs.set(m.profileUrl, new Set())
+      urlConvs.get(m.profileUrl)!.add(m.conversationId)
+      urlMsgs.set(m.profileUrl, (urlMsgs.get(m.profileUrl) ?? 0) + 1)
+    }
+    let userUrl: string | null = null
+    let bestConvs = 0, bestMsgs = 0
+    for (const [url, convSet] of urlConvs) {
+      const cc = convSet.size, mc = urlMsgs.get(url) ?? 0
+      if (cc > bestConvs || (cc === bestConvs && mc > bestMsgs)) { userUrl = url; bestConvs = cc; bestMsgs = mc }
+    }
+    // Fallback: FROM name that appears in most distinct conversations
+    let userName: string | null = null
+    if (!userUrl) {
+      const nameConvs = new Map<string, Set<string>>()
+      const nameMsgs  = new Map<string, number>()
+      for (const m of raws) {
+        if (!nameConvs.has(m.from)) nameConvs.set(m.from, new Set())
+        nameConvs.get(m.from)!.add(m.conversationId)
+        nameMsgs.set(m.from, (nameMsgs.get(m.from) ?? 0) + 1)
+      }
+      let bc = 0, bm = 0
+      for (const [name, convSet] of nameConvs) {
+        const cc = convSet.size, mc = nameMsgs.get(name) ?? 0
+        if (cc > bc || (cc === bc && mc > bm)) { userName = name; bc = cc; bm = mc }
+      }
+    }
+    const isFromUser = (m: Raw) => userUrl ? m.profileUrl === userUrl : (userName !== null && m.from === userName)
+
+    // Group by conversationId — apply 4-year cutoff
+    const FOUR_YEARS_AGO = new Date(Date.now() - 4 * 365.25 * 24 * 60 * 60 * 1000)
+    const convMap = new Map<string, Raw[]>()
+    for (const m of raws) {
+      if (!m.conversationId || m.sentAt < FOUR_YEARS_AGO) continue
+      if (!convMap.has(m.conversationId)) convMap.set(m.conversationId, [])
+      convMap.get(m.conversationId)!.push(m)
+    }
+
+    const conversations = []
+    for (const [conversationId, msgs] of convMap) {
+      let chatName: string | null = null
+      let partnerUrl: string | null = null
+      for (const m of msgs) {
+        if (!isFromUser(m)) {
+          if (!chatName && m.from) chatName = m.from
+          if (!partnerUrl && m.profileUrl) partnerUrl = m.profileUrl
+          if (chatName && partnerUrl) break
+        }
+      }
+      if (!chatName) continue
+      conversations.push({
+        conversationId,
+        chatName,
+        profileUrl: partnerUrl,
+        messages: msgs.map(m => ({ sentAt: m.sentAt.toISOString(), isOutbound: isFromUser(m), senderName: m.from })),
+      })
+    }
+    return { conversations }
   }
 
   async function importLinkedInDM(file: File) {
     setLiDMImporting(true)
-    setLiDMProgress("Preprocessing CSV…")
+    setLiDMProgress("Parsing CSV…")
     setLiDMResult(null)
 
-    // Strip large CONTENT/SUBJECT columns client-side before uploading
-    let uploadFile = file
+    // Parse CSV fully in the browser — send compact JSON (no message bodies)
+    // This avoids Vercel's 4.5 MB body limit regardless of export size.
+    let payload: ReturnType<typeof parseLinkedInDMClientSide>
     try {
       const raw = await file.text()
-      const stripped = stripLinkedInDMContent(raw)
-      if (stripped !== raw) {
-        uploadFile = new File([stripped], file.name, { type: "text/csv" })
+      payload = parseLinkedInDMClientSide(raw)
+      if (payload.conversations.length === 0) {
+        setLiDMProgress("Could not parse CSV — is this a LinkedIn DM messages.csv export?")
+        setLiDMImporting(false)
+        return
       }
-    } catch { /* if preprocessing fails, fall back to original */ }
+      setLiDMProgress(`Uploading ${payload.conversations.length} conversations…`)
+    } catch (err) {
+      setLiDMProgress(`Parse error: ${err instanceof Error ? err.message : "unknown"}`)
+      setLiDMImporting(false)
+      if (liDMFileRef.current) liDMFileRef.current.value = ""
+      return
+    }
 
-    setLiDMProgress("Uploading…")
-    const formData = new FormData()
-    formData.append("file", uploadFile)
     try {
-      const res = await fetch("/api/linkedin-dm/import", { method: "POST", body: formData })
-      if (!res.ok || !res.body) { setLiDMProgress("Import failed"); return }
+      const res = await fetch("/api/linkedin-dm/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => "")
+        setLiDMProgress(`Import failed (${res.status})${errText ? ": " + errText.slice(0, 100) : ""}`)
+        return
+      }
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
