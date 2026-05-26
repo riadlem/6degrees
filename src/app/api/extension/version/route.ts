@@ -24,6 +24,13 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.9: Fix company scraping: new Strategy 5 scans <a href='/company/'> links in",
+    "        <main> — LinkedIn stopped using alt='Company logo' in 2024, breaking all",
+    "        logo-based strategies. Fix photo scraping: score candidates by -cr- URL",
+    "        suffix (+200) and srcset width instead of DOM order — mutual-connection",
+    "        thumbnails in the top-card section no longer beat the real profile photo.",
+    "        Fix asCompany: reject strings > 60 chars (was treating long headline",
+    "        segments like 'Tokenized deposits and Tokenized securities' as company).",
     "v1.4.8: Live debug panel in popup — opens on any LinkedIn /in/ profile and shows",
     "        scraped name/company/role/photo + full strategy log. Copy buttons for log",
     "        and all fields. Re-scrape button to retry without closing popup.",

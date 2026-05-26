@@ -201,19 +201,25 @@
         pdImgs.map(img => ({ src: (img.currentSrc || img.src || "").slice(0, 80), class: img.className.slice(0, 60) })))
 
       if (pdImgs.length > 0) {
-        // Take the first in DOM order — that's always the actual profile headshot.
-        const top = pdImgs[0]
-        const ss = bestSrcset(top)
-        if (ss && ss.width >= 100 && isValidPhoto(ss.url)) {
-          console.debug("[6D photo] Strategy 1 win (srcset):", ss.url.slice(0, 80))
-          return upgradePhotoUrl(ss.url)
+        // Score each candidate:
+        //   +200 if URL contains "-cr-" (circular crop = the actual profile headshot)
+        //   + best srcset width (larger = higher-res = real profile photo, not thumbnail)
+        // DOM order is only a tiebreaker; mutual-connection thumbnails in the top card
+        // can appear before the real headshot in the HTML source.
+        const scored = pdImgs.map((img, domIdx) => {
+          const ss = bestSrcset(img)
+          const combined = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
+          const isCrop = /-cr[-/]/.test(combined)
+          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0)
+          const url = (ss && ss.width >= 100) ? ss.url : (img.currentSrc || img.src || "")
+          return { url, score, domIdx }
+        }).filter(({ url }) => isValidPhoto(url))
+        scored.sort((a, b) => b.score - a.score || a.domIdx - b.domIdx)
+        if (scored.length > 0) {
+          console.debug("[6D photo] Strategy 1 win (scored):", scored[0].url.slice(0, 80), "score=" + scored[0].score)
+          return upgradePhotoUrl(scored[0].url)
         }
-        const src = top.currentSrc || top.src || ""
-        if (src && isValidPhoto(src)) {
-          console.debug("[6D photo] Strategy 1 win (src):", src.slice(0, 80))
-          return upgradePhotoUrl(src)
-        }
-        console.debug("[6D photo] Strategy 1: candidate found but isValidPhoto failed, src=", (top.currentSrc || top.src || "").slice(0, 80))
+        console.debug("[6D photo] Strategy 1: all candidates failed isValidPhoto")
       }
     }
 
@@ -509,8 +515,9 @@
     }
 
     // Returns s if it passes as a company name, null otherwise.
+    // Reject strings > 60 chars — those are almost always headlines/taglines, not company names.
     function asCompany(s) {
-      if (!s || s.length < 2 || looksLikeLocation(s)) return null
+      if (!s || s.length < 2 || s.length > 60 || looksLikeLocation(s)) return null
       return s
     }
 
@@ -706,6 +713,23 @@
         }
       }
       console.debug("[6D company] Strategy 4: no match. All logo alts in main:", logoAlts4)
+    }
+
+    // ── Strategy 5: /company/ links in <main> ────────────────────────────────────
+    // LinkedIn has stopped using alt="Company logo" on most profiles since 2024,
+    // making Strategies 2 & 4 return empty arrays. However, LinkedIn always wraps
+    // the company name in an <a href="/company/..."> link in the experience / top-card
+    // section. The first such link (outside <aside>) is the current employer.
+    if (mainEl2) {
+      for (const a of mainEl2.querySelectorAll("a[href*='/company/']")) {
+        if (a.closest("aside")) continue  // skip sidebar (PYMK, ads)
+        const nameEl = a.querySelector("span[aria-hidden='true']") || a
+        const name = (nameEl.textContent ?? "").trim()
+        if (name.length > 1 && name.length < 80 && !isGeo(name)) {
+          console.debug("[6D company] Strategy 5 (/company/ link):", name)
+          return name
+        }
+      }
     }
 
     console.debug("[6D company] ALL strategies failed — returning null")
