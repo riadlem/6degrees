@@ -15,29 +15,26 @@ function extractLinkedInKey(url: string): string | null {
 }
 
 /**
- * Normalise a chat name and return all (normFirst, normLast) candidate pairs.
+ * Return all (normFirst, normLast) candidate pairs for a chat name.
  *
- * Two bugs fixed vs. the previous version:
- *
- *   1. Emoji stripping — the old regex only stripped emoji preceded by whitespace,
- *      so "Hernandez🌺" (no space) survived intact.  New: strip ALL emoji/modifiers.
- *
- *   2. Compound last names — "Carla de Preval" has parts ["Carla","de","Preval"].
- *      Old code: lastName = parts[last] = "Preval".  DB stores lastName = "de Preval".
- *      New: for 3+ word names generate two candidates:
- *        – (Carla, Preval)      [last word only — DB might store it trimmed]
- *        – (Carla, de Preval)   [full rest — handles French/Spanish/Dutch particles]
+ * Fixes:
+ *   1. Strip ALL emoji (not just space-preceded) — "Hernandez🌺" → "Hernandez"
+ *   2. Compound last names  — "Carla de Preval" generates 3 candidates:
+ *        A. (carla, preval)      last word only — DB might store trimmed form
+ *        B. (carla, de preval)   first + full rest — handles French/Spanish particles
+ *        C. (carla de, preval)   compound first + last — handles "Carla de" as firstName
+ *      All three tried; first unambiguous match wins.
  */
 type NameCandidate = { normFirst: string; normLast: string }
 
 function nameVariants(chatName: string): NameCandidate[] {
   const cleaned = chatName
     .trim()
-    // Strip ALL emoji (including those glued directly to the name without a space)
+    // Strip ALL emoji including those glued directly without a space
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Emoji_Modifier}️‍]/gu, "")
     // Remove anything in brackets: "(London)", "[CEO at Acme]", etc.
     .replace(/[\(\[\{].*?[\)\]\}]/g, "")
-    // Strip " - Company" / " | Title" suffixes that start with a capital letter
+    // Strip " - Company" / " | Title" suffixes starting with a capital letter
     .replace(/\s*[-–—|\/]\s*[A-Z].*/g, "")
     .trim()
     .replace(/\s+/g, " ")  // collapse internal whitespace
@@ -47,24 +44,26 @@ function nameVariants(chatName: string): NameCandidate[] {
 
   const nf = stripAccents(parts[0]).toLowerCase()
 
-  if (parts.length === 1) {
-    // Single word: first-name-only match
-    return [{ normFirst: nf, normLast: "" }]
-  }
+  if (parts.length === 1) return [{ normFirst: nf, normLast: "" }]
+  if (parts.length === 2) return [{ normFirst: nf, normLast: stripAccents(parts[1]).toLowerCase() }]
 
-  if (parts.length === 2) {
-    return [{ normFirst: nf, normLast: stripAccents(parts[1]).toLowerCase() }]
-  }
-
-  // 3+ parts: try both splits to handle noble particles and compound surnames
+  // 3+ parts: generate all useful split variants to handle particles and compound names
+  const seen = new Set<string>()
   const candidates: NameCandidate[] = []
-  // Candidate A: first + last word  ("Carla" + "Preval")
-  candidates.push({ normFirst: nf, normLast: stripAccents(parts[parts.length - 1]).toLowerCase() })
-  // Candidate B: first + all remaining words  ("Carla" + "de Preval")
-  const fullRest = stripAccents(parts.slice(1).join(" ")).toLowerCase()
-  if (fullRest !== candidates[0].normLast) {
-    candidates.push({ normFirst: nf, normLast: fullRest })
+
+  function addCandidate(fn: string[], ln: string[]) {
+    const cnf = stripAccents(fn.join(" ")).toLowerCase()
+    const cnl = stripAccents(ln.join(" ")).toLowerCase()
+    const key = `${cnf}\0${cnl}`
+    if (!seen.has(key)) { seen.add(key); candidates.push({ normFirst: cnf, normLast: cnl }) }
   }
+
+  // A: first word + last word  (most selective → try first)
+  addCandidate([parts[0]], [parts[parts.length - 1]])
+  // B: first word + everything after  ("Carla" + "de Preval")
+  addCandidate([parts[0]], parts.slice(1))
+  // C: everything before last + last word  ("Carla de" + "Preval")
+  addCandidate(parts.slice(0, -1), [parts[parts.length - 1]])
 
   return candidates
 }

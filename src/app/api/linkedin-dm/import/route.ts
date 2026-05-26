@@ -15,15 +15,7 @@ function stripAccents(str: string): string {
 
 type NameVariant = { normFirst: string; normLast: string }
 
-/**
- * Return all (normFirst, normLast) candidate pairs for a chat name.
- * Fixes two bugs from the original implementation:
- *   1. Strip ALL emoji — the old regex only stripped emoji preceded by a space,
- *      so "Hernandez🌺" (no space) leaked through into the key.
- *   2. Compound last names — "Carla de Preval" → generate BOTH candidates:
- *        (carla, preval)     [last word only — some DBs store it trimmed]
- *        (carla, de preval)  [full remainder — handles noble particles de/van/di/…]
- */
+/** Same logic as linkedin-dm-match.ts — kept in sync manually. */
 function nameVariants(chatName: string): NameVariant[] {
   const cleaned = chatName
     .trim()
@@ -35,18 +27,21 @@ function nameVariants(chatName: string): NameVariant[] {
 
   const parts = cleaned.split(" ").filter(Boolean)
   if (parts.length === 0) return []
+  if (parts.length === 1) return [{ normFirst: stripAccents(parts[0]).toLowerCase(), normLast: "" }]
+  if (parts.length === 2) return [{ normFirst: stripAccents(parts[0]).toLowerCase(), normLast: stripAccents(parts[1]).toLowerCase() }]
 
-  const nf = stripAccents(parts[0]).toLowerCase()
-
-  if (parts.length === 1) return [{ normFirst: nf, normLast: "" }]
-  if (parts.length === 2) return [{ normFirst: nf, normLast: stripAccents(parts[1]).toLowerCase() }]
-
-  // 3+ parts: two candidates (last-word-only first — more selective against the DB)
-  const variants: NameVariant[] = [
-    { normFirst: nf, normLast: stripAccents(parts[parts.length - 1]).toLowerCase() },
-  ]
-  const fullRest = stripAccents(parts.slice(1).join(" ")).toLowerCase()
-  if (fullRest !== variants[0].normLast) variants.push({ normFirst: nf, normLast: fullRest })
+  // 3+ parts: A=(first,last), B=(first,rest), C=(all-but-last,last)
+  const seen = new Set<string>()
+  const variants: NameVariant[] = []
+  function add(fn: string[], ln: string[]) {
+    const cnf = stripAccents(fn.join(" ")).toLowerCase()
+    const cnl = stripAccents(ln.join(" ")).toLowerCase()
+    const k = `${cnf}\0${cnl}`
+    if (!seen.has(k)) { seen.add(k); variants.push({ normFirst: cnf, normLast: cnl }) }
+  }
+  add([parts[0]], [parts[parts.length - 1]])   // A: first + last word
+  add([parts[0]], parts.slice(1))              // B: first + full rest
+  add(parts.slice(0, -1), [parts[parts.length - 1]])  // C: compound first + last
   return variants
 }
 
@@ -143,7 +138,7 @@ async function batchResolveContacts(
     if (variants.length === 0) { result.set(c.conversationId, null); continue }
     const keys = variants.map((v) => `${v.normFirst}\0${v.normLast}`)
     convVariantKeys.set(c.conversationId, keys)
-    allFirstChars.add(variants[0].normFirst.charAt(0))
+    for (const v of variants) allFirstChars.add(v.normFirst.charAt(0))
   }
 
   if (allFirstChars.size > 0) {
