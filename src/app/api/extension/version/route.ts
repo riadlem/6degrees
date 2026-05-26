@@ -24,6 +24,8 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.3.0" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.4: Fix wrong photo (mutual connections / Open to Work): pick topmost",
+    "        profile-displayphoto by vertical position, not widest srcset.",
     "v1.4.3: Fix company from experience section logos (Strategy 4 scans full <main>,",
     "        not just top-card; catches profiles where logos aren't in the top snippet).",
     "v1.4.2: Fix company always scraped from DOM (JSON-LD/logo) first — headline parsing",
