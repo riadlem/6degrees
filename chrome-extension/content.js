@@ -830,8 +830,11 @@
           }
           // After headline: first short (<60 chars), non-geo, non-pipe text = company
           if (t.length <= 60 && !isGeo(t) && !t.includes("|")) {
-            console.debug("[6D company] Strategy 6 (topcard plain text):", t)
-            return t
+            // LinkedIn sometimes concatenates current company + school: "BVNK · La Salle University"
+            // Take only the first token before any " · " separator.
+            const company = t.split(/\s*·\s*/)[0].trim()
+            console.debug("[6D company] Strategy 6 (topcard plain text):", company)
+            return company
           }
           // Location follows company in the topcard layout — stop here
           if (isGeo(t) || t.includes(",")) break
@@ -894,13 +897,71 @@
       : { city: null, country: parts[0] }
   }
 
+  // Scrape the title of the CURRENT role from the experience section.
+  // This is more reliable than parsing the headline for people who use tagline-style
+  // headlines like "Ex Morgan Stanley - Banking, Crypto, iGaming…" instead of
+  // "Sales Director at BVNK". Returns the title string or null.
+  function scrapeCurrentTitle() {
+    const PRESENT_RE = /\b(present|aujourd'hui|heute|heden|ahora|attuale|maintenant|현재|現在|сейчас|جاري)\b/i
+
+    // Helper: extract a clean title string from an experience item element.
+    // LinkedIn renders experience items as <li> or pvs-entity blocks; the title is
+    // typically in the first <span aria-hidden="true"> that is NOT the company name,
+    // date range, or employment type.
+    function titleFromItem(item) {
+      // Try aria-label on the item's primary link first (often "Title at Company")
+      const link = item.querySelector("a[href*='/company/'], a[href*='/in/']")
+      if (link) {
+        const label = (link.getAttribute("aria-label") ?? "").trim()
+        if (label) {
+          const { position } = parsePositionCompany(label)
+          if (position && position.length > 1 && position.length < 80) return position
+        }
+      }
+      // Fall through: grab all visible span texts and use the first short one
+      // that doesn't look like a date, company name, or employment type.
+      const DATE_RE = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|jan|fév|mar|avr|mai|juin|juil|août|sep|oct|nov|dec|\d{4})\b/i
+      const EMP_TYPE_RE = /\b(full-time|part-time|freelance|contract|internship|self-employed|temps plein|temps partiel|indépendant)\b/i
+      for (const span of item.querySelectorAll("span[aria-hidden='true']")) {
+        const t = (span.textContent ?? "").trim()
+        if (!t || t.length < 2 || t.length > 80) continue
+        if (DATE_RE.test(t) || EMP_TYPE_RE.test(t)) continue
+        if (/^\d/.test(t)) continue  // "2 years 3 months" etc.
+        return t
+      }
+      return null
+    }
+
+    // Look inside the experience section for an item with a "Present" date range.
+    function findExperienceSection() {
+      const byAttr = document.querySelector("section[data-view-name*='experience']")
+      if (byAttr) return byAttr
+      for (const s of document.querySelectorAll("main section")) {
+        const h = s.querySelector("h2, h3")
+        if (!h) continue
+        if (/^exp[eé]ri|^ervar|^erfahrung|^esperien|^experiencia|^do[sś]wiad/i.test(h.textContent.trim())) return s
+      }
+      return null
+    }
+
+    const expSection = findExperienceSection()
+    if (expSection) {
+      for (const item of expSection.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+        if (!PRESENT_RE.test(item.textContent)) continue
+        const title = titleFromItem(item)
+        if (title && title.length > 1 && title.length < 80) return title
+      }
+    }
+    return null
+  }
+
   function scrapeProfile() {
     const { firstName, lastName } = scrapeName()
     const location = scrapeLocation()
     const { city, country } = extractCityCountry(location)
     const headline = scrapeHeadline()
     const parsed = parsePositionCompany(headline)
-    const position = parsed.position
+
     // DOM-based company (JSON-LD worksFor + company logo alt text) is more reliable
     // than headline string parsing — headline separators are ambiguous (e.g.
     // "Unified Commerce | Newblack" where "Unified Commerce" is a specialty, not a
@@ -908,6 +969,12 @@
     // experience items — all more authoritative than headline text parsing.
     // Only fall back to headline-parsed company when the DOM yields nothing.
     const company = scrapeCompanyFromTopCard() || parsed.company || null
+
+    // Prefer the current role title from the experience section over the headline-parsed
+    // position. Headlines are often taglines ("Ex Morgan Stanley - Banking, Crypto…")
+    // that don't encode the actual current title cleanly. Only fall back to the
+    // headline-derived position when the DOM experience section yields nothing.
+    const position = scrapeCurrentTitle() || parsed.position
     const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     const profile = {
