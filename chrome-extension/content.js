@@ -444,6 +444,24 @@
   function parsePositionCompany(headline) {
     if (!headline) return { position: null, company: null }
 
+    // Role-keyword heuristic — used to detect which side of a separator is the title
+    const ROLE_RE = /\b(director|directeur|manager|head|lead|chief|officer|president|ceo|cto|coo|cfo|ciso|cmo|vp|vice|founder|co-founder|partner|associate|analyst|engineer|architect|consultant|specialist|advisor|advisor|intern|stagiaire|responsable|chargé|student|researcher|professor|lecturer|designer|developer|scientist|strategist|entrepreneur|executive|chairman|trustee)\b/i
+
+    // Rejects strings that look like geographic locations rather than company names.
+    function looksLikeLocation(s) {
+      if (!s) return false
+      // "Paris, France" / "City, Region" pattern — comma inside
+      if (/^[A-ZÀ-Ö][\w\s'-]+,\s*[A-ZÀ-Ö]/.test(s)) return true
+      return /\b(region|area|greater|metropolitan|province|county|district|département|territory|zone|île|canton|prefecture)\b/i.test(s) ||
+        /\b(france|england|germany|usa|uk|united states|united kingdom|sweden|norway|denmark|netherlands|spain|italy|australia|canada|switzerland|belgium|singapore|india|china|japan|brazil|mexico|russia|poland|portugal|greece|turkey|south korea|taiwan|indonesia|malaysia|thailand|vietnam|philippines|new zealand|ireland|scotland|wales|austria|czech|hungary|romania|bulgaria|croatia|ukraine|israel|south africa|nigeria|kenya|egypt|morocco|saudi arabia|uae|qatar|kuwait|bahrain|oman)\b/i.test(s)
+    }
+
+    // Returns s if it passes as a company name, null otherwise.
+    function asCompany(s) {
+      if (!s || s.length < 2 || looksLikeLocation(s)) return null
+      return s
+    }
+
     // ── Preposition patterns: "Role at Company" (and multilingual equivalents) ──
     const atPatterns = [
       /^(.+?)\s+at\s+(.+)$/i,
@@ -456,17 +474,25 @@
     for (const pat of atPatterns) {
       const m = headline.match(pat)
       if (m && m[1].trim().length > 1 && m[2].trim().length > 1) {
-        const company = m[2].split(/\s*[|·]\s*/)[0].trim()
-        return { position: m[1].trim(), company: company || null }
+        const company = asCompany(m[2].split(/\s*[|·]\s*/)[0].trim())
+        return { position: m[1].trim(), company }
       }
     }
 
-    // ── Middle-dot separator: "Role · Company" ──
+    // ── Middle-dot separator: "Role · Company" or "Company · Role" ──
+    // Use ROLE_RE to detect direction — LinkedIn users write both orders.
     const dotM = headline.match(/^(.+?)\s*·\s*(.+)$/)
     if (dotM) {
-      const right = dotM[2].trim()
+      const [left, right] = [dotM[1].trim(), dotM[2].trim()]
       if (right.length > 1 && !/^\d/.test(right) && !/connection|follower|relation/i.test(right)) {
-        return { position: dotM[1].trim(), company: right.split(/\s*[|·]\s*/)[0].trim() || null }
+        const leftIsRole = ROLE_RE.test(left)
+        const rightIsRole = ROLE_RE.test(right)
+        if (rightIsRole && !leftIsRole) {
+          // "Company · Role" — reversed order
+          return { position: right, company: asCompany(left.split(/\s*[|·]\s*/)[0].trim()) }
+        }
+        // Default (leftIsRole, both, or neither): "Role · Company"
+        return { position: left, company: asCompany(right.split(/\s*[|·]\s*/)[0].trim()) }
       }
     }
 
@@ -475,8 +501,12 @@
     if (pipeM) {
       const [left, right] = [pipeM[1].trim(), pipeM[2].trim()]
       if (left.length > 1 && right.length > 1) {
-        // Convention: company is usually on the left of the pipe
-        return { position: right, company: left }
+        // If right has a role keyword and left doesn't → left is company (default)
+        // If left has a role keyword and right doesn't → right is company
+        if (ROLE_RE.test(left) && !ROLE_RE.test(right)) {
+          return { position: left, company: asCompany(right) }
+        }
+        return { position: right, company: asCompany(left) }
       }
     }
 
@@ -485,26 +515,25 @@
     if (dashM) {
       const [left, right] = [dashM[1].trim(), dashM[2].trim()]
       if (left.length > 1 && right.length > 1 && left.length < 60) {
-        // Use title-word heuristic to determine which side is the role
-        const TITLE_RE = /\b(director|directeur|manager|head|lead|chief|officer|president|ceo|cto|coo|cfo|vp|vice|founder|partner|associate|analyst|engineer|architect|consultant|specialist|advisor|intern|responsable|chargé)\b/i
-        if (TITLE_RE.test(right) && !TITLE_RE.test(left)) {
-          return { position: right, company: left }
+        if (ROLE_RE.test(right) && !ROLE_RE.test(left)) {
+          return { position: right, company: asCompany(left) }
         }
-        if (TITLE_RE.test(left) && !TITLE_RE.test(right)) {
-          return { position: left, company: right }
+        if (ROLE_RE.test(left) && !ROLE_RE.test(right)) {
+          return { position: left, company: asCompany(right) }
         }
-        // Default: left = company, right = role (more common format)
-        return { position: right, company: left }
+        // Default: left = company, right = role
+        return { position: right, company: asCompany(left) }
       }
     }
 
     // ── Comma separator: "Role, Company" ──
+    // Strict guard: skip if right side looks like a location (city, region, country).
     const commaM = headline.match(/^([^,]+),\s*(.+)$/)
     if (commaM) {
       const [left, right] = [commaM[1].trim(), commaM[2].trim()]
-      // Only use comma as separator if right side looks like a company (not a long clause)
-      if (left.length > 1 && right.length > 1 && right.length < 60 && !/^\d/.test(right)) {
-        return { position: left, company: right }
+      const company = asCompany(right)
+      if (left.length > 1 && company && right.length < 60 && !/^\d/.test(right)) {
+        return { position: left, company }
       }
     }
 
@@ -517,13 +546,21 @@
   // that represent current positions). These often contain "Title at Company" text
   // or aria-labels even when the user's headline doesn't follow a standard format.
   function scrapeCompanyFromTopCard() {
+    // Shared location guard (mirrors the one in parsePositionCompany)
+    function isGeo(s) {
+      if (!s) return false
+      return /\b(region|area|greater|metropolitan|province|county|district|département|territory|zone|île|canton)\b/i.test(s) ||
+        /\b(france|england|germany|usa|uk|united states|united kingdom|sweden|norway|denmark|netherlands|spain|italy|australia|canada|switzerland|belgium|singapore|india|china|japan|brazil|mexico|russia|poland|portugal|greece|turkey|south korea|taiwan|ireland|scotland|wales|austria|ukraine|israel|south africa|nigeria|kenya|egypt|morocco|saudi arabia|uae|qatar|kuwait)\b/i.test(s) ||
+        /^[A-ZÀ-Ö][\w\s'-]+,\s*[A-ZÀ-Ö]/.test(s)
+    }
+
     // ── Strategy 1: JSON-LD structured data ──────────────────────────────────
     // LinkedIn sometimes embeds a Person schema with worksFor populated.
     for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
       try {
         const d = JSON.parse(s.textContent ?? "")
         const co = d?.worksFor?.name || d?.worksFor?.[0]?.name
-        if (co && co.length > 1 && co.length < 80) return co
+        if (co && co.length > 1 && co.length < 80 && !isGeo(co)) return co
       } catch { /* ignore */ }
     }
 
@@ -545,7 +582,7 @@
         !img.closest("[class*='photo-wrapper']")
       ) {
         const company = alt.replace(/\s*logo$/i, "").trim()
-        if (company.length > 1) return company
+        if (company.length > 1 && !isGeo(company)) return company
       }
     }
 
@@ -570,7 +607,7 @@
         ).trim().replace(/\s+/g, " ")
         if (!text || text.length > 200 || text.length < 4) continue
         const { company } = parsePositionCompany(text)
-        if (company && company.length > 1 && company.length < 80) return company
+        if (company && company.length > 1 && company.length < 80 && !isGeo(company)) return company
       }
     }
     return null
