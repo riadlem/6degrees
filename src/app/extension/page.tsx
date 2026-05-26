@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { Download, Puzzle, Chrome, ArrowRight, Check, Globe, Users, BookOpen, Sparkles } from "lucide-react"
 import EnrichContent from "@/components/EnrichContent"
+import manifest from "@/../chrome-extension/manifest.json"
+
+const EXT_VERSION = manifest.version
 
 const STEPS = [
   {
@@ -69,7 +72,7 @@ export default function ExtensionPage() {
               <span className="text-sm font-medium opacity-80">Chrome Extension · Manifest V3</span>
             </div>
             <h2 className="text-2xl font-bold mb-1">6Degrees Extension</h2>
-            <p className="text-blue-100 text-sm">v1.3.4 · Works on any LinkedIn profile page</p>
+            <p className="text-blue-100 text-sm">v{EXT_VERSION} · Works on any LinkedIn profile page</p>
           </div>
           <a
             href="/6degrees-extension.zip"
