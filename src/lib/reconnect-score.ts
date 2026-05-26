@@ -22,12 +22,13 @@ function computeScore(
 }
 
 export async function recomputeScoreForContact(contactId: string): Promise<void> {
-  const [emailMsgs, waMsgs, contact] = await Promise.all([
+  const [emailMsgs, waMsgs, liDMMsgs, contact] = await Promise.all([
     prisma.emailMessage.findMany({ where: { contactId }, select: { sentAt: true, isOutbound: true } }),
     prisma.whatsAppMessage.findMany({ where: { contactId }, select: { sentAt: true, isOutbound: true } }),
+    prisma.linkedInDMMessage.findMany({ where: { contactId }, select: { sentAt: true, isOutbound: true } }),
     prisma.contact.findUnique({ where: { id: contactId }, select: { commonConnections: true } }),
   ])
-  const msgs = [...emailMsgs, ...waMsgs]
+  const msgs = [...emailMsgs, ...waMsgs, ...liDMMsgs]
   const score = computeScore(msgs, contact?.commonConnections ?? null)
   if (score === 0) return
   const lastInteractionAt = msgs.length
@@ -38,7 +39,7 @@ export async function recomputeScoreForContact(contactId: string): Promise<void>
 
 export async function recomputeScores(userId: string): Promise<void> {
   // Load all matched messages for this user grouped by contact (email + WhatsApp)
-  const [emailRows, waRows] = await Promise.all([
+  const [emailRows, waRows, liDMRows] = await Promise.all([
     prisma.emailMessage.findMany({
       where: { userId, contactId: { not: null } },
       select: { contactId: true, sentAt: true, isOutbound: true },
@@ -47,9 +48,13 @@ export async function recomputeScores(userId: string): Promise<void> {
       where: { userId, contactId: { not: null } },
       select: { contactId: true, sentAt: true, isOutbound: true },
     }),
+    prisma.linkedInDMMessage.findMany({
+      where: { userId, contactId: { not: null } },
+      select: { contactId: true, sentAt: true, isOutbound: true },
+    }),
   ])
 
-  const allRows = [...emailRows, ...waRows]
+  const allRows = [...emailRows, ...waRows, ...liDMRows]
 
   // Group messages by contactId
   const byContact = new Map<string, { sentAt: Date; isOutbound: boolean }[]>()

@@ -69,6 +69,8 @@ model User {
   outreachDrafts OutreachDraft[]
   whatsAppMessages WhatsAppMessage[]
   whatsAppSync   WhatsAppSync?
+  linkedInDMMessages LinkedInDMMessage[]
+  linkedInDMSync LinkedInDMSync?
   userEmailAddresses UserEmailAddress[]
   dismissedEmails    DismissedEmail[]
   phoneContacts  PhoneContact[]
@@ -118,10 +120,11 @@ model Contact {
   notes            ContactNote[]
   listMembers      ContactListMember[]
   labels           ContactLabel[]
-  emailMessages    EmailMessage[]
-  emailAddresses   ContactEmailAddress[]
-  outreachDrafts   OutreachDraft[]
-  whatsAppMessages WhatsAppMessage[]
+  emailMessages      EmailMessage[]
+  emailAddresses     ContactEmailAddress[]
+  outreachDrafts     OutreachDraft[]
+  whatsAppMessages   WhatsAppMessage[]
+  linkedInDMMessages LinkedInDMMessage[]
 
   @@unique([userId, linkedinKey])
   @@index([userId])
@@ -360,6 +363,37 @@ model WhatsAppMessage {
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@unique([userId, chatName, sentAt])
+  @@index([userId, contactId])
+  @@index([contactId, sentAt])
+}
+
+// ─── LinkedIn Direct Messages integration ─────────────────────────────────────
+
+model LinkedInDMSync {
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  importedAt    DateTime?
+  totalMessages Int       @default(0)
+  totalChats    Int       @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LinkedInDMMessage {
+  id             String   @id @default(cuid())
+  userId         String
+  contactId      String?
+  conversationId String   // LinkedIn thread ID (stable across imports)
+  chatName       String   // Other person's display name
+  senderName     String   // FROM field value (may be user or contact)
+  profileUrl     String?  // Other person's LinkedIn profile URL (used for matching)
+  sentAt         DateTime
+  isOutbound     Boolean
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, conversationId, sentAt, senderName])
   @@index([userId, contactId])
   @@index([contactId, sentAt])
 }
