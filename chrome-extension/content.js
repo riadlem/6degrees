@@ -152,36 +152,44 @@
     // These class names / attributes are used only on the actual profile photo
     // element and are safe on every profile layout, including Open to Work,
     // Premium frames, and creator profiles.
+    // NOTE: The broad "div[class*='profile-picture'] img[class*='profile-picture__image']"
+    // selector was removed — it also matches mutual-connection card thumbnails.
     const PHOTO_SELECTORS = [
       ".pv-top-card-profile-picture__image--show",  // loaded state class
       ".pv-top-card-profile-picture__image",         // general class
       "img[data-anonymize='headshot-photo']",        // LinkedIn anon attribute
       ".profile-photo-edit__preview",               // own profile (edit mode)
       ".pv-top-card--photo img",
-      "div[class*='profile-picture'] img[class*='profile-picture__image']",
     ]
     for (const sel of PHOTO_SELECTORS) {
       let img
       try { img = document.querySelector(sel) } catch { continue }
       if (!img) continue
       const ss = bestSrcset(img)
-      if (ss && ss.width >= 100 && isValidPhoto(ss.url)) return upgradePhotoUrl(ss.url)
+      if (ss && ss.width >= 100 && isValidPhoto(ss.url)) {
+        console.debug("[6D photo] Strategy 0 hit:", sel, ss.url)
+        return upgradePhotoUrl(ss.url)
+      }
       const src = img.currentSrc || img.src || ""
-      if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+      if (src && isValidPhoto(src)) {
+        console.debug("[6D photo] Strategy 0 hit (src):", sel, src)
+        return upgradePhotoUrl(src)
+      }
     }
 
-    // ── Strategy 1: profile-displayphoto — first in DOM order ──────────────────
+    // ── Strategy 1: profile-displayphoto — scoped to top-card section ──────────
     // LinkedIn CDN URLs for profile headshots always contain 'profile-displayphoto'.
-    // querySelectorAll returns elements in document tree order (depth-first).
-    // The top-card section (containing the profile photo) is always the FIRST
-    // major section in <main>, so pdImgs[0] in DOM order is always the headshot.
+    // We scope the search to the FIRST section in <main> (= top card) to avoid
+    // picking up mutual-connection thumbnails from later sections, which also use
+    // 'profile-displayphoto' URLs and appear later in the DOM.
     //
     // NOTE: do NOT sort by getBoundingClientRect().top — lazy-loaded images that
-    // haven't entered the viewport yet report top=0, which sorts them *before*
-    // the already-visible profile photo, causing a mutual-connection thumbnail
-    // to win when scrollY=0.
+    // haven't entered the viewport yet report top=0, which breaks the sort order.
     if (mainEl) {
-      const pdImgs = [...mainEl.querySelectorAll("img")].filter((img) => {
+      // Scope to the top-card section (first <section> inside <main>).
+      // Fall back to all of <main> if no section found.
+      const topCardEl = mainEl.querySelector("section") ?? mainEl
+      const pdImgs = [...topCardEl.querySelectorAll("img")].filter((img) => {
         if (img.closest("aside")) return false  // exclude sidebar
         const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
         return /profile-displayphoto/i.test(s) &&
@@ -189,13 +197,23 @@
                isSquarishImage(img)
       })
 
+      console.debug("[6D photo] Strategy 1: found", pdImgs.length, "profile-displayphoto imgs in top-card section",
+        pdImgs.map(img => ({ src: (img.currentSrc || img.src || "").slice(0, 80), class: img.className.slice(0, 60) })))
+
       if (pdImgs.length > 0) {
         // Take the first in DOM order — that's always the actual profile headshot.
         const top = pdImgs[0]
         const ss = bestSrcset(top)
-        if (ss && ss.width >= 100 && isValidPhoto(ss.url)) return upgradePhotoUrl(ss.url)
+        if (ss && ss.width >= 100 && isValidPhoto(ss.url)) {
+          console.debug("[6D photo] Strategy 1 win (srcset):", ss.url.slice(0, 80))
+          return upgradePhotoUrl(ss.url)
+        }
         const src = top.currentSrc || top.src || ""
-        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+        if (src && isValidPhoto(src)) {
+          console.debug("[6D photo] Strategy 1 win (src):", src.slice(0, 80))
+          return upgradePhotoUrl(src)
+        }
+        console.debug("[6D photo] Strategy 1: candidate found but isValidPhoto failed, src=", (top.currentSrc || top.src || "").slice(0, 80))
       }
     }
 
@@ -207,18 +225,26 @@
       document.querySelector("[data-anonymize='headshot-photo']")?.closest("div"),
     ].filter(Boolean)
 
+    console.debug("[6D photo] Strategy 2: roots found =", photoRoots.length)
     for (const root of photoRoots) {
       for (const picture of root.querySelectorAll("picture")) {
         const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
-        if (src && isValidPhoto(src)) return upgradePhotoUrl(src)
+        if (src && isValidPhoto(src)) {
+          console.debug("[6D photo] Strategy 2 win (picture):", src.slice(0, 80))
+          return upgradePhotoUrl(src)
+        }
       }
       for (const img of root.querySelectorAll("img")) {
         const src = imgSrc(img)
-        if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
+        if (isValidPhoto(src) && isSquarishImage(img)) {
+          console.debug("[6D photo] Strategy 2 win (img):", src.slice(0, 80))
+          return upgradePhotoUrl(src)
+        }
       }
     }
 
     // ── Strategy 3: aria-label / data-anonymize attributes ────────────────────
+    console.debug("[6D photo] trying Strategy 3")
     for (const sel of [
       "img[data-anonymize='headshot-photo']",
       "img[aria-label*='photo' i]",
@@ -231,17 +257,22 @@
       try {
         for (const img of document.querySelectorAll(sel)) {
           const src = imgSrc(img)
-          if (isValidPhoto(src) && isSquarishImage(img)) return upgradePhotoUrl(src)
+          if (isValidPhoto(src) && isSquarishImage(img)) {
+            console.debug("[6D photo] Strategy 3 win:", sel, src.slice(0, 80))
+            return upgradePhotoUrl(src)
+          }
         }
       } catch { /* bad selector */ }
     }
 
     // ── Strategy 4: <picture> elements, guarded by aspect ratio ──────────────
+    console.debug("[6D photo] trying Strategy 4 (all <picture> elements)")
     for (const picture of document.querySelectorAll("picture")) {
       const src = picture.querySelector("source")?.srcset?.split(",")?.[0]?.trim()?.split(" ")?.[0] || ""
       if (!src || !isValidPhoto(src)) continue
       const img = picture.querySelector("img")
       if (img && !isSquarishImage(img)) continue
+      console.debug("[6D photo] Strategy 4 win:", src.slice(0, 80))
       return upgradePhotoUrl(src)
     }
 
@@ -251,9 +282,13 @@
     const og = document.querySelector('meta[property="og:image"], meta[name="og:image"]')
     if (og) {
       const src = og.content || og.getAttribute("content") || ""
-      if (isValidPhoto(src) && src.includes("displayphoto")) return upgradePhotoUrl(src)
+      if (isValidPhoto(src) && src.includes("displayphoto")) {
+        console.debug("[6D photo] Strategy 5 win (og:image):", src.slice(0, 80))
+        return upgradePhotoUrl(src)
+      }
     }
 
+    console.debug("[6D photo] ALL strategies failed — returning null")
     return null
   }
 
@@ -577,7 +612,10 @@
       try {
         const d = JSON.parse(s.textContent ?? "")
         const co = d?.worksFor?.name || d?.worksFor?.[0]?.name
-        if (co && co.length > 1 && co.length < 80 && !isGeo(co)) return co
+        if (co && co.length > 1 && co.length < 80 && !isGeo(co)) {
+          console.debug("[6D company] Strategy 1 (JSON-LD):", co)
+          return co
+        }
       } catch { /* ignore */ }
     }
 
@@ -588,8 +626,11 @@
     // ── Strategy 2: company logo img alt text ─────────────────────────────────
     // LinkedIn renders <img alt="Acme Corp logo"> next to each experience item.
     // The " logo" suffix distinguishes company logos from other images.
+    // Scan ALL logo alt texts for debugging before returning the first match.
+    const logoAlts2 = []
     for (const img of root.querySelectorAll("img[alt]")) {
       const alt = (img.getAttribute("alt") ?? "").trim()
+      if (/\blogo\b/i.test(alt)) logoAlts2.push(alt)
       if (
         alt.toLowerCase().endsWith(" logo") &&
         alt.length > 6 &&
@@ -599,9 +640,13 @@
         !img.closest("[class*='photo-wrapper']")
       ) {
         const company = alt.replace(/\s*logo$/i, "").trim()
-        if (company.length > 1 && !isGeo(company)) return company
+        if (company.length > 1 && !isGeo(company)) {
+          console.debug("[6D company] Strategy 2 (top-card logo alt):", company)
+          return company
+        }
       }
     }
+    console.debug("[6D company] Strategy 2: no match. All logo alts in root:", logoAlts2)
 
     // ── Strategy 3: experience list items (multiple selector generations) ─────
     // LinkedIn has cycled through several class naming conventions; try them all.
@@ -624,7 +669,10 @@
         ).trim().replace(/\s+/g, " ")
         if (!text || text.length > 200 || text.length < 4) continue
         const { company } = parsePositionCompany(text)
-        if (company && company.length > 1 && company.length < 80 && !isGeo(company)) return company
+        if (company && company.length > 1 && company.length < 80 && !isGeo(company)) {
+          console.debug("[6D company] Strategy 3 (experience list):", sel, "→", company)
+          return company
+        }
       }
     }
 
@@ -637,9 +685,11 @@
     // the first matching logo is typically the current employer.
     const mainEl2 = document.querySelector("main")
     if (mainEl2) {
+      const logoAlts4 = []
       for (const img of mainEl2.querySelectorAll("img[alt]")) {
         if (img.closest("aside")) continue  // skip sidebar
         const alt = (img.getAttribute("alt") ?? "").trim()
+        if (/\blogo\b/i.test(alt)) logoAlts4.push(alt)
         if (
           alt.toLowerCase().endsWith(" logo") &&
           alt.length > 6 &&
@@ -649,11 +699,16 @@
           !img.closest("[class*='photo-wrapper']")
         ) {
           const company = alt.replace(/\s*logo$/i, "").trim()
-          if (company.length > 1 && !isGeo(company)) return company
+          if (company.length > 1 && !isGeo(company)) {
+            console.debug("[6D company] Strategy 4 (main logo scan):", company)
+            return company
+          }
         }
       }
+      console.debug("[6D company] Strategy 4: no match. All logo alts in main:", logoAlts4)
     }
 
+    console.debug("[6D company] ALL strategies failed — returning null")
     return null
   }
 
@@ -740,7 +795,14 @@
       sharedConnections: scrapeSharedConnections(),
     }
 
-    console.debug("[6Degrees] scraped profile:", profile)
+    console.debug("[6D profile] final result:", {
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      company: profile.company,
+      position: profile.position,
+      photoUrl: profile.photoUrl ? profile.photoUrl.slice(0, 80) + "…" : null,
+      location: profile.location,
+    })
     return profile
   }
 

@@ -24,6 +24,10 @@ const VERSION_INFO = {
   reinstallRequiredBelow: "1.4.6" as string | null,
   reloadRequiredBelow:   manifest.version as string | null,
   notes: [
+    "v1.4.7: Fix photo wrong-pick: scope profile-displayphoto search to top-card section",
+    "        only (was scanning all of <main>, matching mutual-connection thumbnails).",
+    "        Remove overly-broad Strategy 0 selector. Add [6D photo]/[6D company] debug",
+    "        logging — open DevTools console on a profile to see which strategy fires.",
     "v1.4.6: Auto-save credentials — visiting 6degrees.aequus.money backs up your",
     "        token to localStorage so reinstalling the extension reconnects",
     "        automatically without re-entering the URL/token.",

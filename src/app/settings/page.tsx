@@ -646,12 +646,63 @@ function SettingsPageInner() {
 
   // ── LinkedIn DM functions ────────────────────────────────────────────────────
 
+  // ── Client-side CSV preprocessor ────────────────────────────────────────────
+  // LinkedIn DM exports can be 8+ MB because each row includes the full message
+  // body (CONTENT column). We strip CONTENT and SUBJECT before uploading so the
+  // payload fits within Vercel's 4.5 MB serverless body limit.
+  // Uses a proper RFC-4180 state-machine parser to handle quoted multi-line cells.
+  function stripLinkedInDMContent(csvText: string): string {
+    // RFC-4180 parser: returns array of rows, each row is array of cell strings
+    const records: string[][] = []
+    let field = ""
+    let fields: string[] = []
+    let inQuotes = false
+    for (let i = 0; i < csvText.length; i++) {
+      const c = csvText[i]
+      const next = csvText[i + 1]
+      if (inQuotes) {
+        if (c === '"' && next === '"') { field += '"'; i++ }
+        else if (c === '"') inQuotes = false
+        else field += c
+      } else {
+        if (c === '"') inQuotes = true
+        else if (c === ',') { fields.push(field); field = "" }
+        else if (c === '\r' && next === '\n') { fields.push(field); records.push(fields); fields = []; field = ""; i++ }
+        else if (c === '\n') { fields.push(field); records.push(fields); fields = []; field = "" }
+        else field += c
+      }
+    }
+    if (field || fields.length > 0) { fields.push(field); records.push(fields) }
+
+    if (records.length === 0) return csvText
+    const header = records[0].map(h => h.trim().toUpperCase())
+    // Columns we don't need (large or unused)
+    const DROP_COLS = new Set(["CONTENT", "SUBJECT", "FOLDER"].map(n => header.indexOf(n)).filter(i => i >= 0))
+    if (DROP_COLS.size === 0) return csvText  // nothing to strip
+
+    return records
+      .map(row => row.filter((_, i) => !DROP_COLS.has(i)).map(cell => `"${cell.replace(/"/g, '""')}"`).join(","))
+      .join("\n")
+  }
+
   async function importLinkedInDM(file: File) {
     setLiDMImporting(true)
-    setLiDMProgress("Preparing…")
+    setLiDMProgress("Preprocessing CSV…")
     setLiDMResult(null)
+
+    // Strip large CONTENT/SUBJECT columns client-side before uploading
+    let uploadFile = file
+    try {
+      const raw = await file.text()
+      const stripped = stripLinkedInDMContent(raw)
+      if (stripped !== raw) {
+        uploadFile = new File([stripped], file.name, { type: "text/csv" })
+      }
+    } catch { /* if preprocessing fails, fall back to original */ }
+
+    setLiDMProgress("Uploading…")
     const formData = new FormData()
-    formData.append("file", file)
+    formData.append("file", uploadFile)
     try {
       const res = await fetch("/api/linkedin-dm/import", { method: "POST", body: formData })
       if (!res.ok || !res.body) { setLiDMProgress("Import failed"); return }
