@@ -799,7 +799,6 @@ function SettingsPageInner() {
         setLiDMImporting(false)
         return
       }
-      setLiDMProgress(`Uploading ${payload.conversations.length} conversations…`)
     } catch (err) {
       setLiDMProgress(`Parse error: ${err instanceof Error ? err.message : "unknown"}`)
       setLiDMImporting(false)
@@ -807,55 +806,85 @@ function SettingsPageInner() {
       return
     }
 
-    try {
-      const res = await fetch("/api/linkedin-dm/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (!res.ok || !res.body) {
-        const errText = await res.text().catch(() => "")
-        setLiDMProgress(`Import failed (${res.status})${errText ? ": " + errText.slice(0, 100) : ""}`)
-        return
+    // ── Retry loop — auto-resumes after a Vercel timeout ──────────────────
+    // Each attempt sends the same full payload; the server skips conversations
+    // that were already committed to LinkedInDMConversation in previous runs.
+    const MAX_ATTEMPTS = 8
+    let gotDone = false
+    let lastError = ""
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS && !gotDone; attempt++) {
+      if (attempt > 0) {
+        setLiDMProgress(`Connection interrupted — auto-resuming (attempt ${attempt + 1}/${MAX_ATTEMPTS})…`)
+        await new Promise((r) => setTimeout(r, 2000))
+      } else {
+        setLiDMProgress(`Uploading ${payload.conversations.length} conversations…`)
       }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue
-          try {
-            const event = JSON.parse(line.slice(6))
-            if (event.type === "status") setLiDMProgress(event.message)
-            else if (event.type === "progress") {
-              const counter = event.totalConvs ? ` (${event.convIdx}/${event.totalConvs})` : ""
-              const partial = event.partial ? `… ${event.synced}` : `${event.synced}`
-              setLiDMProgress(`${event.file}: ${partial} messages${event.matched ? " ✓" : " (no match)"}${counter}`)
-            }
-            else if (event.type === "done") {
-              setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched })
-              setLiDMProgress(null)
-              setLiDMStatus((prev) => ({
-                importedAt: new Date().toISOString(),
-                totalMessages: (prev?.totalMessages ?? 0) + event.synced,
-                totalChats: (prev?.totalChats ?? 0) + event.chats,
-              }))
-              loadLiDMUnmatched(0)
-            } else if (event.type === "error") {
-              setLiDMProgress(`Error: ${event.message}`)
-            }
-          } catch { /* skip */ }
+
+      try {
+        const res = await fetch("/api/linkedin-dm/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok || !res.body) {
+          lastError = `HTTP ${res.status}`
+          continue
         }
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          buffer = lines.pop() ?? ""
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue
+            try {
+              const event = JSON.parse(line.slice(6))
+              if (event.type === "status") {
+                setLiDMProgress(event.message)
+              } else if (event.type === "progress") {
+                if (event.resumed) {
+                  // Silently skip already-imported conversation events
+                } else {
+                  const pct = event.totalConvs ? ` ${event.convIdx}/${event.totalConvs}` : ""
+                  setLiDMProgress(`[${pct}] ${event.file}: ${event.synced} msgs${event.matched ? " ✓" : ""}${event.skipped > 0 ? ` (${event.skipped} dupes)` : ""}`)
+                }
+              } else if (event.type === "done") {
+                gotDone = true
+                const resumeNote = event.skippedConvs > 0 ? `, ${event.skippedConvs} already imported` : ""
+                setLiDMResult({ synced: event.synced, chats: event.chats, matched: event.matched })
+                setLiDMProgress(null)
+                setLiDMStatus((prev) => ({
+                  importedAt: new Date().toISOString(),
+                  totalMessages: (prev?.totalMessages ?? 0) + event.synced,
+                  totalChats: (prev?.totalChats ?? 0) + event.chats,
+                }))
+                void resumeNote  // used in future toast if desired
+                loadLiDMUnmatched(0)
+              } else if (event.type === "error") {
+                lastError = event.message
+                setLiDMProgress(`Error: ${event.message}`)
+              }
+            } catch { /* skip malformed SSE */ }
+          }
+        }
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : "Network error"
       }
-    } finally {
-      setLiDMImporting(false)
-      if (liDMFileRef.current) liDMFileRef.current.value = ""
     }
+
+    if (!gotDone) {
+      setLiDMProgress(
+        `Import interrupted after ${MAX_ATTEMPTS} attempts. Progress is saved — re-upload the same file to continue.${lastError ? ` (${lastError})` : ""}`
+      )
+    }
+
+    setLiDMImporting(false)
+    if (liDMFileRef.current) liDMFileRef.current.value = ""
   }
 
   async function loadLiDMUnmatched(page = 0) {
