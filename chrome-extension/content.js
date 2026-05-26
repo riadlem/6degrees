@@ -708,8 +708,13 @@
     const headline = scrapeHeadline()
     const parsed = parsePositionCompany(headline)
     const position = parsed.position
-    // If headline parsing didn't yield a company, try the top-card experience section
-    const company = parsed.company || scrapeCompanyFromTopCard() || null
+    // DOM-based company (JSON-LD worksFor + company logo alt text) is more reliable
+    // than headline string parsing — headline separators are ambiguous (e.g.
+    // "Unified Commerce | Newblack" where "Unified Commerce" is a specialty, not a
+    // company). scrapeCompanyFromTopCard() tries JSON-LD first, then logo alt, then
+    // experience items — all more authoritative than headline text parsing.
+    // Only fall back to headline-parsed company when the DOM yields nothing.
+    const company = scrapeCompanyFromTopCard() || parsed.company || null
     const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     const profile = {
