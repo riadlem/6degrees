@@ -58,17 +58,44 @@ export async function POST(req: Request) {
 
       try {
         const totalConvs = conversations.length
-        send({ type: "status", message: `Processing ${totalConvs} conversations…` })
+
+        // ── Resume support ──────────────────────────────────────────────────────
+        // Load the set of conversationIds that were fully imported in a prior run.
+        // Conversations in this set are skipped entirely — their messages are already
+        // in the DB and their LinkedInDMConversation record already exists.
+        const doneRows = await prisma.linkedInDMConversation.findMany({
+          where: { userId },
+          select: { conversationId: true },
+        })
+        const doneSet = new Set(doneRows.map((r) => r.conversationId))
+        const skippedConvs = conversations.filter((c) => doneSet.has(c.conversationId)).length
+        const pendingConvs = conversations.filter((c) => !doneSet.has(c.conversationId))
+
+        send({ type: "status", message: `Processing ${pendingConvs.length} conversations (${skippedConvs} already imported)…` })
 
         let totalSynced = 0
         let totalChats = 0
         let totalMatched = 0
+        let convIdx = 0 // index across ALL conversations (for progress display)
 
-        for (let convIdx = 0; convIdx < conversations.length; convIdx++) {
-          const conv = conversations[convIdx]
+        for (const conv of conversations) {
+          convIdx++
           const { conversationId, chatName, profileUrl, messages } = conv
+
+          // Skip already-completed conversations
+          if (doneSet.has(conversationId)) {
+            send({ type: "progress", file: chatName, matched: false, messages: messages?.length ?? 0, synced: 0, skipped: messages?.length ?? 0, convIdx, totalConvs, resumed: true })
+            continue
+          }
+
           if (!messages || messages.length === 0) {
-            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0, convIdx: convIdx + 1, totalConvs })
+            send({ type: "progress", file: chatName, matched: false, messages: 0, synced: 0, skipped: 0, convIdx, totalConvs })
+            // Mark as done even if empty so we don't retry it
+            await prisma.linkedInDMConversation.upsert({
+              where: { userId_conversationId: { userId, conversationId } },
+              update: { chatName, profileUrl: profileUrl ?? null, messageCount: 0, importedAt: new Date() },
+              create: { userId, conversationId, chatName, profileUrl: profileUrl ?? null, messageCount: 0 },
+            })
             continue
           }
 
@@ -101,12 +128,35 @@ export async function POST(req: Request) {
             // For large conversations (multiple chunks), emit intermediate progress so the UI
             // doesn't appear frozen.  Only send every other chunk to avoid flooding.
             if (messages.length > CHUNK && i + CHUNK < messages.length && (i / CHUNK) % 2 === 0) {
-              send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx: convIdx + 1, totalConvs, partial: true })
+              send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx, totalConvs, partial: true })
             }
           }
 
           totalSynced += synced
-          send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx: convIdx + 1, totalConvs })
+
+          // ── Mark conversation as fully imported ─────────────────────────────
+          // This is the key for resume support: once we write this row, future
+          // re-uploads will skip this conversation entirely.
+          await prisma.linkedInDMConversation.upsert({
+            where: { userId_conversationId: { userId, conversationId } },
+            update: {
+              chatName,
+              profileUrl: profileUrl ?? null,
+              contactId: contactId ?? null,
+              messageCount: messages.length,
+              importedAt: new Date(),
+            },
+            create: {
+              userId,
+              conversationId,
+              chatName,
+              profileUrl: profileUrl ?? null,
+              contactId: contactId ?? null,
+              messageCount: messages.length,
+            },
+          })
+
+          send({ type: "progress", file: chatName, matched: !!contactId, messages: messages.length, synced, skipped, convIdx, totalConvs })
         }
 
         // Update sync record
@@ -123,7 +173,7 @@ export async function POST(req: Request) {
         // Recompute scores in the background
         recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
 
-        send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched })
+        send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched, skippedConvs })
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Import failed" })
       } finally {

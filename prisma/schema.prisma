@@ -69,7 +69,8 @@ model User {
   outreachDrafts OutreachDraft[]
   whatsAppMessages WhatsAppMessage[]
   whatsAppSync   WhatsAppSync?
-  linkedInDMMessages LinkedInDMMessage[]
+  linkedInDMMessages     LinkedInDMMessage[]
+  linkedInDMConversations LinkedInDMConversation[]
   linkedInDMSync LinkedInDMSync?
   userEmailAddresses UserEmailAddress[]
   dismissedEmails    DismissedEmail[]
@@ -124,7 +125,8 @@ model Contact {
   emailAddresses     ContactEmailAddress[]
   outreachDrafts     OutreachDraft[]
   whatsAppMessages   WhatsAppMessage[]
-  linkedInDMMessages LinkedInDMMessage[]
+  linkedInDMMessages     LinkedInDMMessage[]
+  linkedInDMConversations LinkedInDMConversation[]
 
   @@unique([userId, linkedinKey])
   @@index([userId])
@@ -368,6 +370,24 @@ model WhatsAppMessage {
 }
 
 // ─── LinkedIn Direct Messages integration ─────────────────────────────────────
+
+model LinkedInDMConversation {
+  id             String    @id @default(cuid())
+  userId         String
+  conversationId String
+  chatName       String
+  profileUrl     String?
+  contactId      String?
+  messageCount   Int       @default(0)
+  importedAt     DateTime  @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, conversationId])
+  @@index([userId])
+  @@index([userId, contactId])
+}
 
 model LinkedInDMSync {
   id            String    @id @default(cuid())

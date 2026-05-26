@@ -7,8 +7,8 @@ export const maxDuration = 300
 
 /**
  * DELETE /api/linkedin-dm/reset
- * Wipes all LinkedIn DM messages for the current user and resets the sync record.
- * Use this before reimporting if dates are wrong.
+ * Wipes all LinkedIn DM messages and conversation progress records for the current user,
+ * then resets the sync record. Use this before reimporting if dates are wrong.
  */
 export async function DELETE() {
   const session = await getServerSession(authOptions)
@@ -16,6 +16,9 @@ export async function DELETE() {
   const userId = session.user.id
 
   const { count } = await prisma.linkedInDMMessage.deleteMany({ where: { userId } })
+
+  // Also clear per-conversation progress so re-upload is treated as a fresh import
+  await prisma.linkedInDMConversation.deleteMany({ where: { userId } })
 
   await prisma.linkedInDMSync.updateMany({
     where: { userId },
