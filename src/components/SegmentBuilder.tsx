@@ -1,8 +1,10 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Plus, X, Loader2, Users, BookmarkPlus, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { COUNTRIES } from "@/lib/countries"
+import { useContactsIndex } from "@/hooks/useContactsIndex"
 import type { SegmentRule } from "@/app/api/contacts/segment/route"
 
 // ── Field definitions ────────────────────────────────────────────────────────
@@ -83,6 +85,71 @@ function newRule(field = "coworkEnriched"): SegmentRule {
   return { id: String(++ruleCounter), field, operator: defaultOperator(type), value: "" }
 }
 
+// ── Combobox for text fields ──────────────────────────────────────────────────
+
+function SegmentCombobox({
+  value,
+  onChange,
+  options,
+}: {
+  value: string
+  onChange: (v: string) => void
+  options: string[]
+}) {
+  const [open, setOpen] = useState(false)
+  const boxRef  = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const filtered = useMemo(
+    () =>
+      options
+        .filter((o) => o.toLowerCase().includes(value.toLowerCase()))
+        .slice(0, 10),
+    [options, value],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    function handleDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleDown)
+    return () => document.removeEventListener("mousedown", handleDown)
+  }, [open])
+
+  return (
+    <div ref={boxRef} className="relative min-w-0 w-32 shrink-0">
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => { if (e.key === "Escape") setOpen(false) }}
+        placeholder="value…"
+        autoComplete="off"
+        className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-50 left-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto min-w-[160px]">
+          {filtered.map((opt) => (
+            <li
+              key={opt}
+              onMouseDown={(e) => { e.preventDefault(); onChange(opt); setOpen(false); inputRef.current?.blur() }}
+              className={cn(
+                "px-2.5 py-1.5 text-xs cursor-pointer hover:bg-blue-50 hover:text-blue-700 truncate",
+                opt === value && "bg-blue-50 text-blue-700 font-medium",
+              )}
+            >
+              {opt}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -104,6 +171,20 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
   const [savingList, setSavingList] = useState(false)
   const [listName, setListName] = useState("")
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+
+  // Autocomplete options derived from the offline contacts index
+  const index = useContactsIndex()
+  const fieldOptions = useMemo<Record<string, string[]>>(() => {
+    const uniq = (vals: (string | null | undefined)[]) =>
+      [...new Set(vals.filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b))
+    return {
+      company:  uniq(index.map((c) => c.company)),
+      city:     uniq(index.map((c) => c.city)),
+      country:  COUNTRIES,
+      industry: uniq(index.map((c) => c.industry)),
+      position: uniq(index.map((c) => c.position)),
+    }
+  }, [index])
 
   useEffect(() => {
     fetch("/api/labels").then((r) => r.ok ? r.json() : []).then(setLabels).catch(() => {})
@@ -311,6 +392,12 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
                         onChange={(e) => updateRule(rule.id, { value: e.target.value })}
                         placeholder="0"
                         className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-20 shrink-0"
+                      />
+                    ) : fieldOptions[rule.field]?.length ? (
+                      <SegmentCombobox
+                        value={rule.value}
+                        onChange={(v) => updateRule(rule.id, { value: v })}
+                        options={fieldOptions[rule.field]}
                       />
                     ) : (
                       <input

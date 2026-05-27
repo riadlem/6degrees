@@ -23,6 +23,9 @@ export async function GET() {
       lastName:  true,
       company:   true,
       position:  true,
+      city:      true,
+      country:   true,
+      industry:  true,
     },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   })

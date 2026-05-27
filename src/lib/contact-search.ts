@@ -11,6 +11,9 @@ export type IndexEntry = {
   lastName:  string
   company:   string | null
   position:  string | null
+  city:      string | null
+  country:   string | null
+  industry:  string | null
 }
 
 /**

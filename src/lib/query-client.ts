@@ -25,7 +25,7 @@ export const STALE = {
  * whose results should survive page closes and reload from IndexedDB.
  */
 /** Bump this when Contact/Company data shapes change incompatibly — forces IDB cache eviction. */
-export const CACHE_BUSTER = "v4"
+export const CACHE_BUSTER = "v5"
 
 export const PERSIST_KEYS = new Set([
   "contacts",
