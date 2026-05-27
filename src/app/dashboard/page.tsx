@@ -5,54 +5,10 @@ import { useQuery } from "@tanstack/react-query"
 import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Star, Handshake, Users, Building2, ChevronDown, ChevronUp, X, Eye, Download, Maximize2 } from "lucide-react"
-import { cn, initials, photoSrc } from "@/lib/utils"
-import { labelColors } from "@/lib/label-colors"
-import { usePrivacy } from "@/contexts/PrivacyContext"
-import { isSuspicious } from "@/lib/company-utils"
-import ContactDetail from "@/components/ContactDetail"
-import CompanyLogo from "@/components/CompanyLogo"
+import { X, Download, Maximize2 } from "lucide-react"
+import { cn, initials } from "@/lib/utils"
 
-type CompanySize = "small" | "medium" | "corporate" | "fortune500"
-
-const SIZE_LABELS: Record<CompanySize, string> = {
-  small:      "Small",
-  medium:     "Medium",
-  corporate:  "Corporate",
-  fortune500: "Fortune 500",
-}
-const SIZE_COLORS: Record<CompanySize, string> = {
-  small:      "bg-emerald-50 text-emerald-700 border-emerald-200",
-  medium:     "bg-sky-50 text-sky-700 border-sky-200",
-  corporate:  "bg-violet-50 text-violet-700 border-violet-200",
-  fortune500: "bg-amber-50 text-amber-700 border-amber-200",
-}
-
-type LabelSummary = { id: string; name: string; color: string }
-
-type ContactSnippet = {
-  id: string
-  firstName: string
-  lastName: string
-  position: string | null
-  company: string | null
-  photoUrl: string | null
-  headline: string | null
-  profileUrl: string | null
-  labels: { label: LabelSummary }[]
-}
-
-type DashboardCompany = {
-  name: string
-  count: number
-  preferred: boolean
-  isPartner: boolean
-  size: string | null
-  industry: string | null
-  photos: string[]
-  contacts: ContactSnippet[]
-  domain: string | null
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Stats = {
   totalContacts: number
@@ -63,48 +19,25 @@ type Stats = {
 
 type YearBucket = { year: number; count: number }
 
-const SIZE_OPTIONS: { value: CompanySize; label: string }[] = [
-  { value: "small",      label: "Small" },
-  { value: "medium",     label: "Medium" },
-  { value: "corporate",  label: "Corporate" },
-  { value: "fortune500", label: "Fortune 500" },
-]
-
-// ─── Treemap ────────────────────────────────────────────────────────────────
-
-type TreemapItem = {
+type DashboardCompany = {
   name: string
-  count: number
-  isPartner: boolean
-  type: string | null
-  subsidiaries: string[]
+  domain: string | null
 }
-type TreeCell = TreemapItem & { x: number; y: number; w: number; h: number }
+
+// ─── Treemap shared ───────────────────────────────────────────────────────────
 
 const PALETTE = [
-  "#6366F1","#0EA5E9","#14B8A6","#F97316","#EC4899",
-  "#EF4444","#06B6D4","#84CC16","#A855F7","#64748B",
+  "#6366F1", "#0EA5E9", "#14B8A6", "#F97316", "#EC4899",
+  "#EF4444", "#06B6D4", "#84CC16", "#A855F7", "#64748B",
 ]
 
-function colorForCompany(item: TreemapItem): string {
-  if (item.isPartner)              return "#2563EB"
-  if (item.type === "brand")       return "#7C3AED"
-  if (item.type === "non-brand")   return "#059669"
-  if (item.type === "independent") return "#D97706"
-  let h = 0
-  for (let i = 0; i < item.name.length; i++) h = (h * 31 + item.name.charCodeAt(i)) | 0
-  return PALETTE[Math.abs(h) % PALETTE.length]
-}
-
-const COLOR_LEGEND = [
-  { color: "#2563EB", label: "Partner" },
-  { color: "#7C3AED", label: "Brand" },
-  { color: "#059669", label: "Non-brand" },
-  { color: "#D97706", label: "Independent" },
-  { color: "#6366F1", label: "Untagged" },
-]
-
-function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: number): TreeCell[] {
+function binaryLayout<T extends { count: number }>(
+  items: T[],
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): Array<T & { x: number; y: number; w: number; h: number }> {
   if (items.length === 0) return []
   if (items.length === 1) return [{ ...items[0], x, y, w, h }]
   const total = items.reduce((s, i) => s + i.count, 0)
@@ -117,17 +50,60 @@ function binaryLayout(items: TreemapItem[], x: number, y: number, w: number, h: 
   const ratio = items.slice(0, split).reduce((s, i) => s + i.count, 0) / total
   if (w >= h) {
     const w1 = w * ratio
-    return [...binaryLayout(items.slice(0, split), x, y, w1, h), ...binaryLayout(items.slice(split), x + w1, y, w - w1, h)]
+    return [
+      ...binaryLayout(items.slice(0, split), x, y, w1, h),
+      ...binaryLayout(items.slice(split), x + w1, y, w - w1, h),
+    ]
   } else {
     const h1 = h * ratio
-    return [...binaryLayout(items.slice(0, split), x, y, w, h1), ...binaryLayout(items.slice(split), x, y + h1, w, h - h1)]
+    return [
+      ...binaryLayout(items.slice(0, split), x, y, w, h1),
+      ...binaryLayout(items.slice(split), x, y + h1, w, h - h1),
+    ]
   }
+}
+
+// ─── Company Treemap ──────────────────────────────────────────────────────────
+
+type TreemapItem = {
+  name: string
+  count: number
+  isPartner: boolean
+  type: string | null
+  subsidiaries: string[]
+}
+
+type TypeKey = "partner" | "brand" | "non-brand" | "independent" | "untagged"
+
+const TYPE_LEGEND: { key: TypeKey; color: string; label: string }[] = [
+  { key: "partner",     color: "#2563EB", label: "Partner" },
+  { key: "brand",       color: "#7C3AED", label: "Brand" },
+  { key: "non-brand",   color: "#059669", label: "Non-brand" },
+  { key: "independent", color: "#D97706", label: "Independent" },
+  { key: "untagged",    color: "#6366F1", label: "Untagged" },
+]
+
+function getTypeKey(item: TreemapItem): TypeKey {
+  if (item.isPartner)              return "partner"
+  if (item.type === "brand")       return "brand"
+  if (item.type === "non-brand")   return "non-brand"
+  if (item.type === "independent") return "independent"
+  return "untagged"
+}
+
+function colorForCompany(item: TreemapItem): string {
+  const key = getTypeKey(item)
+  const found = TYPE_LEGEND.find((l) => l.key === key)
+  if (found && key !== "untagged") return found.color
+  let h = 0
+  for (let i = 0; i < item.name.length; i++) h = (h * 31 + item.name.charCodeAt(i)) | 0
+  return PALETTE[Math.abs(h) % PALETTE.length]
 }
 
 function CompanyTreemap({
   data,
   domainMap = {},
-  height = 400,
+  height = 800,
   onExpand,
 }: {
   data: TreemapItem[]
@@ -144,7 +120,9 @@ function CompanyTreemap({
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const ro = new ResizeObserver(([e]) => setDims({ w: e.contentRect.width, h: e.contentRect.height }))
+    const ro = new ResizeObserver(([e]) =>
+      setDims({ w: e.contentRect.width, h: e.contentRect.height })
+    )
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
@@ -152,11 +130,11 @@ function CompanyTreemap({
   useEffect(() => {
     if (!data.length) return
     setFailedLogos(new Set())
-    // Build Google favicon URLs — use known domain from map, else guess from company name
     const urls: Record<string, string> = {}
     for (const { name } of data) {
-      const domain = domainMap[name]
-        ?? (name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) + ".com")
+      const domain =
+        domainMap[name] ??
+        name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20) + ".com"
       urls[name] = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
     }
     setLogos(urls)
@@ -164,7 +142,7 @@ function CompanyTreemap({
 
   const cells = useMemo(
     () => (dims.w > 0 && dims.h > 0 ? binaryLayout(data, 0, 0, dims.w, dims.h) : []),
-    [data, dims]
+    [data, dims],
   )
 
   function handleExport() {
@@ -175,29 +153,33 @@ function CompanyTreemap({
     canvas.height = Math.round(dims.h * dpr)
     const ctx = canvas.getContext("2d")!
     ctx.scale(dpr, dpr)
-    ctx.fillStyle = "#D1D5DB"
+    ctx.fillStyle = "#F3F4F6"
     ctx.fillRect(0, 0, dims.w, dims.h)
     for (const cell of cells) {
       const cw = cell.w - 2, ch = cell.h - 2, cx = cell.x + 1, cy = cell.y + 1
-      ctx.fillStyle = colorForCompany(cell)
+      const color = colorForCompany(cell)
+      ctx.fillStyle = "#ffffff"
       ctx.beginPath()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((ctx as any).roundRect) (ctx as any).roundRect(cx, cy, cw, ch, 4)
       else ctx.rect(cx, cy, cw, ch)
       ctx.fill()
-      if (cw > 60 && ch > 52) {
-        ctx.fillStyle = "rgba(255,255,255,0.9)"
-        ctx.font = "600 9px system-ui,sans-serif"
-        ctx.textAlign = "center"
-        ctx.textBaseline = "middle"
-        ctx.fillText(cell.name, cx + cw / 2, cy + ch / 2 - (ch > 38 ? 6 : 0), cw - 8)
-      }
-      if (ch > 30) {
-        ctx.fillStyle = "rgba(255,255,255,0.65)"
-        ctx.font = "700 8px system-ui,sans-serif"
-        ctx.textAlign = "center"
-        ctx.textBaseline = "bottom"
-        ctx.fillText(String(cell.count), cx + cw / 2, cy + ch - 4, cw - 8)
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((ctx as any).roundRect) (ctx as any).roundRect(cx, cy, cw, ch, 4)
+      else ctx.rect(cx, cy, cw, ch)
+      ctx.stroke()
+      if (cw > 48 && ch > 32) {
+        ctx.fillStyle = "#6B7280"
+        ctx.font = "500 8px system-ui,sans-serif"
+        ctx.textAlign = "right"
+        ctx.textBaseline = "alphabetic"
+        ctx.fillText(cell.name, cx + cw - 4, cy + ch - 14, cw - 8)
+        ctx.fillStyle = color
+        ctx.font = "700 9px system-ui,sans-serif"
+        ctx.fillText(String(cell.count), cx + cw - 4, cy + ch - 3, cw - 8)
       }
     }
     const a = document.createElement("a")
@@ -212,7 +194,7 @@ function CompanyTreemap({
         <button
           onClick={handleExport}
           title="Export PNG"
-          className="text-white/70 hover:text-white bg-black/25 hover:bg-black/40 rounded p-1 transition-colors"
+          className="text-gray-500 hover:text-gray-700 bg-white/90 hover:bg-white border border-gray-200 rounded p-1 transition-colors shadow-sm"
         >
           <Download size={13} />
         </button>
@@ -220,57 +202,105 @@ function CompanyTreemap({
           <button
             onClick={onExpand}
             title="Full screen"
-            className="text-white/70 hover:text-white bg-black/25 hover:bg-black/40 rounded p-1 transition-colors"
+            className="text-gray-500 hover:text-gray-700 bg-white/90 hover:bg-white border border-gray-200 rounded p-1 transition-colors shadow-sm"
           >
             <Maximize2 size={13} />
           </button>
         )}
       </div>
-      <div ref={ref} className="relative w-full h-full rounded-xl overflow-hidden bg-gray-200">
+
+      <div ref={ref} className="relative w-full h-full rounded-xl overflow-hidden bg-gray-100">
         {cells.map((cell) => {
           const logo = !failedLogos.has(cell.name) ? logos[cell.name] : undefined
           const cellW = cell.w - 2, cellH = cell.h - 2
-          const showContent = cellW > 28 && cellH > 28
-          const showName = cellW > 60 && cellH > 52
+          const showLogo = cellW > 36 && cellH > 36
+          const showText = cellW > 48 && cellH > 32
+          const showName = cellW > 64 && cellH > 44
+          const color = colorForCompany(cell)
+
+          // Logo fills as much of the cell as possible, leaving room for the text row
+          const logoAreaH = showText ? cellH - 26 : cellH - 4
+          const logoSize = Math.max(12, Math.min(cellW - 10, logoAreaH - 6, 80))
 
           return (
             <button
               key={cell.name}
-              title={`${cell.name}: ${cell.count} contacts${cell.subsidiaries.length > 0 ? ` (incl. ${cell.subsidiaries.join(", ")})` : ""}`}
-              onClick={() => router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)}
+              title={`${cell.name}: ${cell.count} contacts${
+                cell.subsidiaries.length > 0
+                  ? ` (incl. ${cell.subsidiaries.join(", ")})`
+                  : ""
+              }`}
+              onClick={() =>
+                router.push(`/contacts?company=${encodeURIComponent(cell.name)}`)
+              }
               style={{
                 position: "absolute",
-                left: cell.x + 1, top: cell.y + 1,
-                width: cellW, height: cellH,
-                backgroundColor: colorForCompany(cell),
+                left: cell.x + 1,
+                top: cell.y + 1,
+                width: cellW,
+                height: cellH,
+                backgroundColor: "#ffffff",
+                border: `2px solid ${color}`,
               }}
-              className="rounded overflow-hidden flex flex-col items-center justify-center gap-0.5 hover:brightness-110 active:brightness-90 transition-[filter]"
+              className="rounded overflow-hidden relative hover:bg-gray-50 active:bg-gray-100 transition-colors"
             >
-              {showContent && (
-                <>
+              {/* Logo — centered in the upper area of the cell */}
+              {showLogo && (
+                <div
+                  className="absolute flex items-center justify-center"
+                  style={{
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: showText ? 26 : 0,
+                  }}
+                >
                   {logo ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={logo}
                       alt=""
-                      style={{ width: cellW > 80 ? 26 : 16, height: cellW > 80 ? 26 : 16 }}
-                      className="rounded object-contain bg-white/20 p-0.5 shrink-0"
-                      onError={() => setFailedLogos((prev) => new Set([...prev, cell.name]))}
+                      style={{ width: logoSize, height: logoSize }}
+                      className="object-contain"
+                      onError={() =>
+                        setFailedLogos((prev) => new Set([...prev, cell.name]))
+                      }
                     />
                   ) : (
-                    <span className="text-[10px] font-bold text-white/80 shrink-0">
-                      {initials(cell.name.split(" ")[0] ?? "", cell.name.split(" ")[1] ?? "")}
+                    <span
+                      style={{
+                        fontSize: Math.max(10, Math.min(logoSize * 0.5, 28)),
+                        color,
+                      }}
+                      className="font-bold"
+                    >
+                      {initials(
+                        cell.name.split(" ")[0] ?? "",
+                        cell.name.split(" ")[1] ?? "",
+                      )}
                     </span>
                   )}
+                </div>
+              )}
+
+              {/* Name + count — bottom-right corner */}
+              {showText && (
+                <div
+                  className="absolute bottom-1 right-1.5 text-right"
+                  style={{ maxWidth: cellW - 4 }}
+                >
                   {showName && (
-                    <span className="text-[9px] font-semibold text-white/90 leading-tight px-1 w-full text-center truncate">
+                    <p className="text-[8px] font-medium text-gray-500 truncate leading-tight">
                       {cell.name}
-                    </span>
+                    </p>
                   )}
-                  {cellH > 40 && (
-                    <span className="text-[9px] font-bold text-white/70">{cell.count}</span>
-                  )}
-                </>
+                  <p
+                    className="text-[10px] font-bold leading-none"
+                    style={{ color }}
+                  >
+                    {cell.count}
+                  </p>
+                </div>
               )}
             </button>
           )
@@ -280,143 +310,273 @@ function CompanyTreemap({
   )
 }
 
-// ─── End treemap ─────────────────────────────────────────────────────────────
+// ─── Country Treemap ──────────────────────────────────────────────────────────
 
-function ContactAvatar({ contact }: { contact: ContactSnippet }) {
-  const inits = initials(contact.firstName, contact.lastName)
-  const { blurred } = usePrivacy()
-  if (contact.photoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-full object-cover border border-gray-100 shrink-0", blurred && "blur")} />
-    )
-  }
-  return (
-    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-xs font-semibold shrink-0">
-      {inits}
-    </div>
+type CountryItem = { name: string; count: number }
+
+const COUNTRY_CODES: Record<string, string> = {
+  "Afghanistan": "AF", "Albania": "AL", "Algeria": "DZ", "Andorra": "AD",
+  "Angola": "AO", "Argentina": "AR", "Armenia": "AM", "Australia": "AU",
+  "Austria": "AT", "Azerbaijan": "AZ", "Bangladesh": "BD", "Belgium": "BE",
+  "Bolivia": "BO", "Bosnia and Herzegovina": "BA", "Brazil": "BR",
+  "Bulgaria": "BG", "Cambodia": "KH", "Cameroon": "CM", "Canada": "CA",
+  "Chile": "CL", "China": "CN", "Colombia": "CO", "Costa Rica": "CR",
+  "Croatia": "HR", "Cuba": "CU", "Czech Republic": "CZ", "Denmark": "DK",
+  "Dominican Republic": "DO", "Ecuador": "EC", "Egypt": "EG",
+  "El Salvador": "SV", "Estonia": "EE", "Ethiopia": "ET", "Finland": "FI",
+  "France": "FR", "Georgia": "GE", "Germany": "DE", "Ghana": "GH",
+  "Greece": "GR", "Guatemala": "GT", "Honduras": "HN", "Hong Kong": "HK",
+  "Hungary": "HU", "Iceland": "IS", "India": "IN", "Indonesia": "ID",
+  "Iran": "IR", "Iraq": "IQ", "Ireland": "IE", "Israel": "IL", "Italy": "IT",
+  "Jamaica": "JM", "Japan": "JP", "Jordan": "JO", "Kazakhstan": "KZ",
+  "Kenya": "KE", "Kuwait": "KW", "Latvia": "LV", "Lebanon": "LB",
+  "Lithuania": "LT", "Luxembourg": "LU", "Malaysia": "MY", "Malta": "MT",
+  "Mexico": "MX", "Moldova": "MD", "Morocco": "MA", "Myanmar": "MM",
+  "Netherlands": "NL", "New Zealand": "NZ", "Nicaragua": "NI", "Nigeria": "NG",
+  "North Macedonia": "MK", "Norway": "NO", "Pakistan": "PK", "Panama": "PA",
+  "Paraguay": "PY", "Peru": "PE", "Philippines": "PH", "Poland": "PL",
+  "Portugal": "PT", "Qatar": "QA", "Romania": "RO", "Russia": "RU",
+  "Saudi Arabia": "SA", "Senegal": "SN", "Serbia": "RS", "Singapore": "SG",
+  "Slovakia": "SK", "Slovenia": "SI", "South Africa": "ZA",
+  "South Korea": "KR", "Spain": "ES", "Sri Lanka": "LK", "Sweden": "SE",
+  "Switzerland": "CH", "Taiwan": "TW", "Tanzania": "TZ", "Thailand": "TH",
+  "Trinidad and Tobago": "TT", "Tunisia": "TN", "Turkey": "TR", "Uganda": "UG",
+  "Ukraine": "UA", "United Arab Emirates": "AE", "United Kingdom": "GB",
+  "United States": "US", "Uruguay": "UY", "Uzbekistan": "UZ",
+  "Venezuela": "VE", "Vietnam": "VN", "Zimbabwe": "ZW",
+}
+
+function flagEmoji(countryName: string): string {
+  const code = COUNTRY_CODES[countryName]
+  if (!code || code.length !== 2) return ""
+  return String.fromCodePoint(
+    0x1f1e6 + code.charCodeAt(0) - 65,
+    0x1f1e6 + code.charCodeAt(1) - 65,
   )
 }
 
-function CompanyCard({
-  company,
-  onContactClick,
+function colorForCountry(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0
+  return PALETTE[Math.abs(h) % PALETTE.length]
+}
+
+function CountryTreemap({
+  data,
+  height = 800,
+  onExpand,
 }: {
-  company: DashboardCompany
-  onContactClick: (id: string) => void
+  data: CountryItem[]
+  height?: number | string
+  onExpand?: () => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const { blurred } = usePrivacy()
-  const size = company.size as CompanySize | null
-  const inits = initials(company.name.split(" ")[0] ?? company.name, company.name.split(" ")[1] ?? "")
+  const router = useRouter()
+  const ref = useRef<HTMLDivElement>(null)
+  const [dims, setDims] = useState({ w: 0, h: 0 })
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) =>
+      setDims({ w: e.contentRect.width, h: e.contentRect.height })
+    )
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const cells = useMemo(
+    () => (dims.w > 0 && dims.h > 0 ? binaryLayout(data, 0, 0, dims.w, dims.h) : []),
+    [data, dims],
+  )
+
+  function handleExport() {
+    if (!cells.length || !dims.w || !dims.h) return
+    const dpr = window.devicePixelRatio || 1
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(dims.w * dpr)
+    canvas.height = Math.round(dims.h * dpr)
+    const ctx = canvas.getContext("2d")!
+    ctx.scale(dpr, dpr)
+    ctx.fillStyle = "#F3F4F6"
+    ctx.fillRect(0, 0, dims.w, dims.h)
+    for (const cell of cells) {
+      const cw = cell.w - 2, ch = cell.h - 2, cx = cell.x + 1, cy = cell.y + 1
+      const color = colorForCountry(cell.name)
+      ctx.fillStyle = "#ffffff"
+      ctx.beginPath()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((ctx as any).roundRect) (ctx as any).roundRect(cx, cy, cw, ch, 4)
+      else ctx.rect(cx, cy, cw, ch)
+      ctx.fill()
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((ctx as any).roundRect) (ctx as any).roundRect(cx, cy, cw, ch, 4)
+      else ctx.rect(cx, cy, cw, ch)
+      ctx.stroke()
+      if (cw > 48 && ch > 32) {
+        ctx.fillStyle = "#6B7280"
+        ctx.font = "500 8px system-ui,sans-serif"
+        ctx.textAlign = "right"
+        ctx.textBaseline = "alphabetic"
+        ctx.fillText(cell.name, cx + cw - 4, cy + ch - 14, cw - 8)
+        ctx.fillStyle = color
+        ctx.font = "700 9px system-ui,sans-serif"
+        ctx.fillText(String(cell.count), cx + cw - 4, cy + ch - 3, cw - 8)
+      }
+    }
+    const a = document.createElement("a")
+    a.download = "6degrees-country-treemap.png"
+    a.href = canvas.toDataURL("image/png")
+    a.click()
+  }
 
   return (
-    <div className={cn(
-      "border rounded-xl overflow-hidden bg-white",
-      company.isPartner && company.preferred ? "border-blue-300" :
-      company.isPartner ? "border-blue-200" :
-      company.preferred ? "border-amber-300" :
-      "border-gray-200"
-    )}>
-      {/* Company header */}
-      <div className="px-4 py-3 border-b border-gray-50">
-        <div className="flex items-start gap-3">
-          {/* Company logo */}
-          <CompanyLogo domain={company.domain} name={company.name} size={36} radius="rounded-lg" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-semibold text-gray-900 text-sm">{company.name}</span>
-              {company.isPartner && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-blue-600 bg-blue-100 rounded-full px-1.5 py-0.5">
-                  <Handshake size={9} /> Partner
-                </span>
-              )}
-              {company.preferred && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600 bg-amber-100 rounded-full px-1.5 py-0.5">
-                  <Star size={9} fill="currentColor" /> Preferred
-                </span>
-              )}
-              {size && (
-                <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border", SIZE_COLORS[size])}>
-                  {SIZE_LABELS[size]}
-                </span>
-              )}
-            </div>
-            {company.industry && (
-              <p className="text-xs text-gray-400 truncate mt-0.5">{company.industry}</p>
-            )}
-          </div>
-          <span className="shrink-0 text-xs text-gray-400 flex items-center gap-1">
-            <Users size={11} /> {company.count}
-          </span>
-        </div>
-      </div>
-
-      {/* Top contacts */}
-      <div className="divide-y divide-gray-50">
-        {company.contacts.slice(0, expanded ? undefined : 3).map((c) => (
-          <button
-            key={c.id}
-            onClick={() => onContactClick(c.id)}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left"
-          >
-            <ContactAvatar contact={c} />
-            <div className="flex-1 min-w-0">
-              <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm select-none")}>
-                {c.firstName} {c.lastName}
-              </p>
-              <p className="text-xs text-gray-400 truncate">{c.position ?? c.headline ?? ""}</p>
-            </div>
-            {c.labels.length > 0 && (
-              <div className="flex gap-1 shrink-0">
-                {c.labels.slice(0, 2).map(({ label }) => {
-                  const col = labelColors(label.color)
-                  return (
-                    <span key={label.id} className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", col.bg, col.text)}>
-                      {label.name}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Expand / show all */}
-      {company.count > 3 && (
+    <div className="relative" style={{ height }}>
+      <div className="absolute top-2 right-2 z-10 flex gap-1">
         <button
-          onClick={() => setExpanded((v) => !v)}
-          className="w-full flex items-center justify-center gap-1 py-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors border-t border-gray-50"
+          onClick={handleExport}
+          title="Export PNG"
+          className="text-gray-500 hover:text-gray-700 bg-white/90 hover:bg-white border border-gray-200 rounded p-1 transition-colors shadow-sm"
         >
-          {expanded ? (
-            <><ChevronUp size={12} /> Show less</>
-          ) : (
-            <><ChevronDown size={12} /> {company.count > 5 ? `${company.count - 3} more contacts` : `${company.count - 3} more`}</>
-          )}
+          <Download size={13} />
         </button>
-      )}
+        {onExpand && (
+          <button
+            onClick={onExpand}
+            title="Full screen"
+            className="text-gray-500 hover:text-gray-700 bg-white/90 hover:bg-white border border-gray-200 rounded p-1 transition-colors shadow-sm"
+          >
+            <Maximize2 size={13} />
+          </button>
+        )}
+      </div>
+
+      <div ref={ref} className="relative w-full h-full rounded-xl overflow-hidden bg-gray-100">
+        {cells.map((cell) => {
+          const cellW = cell.w - 2, cellH = cell.h - 2
+          const showEmoji = cellW > 40 && cellH > 40
+          const showText = cellW > 48 && cellH > 32
+          const showName = cellW > 64 && cellH > 44
+          const color = colorForCountry(cell.name)
+          const flag = flagEmoji(cell.name)
+
+          const emojiAreaH = showText ? cellH - 26 : cellH - 4
+          // Scale emoji to fill most of the cell
+          const emojiFontSize = Math.max(14, Math.min(cellW * 0.55, emojiAreaH * 0.7, 72))
+
+          return (
+            <button
+              key={cell.name}
+              title={`${cell.name}: ${cell.count} contacts`}
+              onClick={() =>
+                router.push(`/contacts?country=${encodeURIComponent(cell.name)}`)
+              }
+              style={{
+                position: "absolute",
+                left: cell.x + 1,
+                top: cell.y + 1,
+                width: cellW,
+                height: cellH,
+                backgroundColor: "#ffffff",
+                border: `2px solid ${color}`,
+              }}
+              className="rounded overflow-hidden relative hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            >
+              {/* Flag emoji or country code initials */}
+              {showEmoji && (
+                <div
+                  className="absolute flex items-center justify-center"
+                  style={{
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: showText ? 26 : 0,
+                  }}
+                >
+                  {flag ? (
+                    <span style={{ fontSize: emojiFontSize, lineHeight: 1 }}>
+                      {flag}
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: Math.max(10, Math.min(emojiFontSize * 0.45, 24)),
+                        color,
+                      }}
+                      className="font-bold"
+                    >
+                      {cell.name.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Name + count — bottom-right corner */}
+              {showText && (
+                <div
+                  className="absolute bottom-1 right-1.5 text-right"
+                  style={{ maxWidth: cellW - 4 }}
+                >
+                  {showName && (
+                    <p className="text-[8px] font-medium text-gray-500 truncate leading-tight">
+                      {cell.name}
+                    </p>
+                  )}
+                  <p
+                    className="text-[10px] font-bold leading-none"
+                    style={{ color }}
+                  >
+                    {cell.count}
+                  </p>
+                </div>
+              )}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
 
-function ConnectionYearChart({ years, className }: { years: YearBucket[]; className?: string }) {
+// ─── Utility components ───────────────────────────────────────────────────────
+
+function ConnectionYearChart({
+  years,
+  className,
+}: {
+  years: YearBucket[]
+  className?: string
+}) {
   const max = Math.max(...years.map((y) => y.count), 1)
   return (
-    <div className={cn("bg-white border border-gray-200 rounded-xl px-4 pt-3 pb-4", className)}>
+    <div
+      className={cn(
+        "bg-white border border-gray-200 rounded-xl px-4 pt-3 pb-4",
+        className,
+      )}
+    >
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
         Connections by year
       </p>
       <div className="flex items-end gap-1.5 h-20">
         {years.map(({ year, count }) => (
-          <div key={year} className="flex flex-col items-center gap-1 flex-1 min-w-0">
-            <span className="text-[10px] text-gray-500 font-medium leading-none">{count}</span>
+          <div
+            key={year}
+            className="flex flex-col items-center gap-1 flex-1 min-w-0"
+          >
+            <span className="text-[10px] text-gray-500 font-medium leading-none">
+              {count}
+            </span>
             <div
               className="w-full rounded-t-sm bg-blue-500 hover:bg-blue-600 transition-colors"
               style={{ height: `${Math.max(4, (count / max) * 52)}px` }}
               title={`${count} connection${count !== 1 ? "s" : ""} in ${year}`}
             />
-            <span className="text-[10px] text-gray-400 leading-none">{String(year).slice(2)}</span>
+            <span className="text-[10px] text-gray-400 leading-none">
+              {String(year).slice(2)}
+            </span>
           </div>
         ))}
       </div>
@@ -424,7 +584,15 @@ function ConnectionYearChart({ years, className }: { years: YearBucket[]; classN
   )
 }
 
-function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
+function StatCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string
+  value: number
+  sub?: string
+}) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
       <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
@@ -434,23 +602,31 @@ function StatCard({ label, value, sub }: { label: string; value: number; sub?: s
   )
 }
 
+// ─── Dashboard page ───────────────────────────────────────────────────────────
+
 export default function DashboardPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
 
   const userId = session?.user?.id
-  const [sizeFilter, setSizeFilter] = useState<CompanySize | null>(null)
-  const [partnerOnly, setPartnerOnly] = useState(false)
   const [minThreshold, setMinThreshold] = useState(2)
-  const [hideSuspicious, setHideSuspicious] = useState(false)
+  const [enabledTypes, setEnabledTypes] = useState<Set<TypeKey>>(
+    () =>
+      new Set<TypeKey>([
+        "partner",
+        "brand",
+        "non-brand",
+        "independent",
+        "untagged",
+      ]),
+  )
   const [fullscreen, setFullscreen] = useState(false)
-  const [activeContactId, setActiveContactId] = useState<string | null>(null)
+  const [countryFullscreen, setCountryFullscreen] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
-  // Cached dashboard data — instant on re-navigation within the session
   const { data: dashData, isLoading: dashLoading } = useQuery<{
     stats: Stats
     companies: DashboardCompany[]
@@ -462,9 +638,20 @@ export default function DashboardPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const { data: treemapRaw, isLoading: tmLoading } = useQuery<{ companies: TreemapItem[] }>({
+  const { data: treemapRaw, isLoading: tmLoading } = useQuery<{
+    companies: TreemapItem[]
+  }>({
     queryKey: ["treemap", userId],
     queryFn: () => fetch("/api/contacts/treemap?min=1").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: countryRaw, isLoading: countryLoading } = useQuery<{
+    countries: CountryItem[]
+  }>({
+    queryKey: ["countries", userId],
+    queryFn: () => fetch("/api/contacts/countries").then((r) => r.json()),
     enabled: status === "authenticated",
     staleTime: 5 * 60 * 1000,
   })
@@ -473,20 +660,32 @@ export default function DashboardPage() {
   const companies = dashData?.companies ?? []
   const connectionYears = dashData?.connectionYears ?? []
   const allTreemapData = treemapRaw?.companies ?? []
-  const loading = dashLoading || tmLoading
+  const allCountryData = countryRaw?.countries ?? []
+  const loading = dashLoading || tmLoading || countryLoading
+
+  function toggleType(key: TypeKey) {
+    setEnabledTypes((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const treemapData = allTreemapData
     .filter((c) => c.count >= minThreshold)
-    .filter((c) => !hideSuspicious || (!isSuspicious(c.name) && c.type !== "independent"))
+    .filter((c) => enabledTypes.has(getTypeKey(c)))
 
-  const filtered = companies.filter((c) => {
-    if (partnerOnly && !c.isPartner) return false
-    if (sizeFilter && c.size !== sizeFilter) return false
-    return true
-  })
+  const domainMap = Object.fromEntries(
+    companies.filter((c) => c.domain).map((c) => [c.name, c.domain!]),
+  )
 
   if (status === "loading" || loading) {
-    return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
   }
 
   return (
@@ -495,7 +694,7 @@ export default function DashboardPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         <p className="text-sm text-gray-500 mt-1">
-          {session?.user?.name}&apos;s engagement pipeline — contacts at preferred &amp; partner companies
+          {session?.user?.name}&apos;s network overview
         </p>
       </div>
 
@@ -504,8 +703,16 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <StatCard label="Total contacts" value={stats.totalContacts} />
           <StatCard label="Companies" value={stats.totalCompanies} />
-          <StatCard label="Preferred" value={stats.preferredCount} sub="companies starred" />
-          <StatCard label="Partners" value={stats.partnerCount} sub="companies tagged" />
+          <StatCard
+            label="Preferred"
+            value={stats.preferredCount}
+            sub="companies starred"
+          />
+          <StatCard
+            label="Partners"
+            value={stats.partnerCount}
+            sub="companies tagged"
+          />
         </div>
       )}
 
@@ -514,159 +721,161 @@ export default function DashboardPage() {
         <ConnectionYearChart years={connectionYears} className="mb-6" />
       )}
 
-      {/* Treemap */}
+      {/* Company treemap */}
       {allTreemapData.length > 0 && (
-        <div className="mb-6">
+        <div className="mb-8">
           {/* Header row */}
           <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              Contacts by company <span className="normal-case font-normal text-gray-300">(tap to filter)</span>
+              Contacts by company{" "}
+              <span className="normal-case font-normal text-gray-300">
+                (tap to filter)
+              </span>
             </p>
-            <div className="flex items-center gap-4">
-              {/* Min threshold slider */}
-              <label className="flex items-center gap-2 text-xs text-gray-500 shrink-0">
-                <span>Min.</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={20}
-                  value={minThreshold}
-                  onChange={(e) => setMinThreshold(Number(e.target.value))}
-                  className="w-20 h-1.5 accent-blue-500"
-                />
-                <span className="w-4 text-center font-semibold text-gray-700">{minThreshold}</span>
-                <span className="text-gray-400">contacts</span>
-              </label>
-              {/* Hide suspicious checkbox */}
-              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none shrink-0">
-                <input
-                  type="checkbox"
-                  checked={hideSuspicious}
-                  onChange={(e) => setHideSuspicious(e.target.checked)}
-                  className="w-3.5 h-3.5 accent-amber-500 rounded"
-                />
-                <Eye size={11} />
-                Hide freelance / NDA / Independent
-              </label>
-            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-500 shrink-0">
+              <span>Min.</span>
+              <input
+                type="range"
+                min={1}
+                max={20}
+                value={minThreshold}
+                onChange={(e) => setMinThreshold(Number(e.target.value))}
+                className="w-20 h-1.5 accent-blue-500"
+              />
+              <span className="w-4 text-center font-semibold text-gray-700">
+                {minThreshold}
+              </span>
+              <span className="text-gray-400">contacts</span>
+            </label>
           </div>
 
           {treemapData.length > 0 ? (
-            <CompanyTreemap data={treemapData} domainMap={Object.fromEntries(companies.filter(c => c.domain).map(c => [c.name, c.domain!]))} onExpand={() => setFullscreen(true)} />
+            <CompanyTreemap
+              data={treemapData}
+              domainMap={domainMap}
+              onExpand={() => setFullscreen(true)}
+            />
           ) : (
             <div className="flex items-center justify-center h-24 rounded-xl border border-dashed border-gray-200 text-sm text-gray-400">
               No companies above threshold
             </div>
           )}
 
-          {/* Color legend */}
-          <div className="flex items-center gap-4 mt-2 flex-wrap">
-            {[
-              { color: "#2563EB", label: "Partner" },
-              { color: "#7C3AED", label: "Brand" },
-              { color: "#059669", label: "Non-brand" },
-              { color: "#D97706", label: "Independent" },
-              { color: "#6366F1", label: "Untagged" },
-            ].map(({ color, label }) => (
-              <div key={label} className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
-                <span className="text-[10px] text-gray-400">{label}</span>
-              </div>
-            ))}
+          {/* Type label selectors */}
+          <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+            {TYPE_LEGEND.map(({ key, color, label }) => {
+              const active = enabledTypes.has(key)
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggleType(key)}
+                  style={{ borderColor: active ? color : "#E5E7EB" }}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium transition-all cursor-pointer select-none",
+                    active ? "text-gray-700" : "text-gray-300",
+                  )}
+                >
+                  <div
+                    className="w-2 h-2 rounded-sm shrink-0 transition-colors"
+                    style={{
+                      backgroundColor: active ? color : "transparent",
+                      border: `1.5px solid ${active ? color : "#D1D5DB"}`,
+                    }}
+                  />
+                  {label}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        <button
-          onClick={() => setPartnerOnly((v) => !v)}
-          className={cn(
-            "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors",
-            partnerOnly ? "bg-blue-50 border-blue-300 text-blue-700" : "border-gray-200 text-gray-500 hover:bg-gray-50"
-          )}
-        >
-          <Handshake size={12} /> Partners only
-          {partnerOnly && <X size={11} className="ml-0.5" />}
-        </button>
+      {/* Country treemap */}
+      {allCountryData.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Contacts by country{" "}
+              <span className="normal-case font-normal text-gray-300">
+                (tap to filter)
+              </span>
+            </p>
+          </div>
+          <CountryTreemap
+            data={allCountryData}
+            onExpand={() => setCountryFullscreen(true)}
+          />
+        </div>
+      )}
 
-        {SIZE_OPTIONS.map((opt) => {
-          const active = sizeFilter === opt.value
-          return (
-            <button
-              key={opt.value}
-              onClick={() => setSizeFilter(active ? null : opt.value)}
-              className={cn(
-                "text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors",
-                active ? SIZE_COLORS[opt.value] : "border-gray-200 text-gray-500 hover:bg-gray-50"
-              )}
-            >
-              {opt.label}
-              {active && <X size={11} className="inline ml-1" />}
-            </button>
-          )
-        })}
-
-        {(partnerOnly || sizeFilter) && (
-          <button
-            onClick={() => { setPartnerOnly(false); setSizeFilter(null) }}
-            className="text-xs text-gray-400 hover:text-gray-600 ml-1"
-          >
-            Clear filters
-          </button>
+      {/* Company treemap fullscreen */}
+      {fullscreen &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] bg-gray-950 flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 shrink-0">
+              <span className="text-white font-semibold text-sm">Company Map</span>
+              <button
+                onClick={() => setFullscreen(false)}
+                className="text-white/70 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors"
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-3">
+              <CompanyTreemap
+                data={treemapData}
+                domainMap={domainMap}
+                height="100%"
+              />
+            </div>
+            <div className="flex items-center gap-2 px-4 pb-3 flex-wrap">
+              {TYPE_LEGEND.map(({ key, color, label }) => {
+                const active = enabledTypes.has(key)
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggleType(key)}
+                    style={{ borderColor: active ? color : "#374151" }}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] transition-all",
+                      active ? "text-gray-200" : "text-gray-500",
+                    )}
+                  >
+                    <div
+                      className="w-2 h-2 rounded-sm shrink-0"
+                      style={{
+                        backgroundColor: active ? color : "transparent",
+                        border: `1.5px solid ${active ? color : "#4B5563"}`,
+                      }}
+                    />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>,
+          document.body,
         )}
-      </div>
 
-      {/* Empty states */}
-      {companies.length === 0 ? (
-        <div className="text-center py-20">
-          <Building2 size={40} className="mx-auto text-gray-200 mb-4" />
-          <p className="text-gray-500 font-medium text-sm">No companies tagged yet</p>
-          <p className="text-gray-400 text-xs mt-1">
-            Go to <a href="/companies" className="text-blue-500 hover:underline">Companies</a> and star or tag companies as partners to see them here.
-          </p>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 text-sm">No companies match your filters.</div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((c) => (
-            <CompanyCard
-              key={c.name}
-              company={c}
-              onContactClick={setActiveContactId}
-            />
-          ))}
-        </div>
-      )}
-
-      <ContactDetail contactId={activeContactId} onClose={() => setActiveContactId(null)} />
-
-      {fullscreen && createPortal(
-        <div className="fixed inset-0 z-[100] bg-gray-950 flex flex-col">
-          <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 shrink-0">
-            <span className="text-white font-semibold text-sm">Company Map</span>
-            <button
-              onClick={() => setFullscreen(false)}
-              className="text-white/70 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors"
-            >
-              <X size={15} />
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 p-3">
-            <CompanyTreemap data={treemapData} domainMap={Object.fromEntries(companies.filter(c => c.domain).map(c => [c.name, c.domain!]))} height="100%" />
-          </div>
-          <div className="flex items-center gap-4 px-4 pb-3 flex-wrap">
-            {COLOR_LEGEND.map(({ color, label }) => (
-              <div key={label} className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }} />
-                <span className="text-[10px] text-gray-400">{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* Country treemap fullscreen */}
+      {countryFullscreen &&
+        createPortal(
+          <div className="fixed inset-0 z-[100] bg-gray-950 flex flex-col">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 shrink-0">
+              <span className="text-white font-semibold text-sm">Country Map</span>
+              <button
+                onClick={() => setCountryFullscreen(false)}
+                className="text-white/70 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors"
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 p-3">
+              <CountryTreemap data={allCountryData} height="100%" />
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
