@@ -1,10 +1,11 @@
 "use client"
 
-import { Search, X, SlidersHorizontal, Star, Mail, Building2 } from "lucide-react"
+import { X, SlidersHorizontal, Star, Mail, Building2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useRef } from "react"
 import { labelColors } from "@/lib/label-colors"
 import { INDUSTRY_SECTORS } from "@/lib/industry-sectors"
+import ContactSearchBar from "@/components/ContactSearchBar"
 
 export interface FilterState {
   q: string
@@ -39,6 +40,8 @@ interface Props {
   onViewChange: (v: "grid" | "list" | "photos") => void
   onChange: (f: Partial<FilterState>) => void
   onReset: () => void
+  /** Called when the user selects a contact from the autocomplete dropdown. */
+  onSelectContact?: (id: string) => void
 }
 
 const SORT_OPTIONS = [
@@ -299,7 +302,7 @@ function InlineCompanyAdd({
   )
 }
 
-export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset }: Props) {
+export default function ContactFilters({ filters, options, total, view, onViewChange, onChange, onReset, onSelectContact }: Props) {
   const [open, setOpen] = useState(false)
   const activeCount =
     (filters.companies.length > 0 ? 1 : 0) +
@@ -310,25 +313,12 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
 
   return (
     <div className="space-y-3">
-      {/* Search bar */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by name, company, title…"
-          value={filters.q}
-          onChange={(e) => onChange({ q: e.target.value })}
-          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-        />
-        {filters.q && (
-          <button
-            onClick={() => onChange({ q: "" })}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-          >
-            <X size={14} />
-          </button>
-        )}
-      </div>
+      {/* Search bar with offline autocomplete */}
+      <ContactSearchBar
+        value={filters.q}
+        onChange={(q) => onChange({ q })}
+        onSelectContact={onSelectContact}
+      />
 
       {/* Quick filter row */}
       <div className="flex items-center justify-between gap-2 flex-wrap">

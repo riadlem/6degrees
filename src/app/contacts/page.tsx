@@ -7,7 +7,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { STALE } from "@/lib/query-client"
 import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
-import BulkAssignPopover from "@/components/BulkAssignPopover"
+import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
@@ -132,7 +132,7 @@ function ContactsContent() {
     setSelectedIds(new Set())
   }
 
-  async function handleBulkAssign(field: "country" | "industry" | "note", value: string) {
+  async function handleBulkAssign(field: BulkField, value: string) {
     const ids = [...selectedIds]
     await fetch("/api/contacts/bulk", {
       method: "PATCH",
@@ -141,6 +141,7 @@ function ContactsContent() {
     })
     setSelectedIds(new Set())
     queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+    queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
   }
 
   type ImportState =
@@ -226,10 +227,11 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  // Refresh contact list on sync completion
+  // Refresh contact list and search index on sync completion
   useEffect(() => {
     if (syncState.phase === "done") {
       queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+      queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState.phase])  // only re-run when phase changes, not on every synced increment
@@ -302,6 +304,7 @@ function ContactsContent() {
             } else if (event.type === "done") {
               setImportState({ phase: "done", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed })
               queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+              queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
               setTimeout(() => setImportState({ phase: "idle" }), 5000)
             } else if (event.type === "error") {
               setImportState({ phase: "error", message: event.message })
@@ -339,7 +342,11 @@ function ContactsContent() {
             <>
               <BulkAssignPopover
                 count={selectedIds.size}
-                industries={(meta?.filters.industries ?? []).filter(Boolean) as string[]}
+                options={{
+                  companies:  (meta?.filters.companies  ?? []).filter(Boolean) as string[],
+                  industries: (meta?.filters.industries ?? []).filter(Boolean) as string[],
+                  countries:  (meta?.filters.countries  ?? []).filter(Boolean) as string[],
+                }}
                 onAssign={handleBulkAssign}
               />
               <button
@@ -599,6 +606,7 @@ function ContactsContent() {
             onViewChange={handleViewChange}
             onChange={handleFilterChange}
             onReset={resetFilters}
+            onSelectContact={openContact}
           />
         </div>
       )}
