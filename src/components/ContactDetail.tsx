@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { STALE } from "@/lib/query-client"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
   StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
@@ -160,7 +161,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       return res.json()
     },
     enabled: !!contactId && !!userId,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: STALE.contacts,
   })
 
   // Fetch all labels — shared cache across ContactDetail instances
@@ -168,7 +169,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
     queryKey: ["labels", userId],
     queryFn: () => fetch("/api/labels").then((r) => r.json()),
     enabled: !!contactId && !!userId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.labels,
   })
 
   /** Invalidate the contact cache so the UI refreshes with latest server data. */

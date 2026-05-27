@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
+import { STALE } from "@/lib/query-client"
 import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover from "@/components/BulkAssignPopover"
@@ -110,7 +111,7 @@ function ContactsContent() {
     getNextPageParam: (lastPage, _allPages, lastPageParam) =>
       (lastPageParam as number) < lastPage.pages ? (lastPageParam as number) + 1 : undefined,
     enabled: status === "authenticated",
-    staleTime: 2 * 60 * 1000,
+    staleTime: STALE.contacts,
   })
 
   const allContacts = data?.pages.flatMap((p) => p.contacts) ?? []
