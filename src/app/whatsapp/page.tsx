@@ -10,6 +10,7 @@ import {
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
+import ContactDetail from "@/components/ContactDetail"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,7 @@ function WAIcon({ size = 16, className = "" }: { size?: number; className?: stri
 }
 
 // Grid columns — header + rows must match
-const GRID = "2.5rem 1fr auto 6rem 5rem 6rem 3.5rem"
+const GRID = "2.5rem 1fr 4.5rem 6rem 5rem 6rem 3.5rem"
 
 type WAChat = {
   chatName: string
@@ -128,10 +129,12 @@ function ChatRow({
   chat,
   blurred,
   onLinkClick,
+  onContactClick,
 }: {
   chat: WAChat
   blurred: boolean
   onLinkClick: (chat: WAChat) => void
+  onContactClick: (contactId: string) => void
 }) {
   const contact = chat.contact
   const displayName = contact
@@ -154,8 +157,11 @@ function ChatRow({
       className="group grid items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-xs"
       style={{ gridTemplateColumns: GRID }}
     >
-      {/* Avatar */}
-      <div className="shrink-0 w-9 h-9 rounded-full overflow-hidden">
+      {/* Avatar — click to open contact profile */}
+      <div
+        className={cn("shrink-0 w-9 h-9 rounded-full overflow-hidden", contact && "cursor-pointer")}
+        onClick={() => contact && onContactClick(contact.id)}
+      >
         {contact?.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -173,8 +179,11 @@ function ChatRow({
         )}
       </div>
 
-      {/* Name + company + status */}
-      <div className="min-w-0">
+      {/* Name + company + status — click to open contact profile */}
+      <div
+        className={cn("min-w-0", contact && "cursor-pointer")}
+        onClick={() => contact && onContactClick(contact.id)}
+      >
         <p className={cn("text-sm font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>
           {displayName}
         </p>
@@ -284,6 +293,7 @@ export default function WhatsAppPage() {
   const searchRef = useRef<HTMLInputElement>(null)
   const [rematching, setRematching] = useState(false)
   const [rematchResult, setRematchResult] = useState<{ fixed: number; checked: number } | null>(null)
+  const [activeContactId, setActiveContactId] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -556,6 +566,7 @@ export default function WhatsAppPage() {
               chat={chat}
               blurred={blurred}
               onLinkClick={openLinkModal}
+              onContactClick={setActiveContactId}
             />
           ))
         )}
@@ -640,6 +651,14 @@ export default function WhatsAppPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Contact detail slide-in panel */}
+      {activeContactId && (
+        <ContactDetail
+          contactId={activeContactId}
+          onClose={() => setActiveContactId(null)}
+        />
       )}
     </div>
   )

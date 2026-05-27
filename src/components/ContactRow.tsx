@@ -119,7 +119,7 @@ const LEVEL_TITLES: Record<"connected" | "pending" | "followed" | "saved", strin
 
 // Grid columns — same layout as lists/[id]/page.tsx
 // checkbox | avatar | LI | name+pos | company | city | country | WA last | LI DM last | actions
-export const CONTACT_ROW_GRID = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem auto"
+export const CONTACT_ROW_GRID = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
 
 interface Props {
   contact: ContactSummary
