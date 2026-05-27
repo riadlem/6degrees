@@ -60,8 +60,8 @@ export async function GET() {
 
   const engageNames = engageCompanies.map((c) => c.name)
 
-  // Fetch top contacts + photos + domains for each company
-  const [topContacts, photos, industries, companyDomains] = await Promise.all([
+  // Fetch top contacts + domains for each company (photos derived from topContacts)
+  const [topContacts, industries, companyDomains] = await Promise.all([
     prisma.contact.findMany({
       where: { userId, company: { in: engageNames } },
       select: {
@@ -76,11 +76,7 @@ export async function GET() {
         labels: { include: { label: { select: { id: true, name: true, color: true } } } },
       },
       orderBy: { extensionSyncedAt: "desc" },
-    }),
-    prisma.contact.findMany({
-      where: { userId, company: { in: engageNames }, photoUrl: { not: null } },
-      select: { company: true, photoUrl: true },
-      orderBy: { extensionSyncedAt: "desc" },
+      take: 200,
     }),
     prisma.contact.groupBy({
       by: ["company", "industry"],
@@ -110,11 +106,10 @@ export async function GET() {
   }
 
   const photosByCompany = new Map<string, string[]>()
-  for (const p of photos) {
-    if (!p.company || !p.photoUrl) continue
-    const arr = photosByCompany.get(p.company) ?? []
-    if (arr.length < 4) arr.push(p.photoUrl)
-    photosByCompany.set(p.company, arr)
+  for (const c of topContacts) {
+    if (!c.company || !c.photoUrl) continue
+    const arr = photosByCompany.get(c.company) ?? []
+    if (arr.length < 4) { arr.push(c.photoUrl); photosByCompany.set(c.company, arr) }
   }
 
   const industryByCompany = new Map<string, string>()
@@ -141,19 +136,12 @@ export async function GET() {
   })
 
   // Connection-year distribution: count contacts by year of connectedOn
-  const connectedRows = await prisma.contact.findMany({
-    where: { userId, connectedOn: { not: null } },
-    select: { connectedOn: true },
-  })
-  const yearCounts = new Map<number, number>()
-  for (const { connectedOn } of connectedRows) {
-    if (!connectedOn) continue
-    const yr = new Date(connectedOn).getFullYear()
-    yearCounts.set(yr, (yearCounts.get(yr) ?? 0) + 1)
-  }
-  const connectionYears = Array.from(yearCounts.entries())
-    .map(([year, count]) => ({ year, count }))
-    .sort((a, b) => a.year - b.year)
+  const connectionYears = await prisma.$queryRaw<{ year: number; count: bigint }[]>`
+    SELECT EXTRACT(YEAR FROM "connectedOn")::int AS year, COUNT(*)::bigint AS count
+    FROM "Contact"
+    WHERE "userId" = ${userId} AND "connectedOn" IS NOT NULL
+    GROUP BY year ORDER BY year ASC
+  `.then((rows) => rows.map((r) => ({ year: r.year, count: Number(r.count) })))
 
   return Response.json({
     stats: { totalContacts, totalCompanies, preferredCount, partnerCount },

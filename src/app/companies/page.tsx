@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { STALE } from "@/lib/query-client"
 import Link from "next/link"
 import { Star, Users, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, LayoutGrid, AlignJustify, BarChart2, ChevronDown, ChevronUp } from "lucide-react"
 import CompanyTreemap from "@/components/CompanyTreemap"
@@ -550,7 +551,7 @@ function CompaniesContent() {
     queryKey: ["companies", userId],
     queryFn: () => fetch("/api/companies").then((r) => r.json()),
     enabled: status === "authenticated",
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.companies,
   })
 
   // Local state mirrors query data and supports optimistic updates

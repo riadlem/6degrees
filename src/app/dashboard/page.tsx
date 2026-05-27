@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { STALE } from "@/lib/query-client"
 import { createPortal } from "react-dom"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
@@ -634,7 +635,7 @@ export default function DashboardPage() {
     queryKey: ["dashboard", userId],
     queryFn: () => fetch("/api/dashboard").then((r) => r.json()),
     enabled: status === "authenticated",
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.dashboard,
   })
 
   const { data: treemapRaw, isLoading: tmLoading } = useQuery<{
@@ -643,7 +644,7 @@ export default function DashboardPage() {
     queryKey: ["treemap", userId],
     queryFn: () => fetch("/api/contacts/treemap?min=1").then((r) => r.json()),
     enabled: status === "authenticated",
-    staleTime: 5 * 60 * 1000,
+    staleTime: STALE.dashboard,
   })
 
   const { data: countryRaw, isLoading: countryLoading } = useQuery<{
