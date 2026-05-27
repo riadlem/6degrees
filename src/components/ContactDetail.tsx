@@ -9,6 +9,7 @@ import {
   StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
+import { labelColors, LABEL_COLOR_KEYS } from "@/lib/label-colors"
 import LabelBadge from "./LabelBadge"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_BG, EMAIL_KIND_TITLE } from "@/lib/email-classify"
@@ -185,7 +186,10 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
   const [editingName, setEditingName] = useState(false)
   const [editFirstName, setEditFirstName] = useState("")
   const [editLastName, setEditLastName] = useState("")
-  const [addingLabel, setAddingLabel] = useState(false)
+  const [addingLabel, setAddingLabel]     = useState(false)
+  const [creatingLabel, setCreatingLabel] = useState(false)
+  const [newLabelName, setNewLabelName]   = useState("")
+  const [newLabelColor, setNewLabelColor] = useState("blue")
   const [emails, setEmails] = useState<EmailEntry[]>([])
   const [emailsExpanded, setEmailsExpanded] = useState(false)
   const [emailNextCursor, setEmailNextCursor] = useState<string | null>(null)
@@ -289,6 +293,30 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ contactIds: [contact.id] }),
     })
+    refetchContact()
+  }
+
+  async function createAndAddLabel() {
+    if (!newLabelName.trim() || !contact) return
+    const res = await fetch("/api/labels", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newLabelName.trim(), color: newLabelColor }),
+    })
+    if (!res.ok) return
+    const label = await res.json() as LabelOption
+    // Immediately apply the new label to this contact
+    await fetch(`/api/labels/${label.id}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contactIds: [contact.id] }),
+    })
+    // Invalidate labels cache so ManageLabelsModal + other contacts see the new label
+    queryClient.invalidateQueries({ queryKey: ["labels", userId] })
+    setNewLabelName("")
+    setNewLabelColor("blue")
+    setCreatingLabel(false)
+    setAddingLabel(false)
     refetchContact()
   }
 
@@ -1207,25 +1235,82 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
 
                 {addingLabel ? (
                   <div className="relative">
-                    <div className="absolute top-full left-0 mt-1 z-10 bg-white border border-gray-200 rounded-xl shadow-lg p-1 min-w-[160px] max-h-48 overflow-y-auto">
-                      {allLabels.filter((l) => !contact.labels.some((cl) => cl.label.id === l.id)).length === 0 ? (
-                        <p className="text-xs text-gray-400 px-2 py-1.5">All labels applied</p>
-                      ) : (
-                        allLabels
-                          .filter((l) => !contact.labels.some((cl) => cl.label.id === l.id))
-                          .map((l) => (
+                    <div className="absolute top-full left-0 mt-1 z-10 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden min-w-[180px]">
+                      {/* Existing labels */}
+                      <div className="max-h-40 overflow-y-auto p-1">
+                        {allLabels.filter((l) => !contact.labels.some((cl) => cl.label.id === l.id)).length === 0 && !creatingLabel ? (
+                          <p className="text-xs text-gray-400 px-2 py-1.5">All labels applied</p>
+                        ) : (
+                          allLabels
+                            .filter((l) => !contact.labels.some((cl) => cl.label.id === l.id))
+                            .map((l) => (
+                              <button
+                                key={l.id}
+                                onClick={() => addLabel(l.id)}
+                                className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm"
+                              >
+                                <LabelBadge label={l} />
+                              </button>
+                            ))
+                        )}
+                      </div>
+
+                      {/* Inline new-label form */}
+                      {creatingLabel ? (
+                        <div className="border-t border-gray-100 p-2 space-y-1.5">
+                          <input
+                            autoFocus
+                            value={newLabelName}
+                            onChange={(e) => setNewLabelName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") createAndAddLabel()
+                              if (e.key === "Escape") { setCreatingLabel(false); setNewLabelName("") }
+                            }}
+                            placeholder="Label name…"
+                            className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {LABEL_COLOR_KEYS.map((key) => {
+                              const c = labelColors(key)
+                              return (
+                                <button
+                                  key={key}
+                                  onClick={() => setNewLabelColor(key)}
+                                  className={cn("w-4 h-4 rounded-full", c.dot, newLabelColor === key && "ring-2 ring-offset-1 ring-gray-400")}
+                                />
+                              )
+                            })}
+                          </div>
+                          <div className="flex gap-2">
                             <button
-                              key={l.id}
-                              onClick={() => addLabel(l.id)}
-                              className="flex items-center gap-2 w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-sm"
+                              onClick={createAndAddLabel}
+                              disabled={!newLabelName.trim()}
+                              className="text-xs text-blue-600 font-medium hover:text-blue-700 disabled:opacity-40"
                             >
-                              <LabelBadge label={l} />
+                              Create
                             </button>
-                          ))
+                            <button
+                              onClick={() => { setCreatingLabel(false); setNewLabelName("") }}
+                              className="text-xs text-gray-400 hover:text-gray-600"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="border-t border-gray-100 p-1">
+                          <button
+                            onClick={() => setCreatingLabel(true)}
+                            className="flex items-center gap-1.5 w-full text-left px-2 py-1.5 rounded-lg hover:bg-gray-50 text-xs text-gray-500"
+                          >
+                            <Plus size={11} />
+                            New label…
+                          </button>
+                        </div>
                       )}
                     </div>
                     <button
-                      onClick={() => setAddingLabel(false)}
+                      onClick={() => { setAddingLabel(false); setCreatingLabel(false); setNewLabelName("") }}
                       className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 px-2 py-0.5 rounded-full border border-gray-200"
                     >
                       <X size={10} /> Close
