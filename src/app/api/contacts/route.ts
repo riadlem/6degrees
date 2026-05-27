@@ -106,22 +106,25 @@ export async function GET(request: Request) {
 
   const userId = session.user.id
 
+  const isPartnerFilter = searchParams.get("isPartner") === "true"
+
   // Fetch company preferences for filtering + subsidiary lookup
   const companyPrefs = await prisma.companyPreference.findMany({
     where: { userId },
-    select: { company: true, ignored: true, parentCompany: true, type: true, industry: true },
+    select: { company: true, ignored: true, parentCompany: true, type: true, industry: true, isPartner: true },
   }).catch(async () => {
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "parentCompany" TEXT`.catch(() => {})
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "type" TEXT`.catch(() => {})
     await prisma.$executeRaw`ALTER TABLE "CompanyPreference" ADD COLUMN IF NOT EXISTS "industry" TEXT`.catch(() => {})
     return prisma.companyPreference.findMany({
       where: { userId },
-      select: { company: true, ignored: true, parentCompany: true, type: true, industry: true },
-    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null; type: string | null; industry: string | null }[])
+      select: { company: true, ignored: true, parentCompany: true, type: true, industry: true, isPartner: true },
+    }).catch(() => [] as { company: string; ignored: boolean; parentCompany: string | null; type: string | null; industry: string | null; isPartner: boolean }[])
   })
 
   const preferredCompanies = companyPrefs.filter((p) => !p.ignored).map((p) => p.company)
   const ignoredCompanies   = companyPrefs.filter((p) =>  p.ignored).map((p) => p.company)
+  const partnerCompanies   = companyPrefs.filter((p) =>  p.isPartner).map((p) => p.company)
 
   // Companies matching the requested companyType (brand / non-brand / independent)
   const companyTypeNames = companyType
@@ -221,6 +224,12 @@ export async function GET(request: Request) {
           ? [{ company: { in: companyTypeNames, mode: "insensitive" as const } }]
           : [{ id: "__no_match__" }]
         : []),
+      // Partner filter: contacts at companies marked as partner
+      ...(isPartnerFilter
+        ? partnerCompanies.length > 0
+          ? [{ company: { in: partnerCompanies } }]
+          : [{ id: "__no_match__" }]
+        : []),
       ...(gmailMatched === "matched"         ? [{ emailAddress: { not: null } }] : []),
       ...(gmailMatched === "unmatched"       ? [{ emailAddress: null }] : []),
       ...(gmailMatched === "email_no_linkedin" ? [{ emailAddress: { not: null }, profileUrl: null }] : []),
@@ -276,6 +285,11 @@ export async function GET(request: Request) {
     }),
   ])
 
+  // Companies that have at least one subsidiary registered
+  const parentCompanyNames = [...new Set(
+    companyPrefs.filter((p) => p.parentCompany).map((p) => p.parentCompany!)
+  )]
+
   return Response.json({
     contacts,
     total,
@@ -287,6 +301,7 @@ export async function GET(request: Request) {
       locations: filterMeta.locations,
       countries: filterMeta.countries,
       labels,
+      parentCompanies: parentCompanyNames,
     },
   })
 }

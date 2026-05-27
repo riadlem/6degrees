@@ -26,6 +26,7 @@ type ApiMeta = {
   filters: {
     industries: (string | null)[]
     companies: (string | null)[]
+    parentCompanies?: string[]
     locations: (string | null)[]
     countries: (string | null)[]
     labels: LabelOption[]
@@ -38,6 +39,7 @@ type ContactsPage = {
   pages: number
   filters: ApiMeta["filters"]
 }
+
 
 async function fetchContactsPage(
   filters: FilterState,
