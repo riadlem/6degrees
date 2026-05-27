@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
-  ArrowLeft, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
+  ArrowLeft, ChevronLeft, ChevronRight, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
   ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
@@ -495,11 +495,59 @@ export default function CompanyDetailPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
-      {/* Back */}
-      <Link href="/companies" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 mb-6 transition-colors">
-        <ArrowLeft size={14} />
-        All companies
-      </Link>
+      {/* Back + Prev / Next navigation */}
+      {(() => {
+        const sorted = [...allCompanies].sort((a, b) => a.localeCompare(b))
+        const idx = sorted.indexOf(companyName)
+        const prev = idx > 0 ? sorted[idx - 1] : null
+        const next = idx < sorted.length - 1 ? sorted[idx + 1] : null
+        return (
+          <div className="flex items-center gap-1 mb-6">
+            <Link href="/companies" className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors mr-auto">
+              <ArrowLeft size={14} />
+              <span className="hidden sm:inline">All companies</span>
+            </Link>
+
+            {allCompanies.length > 1 && (
+              <div className="flex items-center gap-1">
+                {prev ? (
+                  <Link
+                    href={`/companies/${encodeURIComponent(prev)}`}
+                    title={prev}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <ChevronLeft size={14} />
+                    <span className="hidden sm:inline truncate max-w-[100px]">{prev}</span>
+                  </Link>
+                ) : (
+                  <span className="px-2 py-1.5 text-gray-200 cursor-not-allowed flex items-center">
+                    <ChevronLeft size={14} />
+                  </span>
+                )}
+                {sorted.length > 0 && (
+                  <span className="text-xs text-gray-300 tabular-nums px-1">
+                    {idx + 1} / {sorted.length}
+                  </span>
+                )}
+                {next ? (
+                  <Link
+                    href={`/companies/${encodeURIComponent(next)}`}
+                    title={next}
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <span className="hidden sm:inline truncate max-w-[100px]">{next}</span>
+                    <ChevronRight size={14} />
+                  </Link>
+                ) : (
+                  <span className="px-2 py-1.5 text-gray-200 cursor-not-allowed flex items-center">
+                    <ChevronRight size={14} />
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Header card */}
       <div className="bg-white border border-gray-200 rounded-2xl p-6 mb-6">
