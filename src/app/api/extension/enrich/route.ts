@@ -1,6 +1,16 @@
 import prisma from "@/lib/prisma"
 import { emitContactEvent } from "@/lib/contact-events"
 
+// Ensure the linkedinDegree column exists (added after initial schema deploy)
+let _colReady: Promise<void> | null = null
+function ensureLinkedinDegreeCol() {
+  if (_colReady) return _colReady
+  _colReady = prisma.$executeRaw`
+    ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "linkedinDegree" TEXT
+  `.then(() => {}).catch(() => {})
+  return _colReady
+}
+
 // This endpoint is called from the Chrome extension (chrome-extension:// origin).
 // Security is token-based, so a permissive CORS origin is safe.
 const CORS = {
@@ -57,6 +67,8 @@ export async function POST(req: Request) {
   })
   if (!user) return new Response("Invalid token", { status: 401, headers: CORS })
 
+  await ensureLinkedinDegreeCol()
+
   const body = await req.json().catch(() => null)
   if (!body?.profileUrl) {
     return Response.json({ error: "profileUrl is required" }, { status: 400, headers: CORS })
@@ -87,6 +99,53 @@ export async function POST(req: Request) {
   const firstName: string = body.firstName || fallback.firstName
   const lastName: string  = body.lastName  || fallback.lastName
 
+  // Normalise degree: extension sends "1st"/"2nd"/"3rd" or bare "1"/"2"/"3"
+  const normDegree = degree
+    ? String(degree).match(/([123])/)?.[1] ?? null
+    : null
+
+  // Normalise city/country: translate French country names to English and
+  // promote city→country when the city field contains a country name.
+  const FR_COUNTRY: Record<string, string> = {
+    "royaume-uni": "United Kingdom",
+    "états-unis": "United States", "etats-unis": "United States",
+    "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
+    "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
+    "autriche": "Austria", "chine": "China", "japon": "Japan",
+    "russie": "Russia", "pologne": "Poland",
+    "grèce": "Greece", "grece": "Greece",
+    "danemark": "Denmark", "norvège": "Norway", "norvege": "Norway",
+    "suède": "Sweden", "suede": "Sweden",
+    "finlande": "Finland", "irlande": "Ireland", "turquie": "Turkey",
+    "maroc": "Morocco", "australie": "Australia",
+    "brésil": "Brazil", "bresil": "Brazil",
+    "mexique": "Mexico", "inde": "India",
+    "égypte": "Egypt", "egypte": "Egypt",
+    "afrique du sud": "South Africa",
+    "emirats arabes unis": "United Arab Emirates",
+    "émirats arabes unis": "United Arab Emirates",
+    "arabie saoudite": "Saudi Arabia",
+    "sénégal": "Senegal", "senegal": "Senegal",
+    "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+    "cameroun": "Cameroon",
+  }
+  function normCountryName(v: string | null | undefined): string | null {
+    if (!v) return v ?? null
+    return FR_COUNTRY[v.toLowerCase()] ?? v
+  }
+  // Resolve city/country:
+  //   1. Translate French country names in `country` to English
+  //   2. If `city` itself is a country name, promote it to `country` and clear `city`
+  let resolvedCity:    string | null | undefined = city    != null ? city    : undefined
+  let resolvedCountry: string | null | undefined = country != null ? normCountryName(country) : undefined
+  if (city != null) {
+    const cityAsCountry = FR_COUNTRY[city.toLowerCase()]
+    if (cityAsCountry) {
+      resolvedCity    = null                    // clear the wrongly-stored city
+      resolvedCountry = resolvedCountry ?? cityAsCountry
+    }
+  }
+
   const enrichData = {
     // Only overwrite text fields when the scraper actually got a value —
     // null means "scraping failed", not "the field is blank on LinkedIn".
@@ -94,12 +153,15 @@ export async function POST(req: Request) {
     ...(headline != null  && { headline }),
     ...(photoUrl != null  && { photoUrl }),
     ...(location != null  && { location }),
-    ...(city     != null  && { city }),
-    ...(country  != null  && { country }),
+    // city/country use resolved values (French names normalised + city↔country swap)
+    ...(resolvedCity    !== undefined && { city:    resolvedCity }),
+    ...(resolvedCountry !== undefined && { country: resolvedCountry }),
     ...(commonConnections != null && { commonConnections }),
     ...(sharedConnections !== undefined && { sharedConnections }),
     ...(position && { position }),
     ...(company  && { company }),
+    // Always update linkedinDegree when we have a value (scrape can change: 2→1 after connecting)
+    ...(normDegree != null && { linkedinDegree: normDegree }),
     profileUrl,
     extensionSyncedAt: new Date(),
   }

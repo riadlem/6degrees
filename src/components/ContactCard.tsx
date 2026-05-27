@@ -23,6 +23,7 @@ export type ContactSummary = {
   outreachStatus: string | null
   coworkEnrichedAt: string | null
   profileUrl: string | null
+  linkedinDegree: string | null   // "1", "2", or "3" — stored by extension
   notes: { id: string }[]
   listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]
@@ -40,25 +41,39 @@ export function linkedinDegree(contact: ContactSummary): "1" | "2" | null {
 }
 
 /** Derive LinkedIn connection level from contact data. */
-export function linkedinLevel(contact: ContactSummary): "connected" | "pending" | "followed" | null {
+export function linkedinLevel(contact: ContactSummary): "connected" | "pending" | "followed" | "saved" | null {
   if (contact.outreachStatus === "lkd_pending") return "pending"
   if (!contact.profileUrl) return null
+
+  // Use stored degree when available (set by extension on save/re-visit)
+  if (contact.linkedinDegree === "1") return "connected"
+  if (contact.linkedinDegree === "2" || contact.linkedinDegree === "3") return "saved"
+
+  // Legacy: "Followed" label → amber badge (non-connected profiles saved before degree field)
   const isFollowed = contact.labels.some((l) => l.label.name === "Followed")
-  return isFollowed ? "followed" : "connected"
+  if (isFollowed) return "followed"
+
+  // DMA-synced connections always have connectedOn; use it as the fallback signal
+  if (contact.connectedOn) return "connected"
+
+  // Profile URL present but no connection signal → saved via extension, connection status unknown
+  return "saved"
 }
 
 const LI_PATH = "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
 
-const LEVEL_COLORS: Record<"connected" | "pending" | "followed", string> = {
+const LEVEL_COLORS: Record<"connected" | "pending" | "followed" | "saved", string> = {
   connected: "#0A66C2", // LinkedIn blue
   pending:   "#7C3AED", // violet
   followed:  "#D97706", // amber
+  saved:     "#9CA3AF", // gray-400 — profile saved, not connected
 }
 
-const LEVEL_TITLES: Record<"connected" | "pending" | "followed", string> = {
+const LEVEL_TITLES: Record<"connected" | "pending" | "followed" | "saved", string> = {
   connected: "1st-degree LinkedIn connection",
   pending:   "Pending LinkedIn connection request",
   followed:  "Followed on LinkedIn (not connected)",
+  saved:     "Profile saved – not connected on LinkedIn",
 }
 
 /** Color-coded LinkedIn icon badge — links to profile when available. */

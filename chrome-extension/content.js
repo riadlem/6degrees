@@ -884,6 +884,82 @@
     "bavaria": "Germany", "north rhine-westphalia": "Germany",
     "baden-württemberg": "Germany", "berlin": "Germany",
     "hamburg": "Germany",
+    // French country names as last-segment of comma-separated location
+    // e.g. "London, Royaume-Uni" → { city: "London", country: "United Kingdom" }
+    "royaume-uni": "United Kingdom",
+    "états-unis": "United States", "etats-unis": "United States",
+    "allemagne": "Germany",
+    "espagne": "Spain",
+    "italie": "Italy",
+    "pays-bas": "Netherlands",
+    "belgique": "Belgium",
+    "suisse": "Switzerland",
+    "autriche": "Austria",
+    "chine": "China",
+    "japon": "Japan",
+    "russie": "Russia",
+    "pologne": "Poland",
+    "grèce": "Greece", "grece": "Greece",
+    "danemark": "Denmark",
+    "norvège": "Norway", "norvege": "Norway",
+    "suède": "Sweden", "suede": "Sweden",
+    "finlande": "Finland",
+    "irlande": "Ireland",
+    "turquie": "Turkey",
+    "maroc": "Morocco",
+    "australie": "Australia",
+    "brésil": "Brazil", "bresil": "Brazil",
+    "mexique": "Mexico",
+    "inde": "India",
+    "égypte": "Egypt", "egypte": "Egypt",
+    "afrique du sud": "South Africa",
+    "emirats arabes unis": "United Arab Emirates",
+    "émirats arabes unis": "United Arab Emirates",
+    "arabie saoudite": "Saudi Arabia",
+    "sénégal": "Senegal", "senegal": "Senegal",
+    "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+    "cameroun": "Cameroon",
+  }
+
+  // Country names that, when the ENTIRE location segment is this value,
+  // should be stored as country (not city).  Includes French + English names.
+  const COUNTRY_NAMES = {
+    // From REGION_TO_COUNTRY above — French/localized
+    "royaume-uni": "United Kingdom",
+    "états-unis": "United States", "etats-unis": "United States",
+    "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
+    "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
+    "autriche": "Austria", "chine": "China", "japon": "Japan",
+    "russie": "Russia", "pologne": "Poland",
+    "grèce": "Greece", "grece": "Greece",
+    "danemark": "Denmark",
+    "norvège": "Norway", "norvege": "Norway",
+    "suède": "Sweden", "suede": "Sweden",
+    "finlande": "Finland", "irlande": "Ireland", "turquie": "Turkey",
+    "maroc": "Morocco", "australie": "Australia",
+    "brésil": "Brazil", "bresil": "Brazil",
+    "mexique": "Mexico", "inde": "India",
+    "égypte": "Egypt", "egypte": "Egypt",
+    "afrique du sud": "South Africa",
+    "emirats arabes unis": "United Arab Emirates",
+    "émirats arabes unis": "United Arab Emirates",
+    "arabie saoudite": "Saudi Arabia",
+    "sénégal": "Senegal", "senegal": "Senegal",
+    // English country names that may appear as single-segment location
+    "united kingdom": "United Kingdom", "united states": "United States",
+    "germany": "Germany", "spain": "Spain", "italy": "Italy",
+    "netherlands": "Netherlands", "belgium": "Belgium", "switzerland": "Switzerland",
+    "austria": "Austria", "china": "China", "japan": "Japan",
+    "russia": "Russia", "poland": "Poland", "greece": "Greece",
+    "denmark": "Denmark", "norway": "Norway", "sweden": "Sweden",
+    "finland": "Finland", "ireland": "Ireland", "turkey": "Turkey",
+    "morocco": "Morocco", "australia": "Australia", "brazil": "Brazil",
+    "mexico": "Mexico", "india": "India", "egypt": "Egypt",
+    "south africa": "South Africa",
+    "united arab emirates": "United Arab Emirates",
+    "saudi arabia": "Saudi Arabia",
+    "canada": "Canada", "france": "France", "portugal": "Portugal",
+    "israel": "Israel", "singapore": "Singapore",
   }
 
   // Strip LinkedIn's "surrounding area" noise suffixes that appear in many locales.
@@ -960,13 +1036,21 @@
     // Single segment — could be "Paris et périphérie", "Greater London", etc.
     const cleaned = cleanCity(parts[0])
     const key = cleaned.toLowerCase()
+    const rawKey = parts[0].toLowerCase()
+
+    // Check if the segment IS a country name (French or English).
+    // Must come first so "Royaume-Uni" → {city:null, country:"United Kingdom"}
+    // rather than being stored as a city.
+    const countryNameMatch = COUNTRY_NAMES[key] || COUNTRY_NAMES[rawKey]
+    if (countryNameMatch) return { city: null, country: countryNameMatch }
 
     // Try region → country first (e.g. "Bretagne")
-    const regionCountry = REGION_TO_COUNTRY[key] || REGION_TO_COUNTRY[parts[0].toLowerCase()]
+    const regionCountry = REGION_TO_COUNTRY[key] || REGION_TO_COUNTRY[rawKey]
     if (regionCountry) return { city: cleaned || parts[0], country: regionCountry }
 
     // Try city → country lookup
-    const cityCountry = CITY_TO_COUNTRY[key] || CITY_TO_COUNTRY[parts[0].toLowerCase().replace(AREA_SUFFIX_RE, "").replace(AREA_PREFIX_RE, "").trim()]
+    const strippedKey = rawKey.replace(AREA_SUFFIX_RE, "").replace(AREA_PREFIX_RE, "").trim()
+    const cityCountry = CITY_TO_COUNTRY[key] || CITY_TO_COUNTRY[strippedKey]
     if (cityCountry) return { city: cleaned || parts[0], country: cityCountry }
 
     // Unknown single segment — store as country (safest default, avoids "Paris et périphérie" as city)
