@@ -5,14 +5,11 @@ import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { Star, Users, ChevronDown, ChevronUp, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, ArrowUpRight, LayoutGrid } from "lucide-react"
+import { Star, Users, Search, X, EyeOff, Handshake, Pencil, Check, AlertTriangle, Sparkles, Globe, LayoutGrid, AlignJustify, BarChart2, ChevronDown, ChevronUp } from "lucide-react"
 import CompanyTreemap from "@/components/CompanyTreemap"
-import { cn, initials } from "@/lib/utils"
+import CompanyLogo, { companyNameToDomain } from "@/components/CompanyLogo"
+import { cn } from "@/lib/utils"
 import { isSuspicious } from "@/lib/company-utils"
-import ContactRow from "@/components/ContactRow"
-import ContactDetail from "@/components/ContactDetail"
-import AddToListModal from "@/components/AddToListModal"
-import { type ContactSummary } from "@/components/ContactCard"
 
 export type CompanySize = "small" | "medium" | "corporate" | "fortune500"
 export type CompanyType = "brand" | "non-brand" | "independent"
@@ -82,31 +79,6 @@ const INDUSTRY_CATEGORIES = [
   "Telecommunications",
   "Other",
 ]
-
-function AvatarStack({ photos, name, count }: { photos: string[]; name: string; count: number }) {
-  const inits = initials(name.split(" ")[0] ?? name, name.split(" ")[1] ?? "")
-  if (photos.length === 0) {
-    return (
-      <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-xs font-semibold shrink-0">
-          {inits}
-        </div>
-        <span className="text-xs text-gray-500">{count} contact{count !== 1 ? "s" : ""}</span>
-      </div>
-    )
-  }
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex -space-x-2">
-        {photos.slice(0, 4).map((url, i) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={url} alt="" className="w-7 h-7 rounded-full border-2 border-white object-cover" />
-        ))}
-      </div>
-      <span className="text-xs text-gray-500">{count} contact{count !== 1 ? "s" : ""}</span>
-    </div>
-  )
-}
 
 function SizeChips({
   value,
@@ -251,8 +223,6 @@ function CompanyRow({
   onSetIndustry,
   onDismissSuggestion,
   onRename,
-  onContactClick,
-  onAddToList,
 }: {
   company: Company
   allCompanyNames: string[]
@@ -265,36 +235,15 @@ function CompanyRow({
   onSetIndustry: (name: string, industry: string | null) => void
   onDismissSuggestion: (name: string) => void
   onRename: (oldName: string, newName: string) => void
-  onContactClick: (id: string) => void
-  onAddToList: (contacts: ContactSummary[]) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const [contacts, setContacts] = useState<ContactSummary[] | null>(null)
-  const [loading, setLoading] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState("")
   const [editingParent, setEditingParent] = useState(false)
   const [parentValue, setParentValue] = useState("")
 
-  async function expand() {
-    if (expanded) { setExpanded(false); return }
-    setExpanded(true)
-    if (contacts !== null) return
-    setLoading(true)
-    try {
-      const params = new URLSearchParams({ company: company.name, limit: "200", page: "1", sort: "name", q: "", industry: "", location: "", position: "", label: "" })
-      const res = await fetch(`/api/contacts?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        setContacts(data.contacts)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
   function startRename(e: React.MouseEvent) {
     e.stopPropagation()
+    e.preventDefault()
     setRenameValue(company.name)
     setRenaming(true)
   }
@@ -311,6 +260,7 @@ function CompanyRow({
 
   function startEditParent(e: React.MouseEvent) {
     e.stopPropagation()
+    e.preventDefault()
     setParentValue(company.parentCompany ?? "")
     setEditingParent(true)
   }
@@ -332,40 +282,36 @@ function CompanyRow({
   const starStatus = company.preferred ? "none" : "preferred"
   const ignoreStatus = company.ignored ? "none" : "ignored"
   const typeLabel = company.type ? TYPE_OPTIONS.find((o) => o.value === company.type) : null
+  const domain = companyNameToDomain(company.name)
+
+  // Left border color based on status
+  const borderLeftColor =
+    company.isPartner  ? "border-l-blue-400" :
+    company.preferred  ? "border-l-amber-400" :
+    company.ignored    ? "border-l-gray-300" :
+                         "border-l-transparent"
 
   return (
     <div className={cn(
-      "border rounded-xl overflow-hidden transition-colors",
-      company.preferred && company.isPartner ? "border-blue-300 bg-blue-50/20" :
-      company.isPartner  ? "border-blue-200 bg-blue-50/10" :
-      company.preferred  ? "border-amber-300 bg-amber-50/30" :
-      company.ignored    ? "border-gray-200 bg-gray-50/50 opacity-60" :
-                           "border-gray-200 bg-white"
+      "group border-l-4 border rounded-xl overflow-visible transition-colors",
+      borderLeftColor,
+      company.ignored
+        ? "border-gray-200 bg-gray-50/50 opacity-60"
+        : "border-gray-200 bg-white hover:border-gray-300"
     )}>
-      <div
-        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-gray-50/50 transition-colors"
-        onClick={expand}
-      >
-        {/* Star */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, starStatus) }}
-          className={cn("shrink-0 transition-colors", company.preferred ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-400")}
-          title={company.preferred ? "Remove preferred" : "Mark preferred"}
-        >
-          <Star size={15} fill={company.preferred ? "currentColor" : "none"} />
-        </button>
+      <div className="flex items-center gap-3 px-3 py-2.5">
 
-        {/* Partner toggle */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onSetPartner(company.name, !company.isPartner) }}
-          className={cn("shrink-0 transition-colors", company.isPartner ? "text-blue-500 hover:text-blue-600" : "text-gray-200 hover:text-blue-400")}
-          title={company.isPartner ? "Remove partner" : "Mark as partner"}
+        {/* Company logo — click opens detail page */}
+        <Link
+          href={`/companies/${encodeURIComponent(company.name)}`}
+          onClick={(e) => e.stopPropagation()}
+          className="shrink-0"
         >
-          <Handshake size={15} />
-        </button>
+          <CompanyLogo domain={domain} name={company.name} size={36} radius="rounded-lg" />
+        </Link>
 
-        {/* Name + industry */}
-        <div className="flex-1 min-w-0 group/name" onClick={renaming ? (e) => e.stopPropagation() : undefined}>
+        {/* Main content */}
+        <div className="flex-1 min-w-0 group/name">
           {renaming ? (
             <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
               <input
@@ -380,150 +326,167 @@ function CompanyRow({
             </div>
           ) : (
             <>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-semibold text-gray-900 text-sm truncate">{company.name}</span>
-              <Link
-                href={`/companies/${encodeURIComponent(company.name)}`}
-                onClick={(e) => e.stopPropagation()}
-                title="Open company page"
-                className="text-gray-400 hover:text-blue-500 shrink-0 transition-colors"
-              >
-                <ArrowUpRight size={13} />
-              </Link>
-              <button
-                onClick={startRename}
-                title="Rename company"
-                className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0"
-              >
-                <Pencil size={11} />
-              </button>
-              {!company.parentCompany && (
-                <button
-                  onClick={startEditParent}
-                  title="Set parent company"
-                  className="text-gray-300 hover:text-indigo-400 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0 text-[10px] font-medium"
+              {/* First line: name · type badge · category · count */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Link
+                  href={`/companies/${encodeURIComponent(company.name)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="font-semibold text-gray-900 text-sm hover:text-blue-600 transition-colors truncate"
                 >
-                  ↳
-                </button>
-              )}
-              {company.isPartner && (
-                <span className="text-[10px] font-medium text-blue-600 bg-blue-100 rounded-full px-1.5 py-0.5 shrink-0">partner</span>
-              )}
-              {company.preferred && !company.isPartner && (
-                <span className="text-[10px] font-medium text-amber-600 bg-amber-100 rounded-full px-1.5 py-0.5 shrink-0">preferred</span>
-              )}
-              {company.ignored && (
-                <span className="text-[10px] font-medium text-gray-400 bg-gray-100 rounded-full px-1.5 py-0.5 shrink-0">ignored</span>
-              )}
-              {company.size && (
-                <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0", SIZE_COLORS[company.size])}>
-                  {SIZE_OPTIONS.find((o) => o.value === company.size)?.label}
-                </span>
-              )}
-              {typeLabel && (
-                <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0", typeLabel.color)}>
-                  {typeLabel.label}
-                </span>
-              )}
-              {/* Parent company badge */}
-              {company.parentCompany && !editingParent && (
+                  {company.name}
+                </Link>
                 <button
-                  onClick={startEditParent}
-                  title="Change parent company"
-                  className="text-[10px] font-medium text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5 border border-indigo-200 shrink-0 hover:bg-indigo-100 transition-colors"
+                  onClick={startRename}
+                  title="Rename"
+                  className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0"
                 >
-                  ↳ {company.parentCompany}
+                  <Pencil size={11} />
                 </button>
-              )}
-            </div>
-            {/* Parent edit inline input */}
-            {editingParent && (
-              <div className="relative mt-1" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center gap-1">
-                  <input
-                    autoFocus
-                    value={parentValue}
-                    onChange={(e) => setParentValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitParent(e)
-                      if (e.key === "Escape") cancelParent(e as unknown as React.MouseEvent)
-                    }}
-                    placeholder="Parent company name…"
-                    className="flex-1 text-xs border border-indigo-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white min-w-0"
-                  />
-                  <button onClick={commitParent} className="text-green-500 hover:text-green-600 shrink-0"><Check size={12} /></button>
-                  <button onClick={cancelParent} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={12} /></button>
-                  {company.parentCompany && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onSetParent(company.name, null); setEditingParent(false) }}
-                      title="Remove parent"
-                      className="text-red-400 hover:text-red-600 shrink-0 text-[10px]"
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-                {filteredParentSuggestions.length > 0 && (
-                  <div className="absolute z-20 top-full left-0 mt-0.5 w-64 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-40 overflow-y-auto">
-                    {filteredParentSuggestions.map((name) => (
-                      <button
-                        key={name}
-                        onClick={(e) => { e.stopPropagation(); onSetParent(company.name, name); setEditingParent(false) }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 truncate"
-                      >
-                        {name}
-                      </button>
-                    ))}
-                  </div>
+
+                {/* Brand / Non-brand / Indep badge */}
+                {typeLabel && (
+                  <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0", typeLabel.color)}>
+                    {typeLabel.label}
+                  </span>
+                )}
+
+                {/* Industry / category */}
+                {company.industry && (
+                  <span className="text-[10px] text-gray-400 shrink-0 hidden sm:inline">{company.industry}</span>
+                )}
+
+                {/* Contact count */}
+                <span className="text-[10px] text-gray-500 shrink-0 flex items-center gap-0.5">
+                  <Users size={10} />
+                  {company.count}
+                </span>
+
+                {/* Parent badge */}
+                {company.parentCompany && !editingParent && (
+                  <button
+                    onClick={startEditParent}
+                    title="Change parent company"
+                    className="text-[10px] font-medium text-indigo-600 bg-indigo-50 rounded-full px-1.5 py-0.5 border border-indigo-200 shrink-0 hover:bg-indigo-100 transition-colors hidden sm:inline-flex"
+                  >
+                    ↳ {company.parentCompany}
+                  </button>
+                )}
+                {!company.parentCompany && !editingParent && (
+                  <button
+                    onClick={startEditParent}
+                    title="Set parent company"
+                    className="text-gray-300 hover:text-indigo-400 md:opacity-0 md:group-hover/name:opacity-100 transition-opacity shrink-0 text-[10px] font-medium hidden sm:inline"
+                  >
+                    ↳
+                  </button>
+                )}
+
+                {/* Size chip if set */}
+                {company.size && (
+                  <span className={cn("text-[10px] font-medium rounded-full px-1.5 py-0.5 border shrink-0", SIZE_COLORS[company.size])}>
+                    {SIZE_OPTIONS.find((o) => o.value === company.size)?.short}
+                  </span>
                 )}
               </div>
-            )}
+
+              {/* Parent edit input */}
+              {editingParent && (
+                <div className="relative mt-1" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      value={parentValue}
+                      onChange={(e) => setParentValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitParent(e)
+                        if (e.key === "Escape") cancelParent(e as unknown as React.MouseEvent)
+                      }}
+                      placeholder="Parent company name…"
+                      className="flex-1 text-xs border border-indigo-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white min-w-0"
+                    />
+                    <button onClick={commitParent} className="text-green-500 hover:text-green-600 shrink-0"><Check size={12} /></button>
+                    <button onClick={cancelParent} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={12} /></button>
+                    {company.parentCompany && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onSetParent(company.name, null); setEditingParent(false) }}
+                        title="Remove parent"
+                        className="text-red-400 hover:text-red-600 shrink-0 text-[10px]"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {filteredParentSuggestions.length > 0 && (
+                    <div className="absolute z-20 top-full left-0 mt-0.5 w-64 bg-white border border-gray-200 rounded-lg shadow-lg py-1 max-h-40 overflow-y-auto">
+                      {filteredParentSuggestions.map((name) => (
+                        <button
+                          key={name}
+                          onClick={(e) => { e.stopPropagation(); onSetParent(company.name, name); setEditingParent(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 truncate"
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Second line: industry cell */}
+              {!renaming && !editingParent && (
+                <IndustryCell
+                  company={company}
+                  pendingSuggestion={pendingSuggestion}
+                  onConfirm={(ind) => onSetIndustry(company.name, ind)}
+                  onDismiss={() => onDismissSuggestion(company.name)}
+                  onSave={(ind) => onSetIndustry(company.name, ind)}
+                />
+              )}
             </>
           )}
-          {/* Industry row */}
-          {!renaming && !editingParent && (
-            <IndustryCell
-              company={company}
-              pendingSuggestion={pendingSuggestion}
-              onConfirm={(ind) => onSetIndustry(company.name, ind)}
-              onDismiss={() => onDismissSuggestion(company.name)}
-              onSave={(ind) => onSetIndustry(company.name, ind)}
-            />
-          )}
         </div>
 
-        {/* Size + type chips — hidden on mobile */}
-        <div className="hidden sm:flex flex-col gap-1 shrink-0 items-end" onClick={(e) => e.stopPropagation()}>
-          <SizeChips value={company.size} onChange={(size) => onSetSize(company.name, size)} />
-          <TypeChips value={company.type} onChange={(type) => onSetType(company.name, type)} />
-        </div>
+        {/* Right: size+type chips (desktop hover) + action buttons */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Size + type chips — desktop only, shown on row hover */}
+          <div
+            className="hidden sm:flex flex-col gap-1 mr-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SizeChips value={company.size} onChange={(size) => onSetSize(company.name, size)} />
+            <TypeChips value={company.type} onChange={(type) => onSetType(company.name, type)} />
+          </div>
 
-        {/* Avatar stack */}
-        <div className="hidden md:block shrink-0">
-          <AvatarStack photos={company.photos} name={company.name} count={company.count} />
-        </div>
+          {/* Star */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, starStatus) }}
+            className={cn("shrink-0 transition-colors", company.preferred ? "text-amber-400 hover:text-amber-500" : "text-gray-300 hover:text-amber-400")}
+            title={company.preferred ? "Remove preferred" : "Mark preferred"}
+          >
+            <Star size={15} fill={company.preferred ? "currentColor" : "none"} />
+          </button>
 
-        {/* Count (mobile) */}
-        <div className="shrink-0 text-gray-400 md:hidden">
-          <span className="text-xs text-gray-500 mr-0.5">{company.count}</span>
-          <Users size={13} className="inline" />
-        </div>
+          {/* Partner toggle */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetPartner(company.name, !company.isPartner) }}
+            className={cn("shrink-0 transition-colors", company.isPartner ? "text-blue-500 hover:text-blue-600" : "text-gray-200 hover:text-blue-400")}
+            title={company.isPartner ? "Remove partner" : "Mark as partner"}
+          >
+            <Handshake size={15} />
+          </button>
 
-        {/* Ignore */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, ignoreStatus) }}
-          className={cn("shrink-0 transition-colors", company.ignored ? "text-gray-400 hover:text-gray-600" : "text-gray-200 hover:text-gray-400")}
-          title={company.ignored ? "Unignore" : "Ignore"}
-        >
-          <EyeOff size={14} />
-        </button>
-
-        <div className="shrink-0 text-gray-400">
-          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {/* Ignore */}
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetStatus(company.name, ignoreStatus) }}
+            className={cn("shrink-0 transition-colors", company.ignored ? "text-gray-400 hover:text-gray-600" : "text-gray-200 hover:text-gray-400")}
+            title={company.ignored ? "Unignore" : "Ignore"}
+          >
+            <EyeOff size={14} />
+          </button>
         </div>
       </div>
 
-      {/* Mobile size + type chips row */}
+      {/* Mobile: size + type chips */}
       <div className="sm:hidden px-3 pb-2 -mt-1 flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">Size:</span>
@@ -534,30 +497,44 @@ function CompanyRow({
           <TypeChips value={company.type} onChange={(type) => onSetType(company.name, type)} />
         </div>
       </div>
-
-      {expanded && (
-        <div className="border-t border-gray-100">
-          {loading ? (
-            <div className="py-6 flex justify-center">
-              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : contacts && contacts.length > 0 ? (
-            <div className="divide-y divide-gray-50">
-              {contacts.map((c) => (
-                <ContactRow
-                  key={c.id}
-                  contact={c}
-                  onClick={(c) => onContactClick(c.id)}
-                  onAddToList={(c) => onAddToList([c])}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-400 text-center py-4">No contacts found</p>
-          )}
-        </div>
-      )}
     </div>
+  )
+}
+
+/** Icon-mode card: logo + name + type badge + contact count */
+function CompanyIconCard({ company }: { company: Company }) {
+  const typeLabel = company.type ? TYPE_OPTIONS.find((o) => o.value === company.type) : null
+  const domain = companyNameToDomain(company.name)
+
+  // Top border color by status
+  const topBorderClass =
+    company.isPartner  ? "border-t-4 border-t-blue-400" :
+    company.preferred  ? "border-t-4 border-t-amber-400" :
+                         ""
+
+  return (
+    <Link
+      href={`/companies/${encodeURIComponent(company.name)}`}
+      className={cn(
+        "flex flex-col items-center gap-2 p-3 rounded-xl border border-gray-200 bg-white hover:border-blue-200 hover:shadow-sm transition-all text-center",
+        topBorderClass,
+        company.ignored && "opacity-50"
+      )}
+    >
+      <CompanyLogo domain={domain} name={company.name} size={48} radius="rounded-xl" />
+      <div className="w-full min-w-0">
+        <p className="text-xs font-semibold text-gray-900 truncate leading-tight">{company.name}</p>
+        {typeLabel && (
+          <span className={cn("text-[9px] font-medium rounded-full px-1.5 py-0.5 border inline-block mt-0.5", typeLabel.color)}>
+            {typeLabel.label}
+          </span>
+        )}
+        <p className="text-[10px] text-gray-400 mt-0.5 flex items-center justify-center gap-0.5">
+          <Users size={9} />
+          {company.count}
+        </p>
+      </div>
+    </Link>
   )
 }
 
@@ -592,7 +569,8 @@ function CompaniesContent() {
   useEffect(() => {
     if (companiesLoading) setLoading(true)
   }, [companiesLoading])
-  const [view, setView] = useState<"list" | "treemap">("list")
+
+  const [view, setView] = useState<"list" | "icon" | "treemap">("list")
   const [q, setQ] = useState("")
   const [sizeFilters, setSizeFilters] = useState<Set<string>>(new Set())
   const [typeFilters, setTypeFilters] = useState<Set<string>>(new Set())
@@ -600,8 +578,7 @@ function CompaniesContent() {
   const [industryFilter, setIndustryFilter] = useState("")
   const [showIgnored, setShowIgnored] = useState(false)
   const [showReview, setShowReview] = useState(true)
-  const [activeContactId, setActiveContactId] = useState<string | null>(null)
-  const [addToListContacts, setAddToListContacts] = useState<ContactSummary[] | null>(null)
+
   // industry suggestions: map company name → suggested industry
   const [suggestions, setSuggestions] = useState<Map<string, string>>(new Map())
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set())
@@ -619,36 +596,12 @@ function CompaniesContent() {
 
   const searchParams = useSearchParams()
 
-  // Restore open contact from URL on mount
+  // Restore view from URL on mount
   useEffect(() => {
-    const contactId = searchParams.get("contact")
-    if (contactId) setActiveContactId(contactId)
+    const v = searchParams.get("view")
+    if (v === "icon" || v === "treemap") setView(v)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Back/forward button: sync activeContactId with ?contact= param
-  useEffect(() => {
-    function handlePopState() {
-      const params = new URLSearchParams(window.location.search)
-      setActiveContactId(params.get("contact"))
-    }
-    window.addEventListener("popstate", handlePopState)
-    return () => window.removeEventListener("popstate", handlePopState)
-  }, [])
-
-  function openContact(id: string) {
-    setActiveContactId(id)
-    const url = new URL(window.location.href)
-    url.searchParams.set("contact", id)
-    window.history.pushState({ contactId: id }, "", url.toString())
-  }
-
-  function closeContact() {
-    setActiveContactId(null)
-    const url = new URL(window.location.href)
-    url.searchParams.delete("contact")
-    window.history.replaceState({}, "", url.toString())
-  }
 
   /** Invalidates the React Query cache, triggering a fresh companies fetch. */
   const load = useCallback(() => {
@@ -753,7 +706,6 @@ function CompaniesContent() {
   }
 
   async function acceptTypeSuggestion(company: string, type: CompanyType) {
-    // Optimistically remove from suggestions list, then persist
     setTypeSuggestions((prev) => prev.filter((s) => s.company !== company))
     await setType(company, type)
   }
@@ -907,10 +859,12 @@ function CompaniesContent() {
         onSetIndustry={setIndustry}
         onDismissSuggestion={dismissSuggestion}
         onRename={renameCompany}
-        onContactClick={openContact}
-        onAddToList={setAddToListContacts}
       />
     )
+  }
+
+  function renderIconCard(c: Company) {
+    return <CompanyIconCard key={c.name} company={c} />
   }
 
   return (
@@ -924,7 +878,7 @@ function CompaniesContent() {
           </p>
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
-          {/* View toggle */}
+          {/* View toggle: List / Icons / Map */}
           <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
             <button
               onClick={() => setView("list")}
@@ -934,7 +888,17 @@ function CompaniesContent() {
                 view === "list" ? "bg-gray-100 text-gray-900" : "bg-white text-gray-400 hover:bg-gray-50"
               )}
             >
-              <Users size={12} /> List
+              <AlignJustify size={12} /> List
+            </button>
+            <button
+              onClick={() => setView("icon")}
+              title="Icon grid view"
+              className={cn(
+                "px-2.5 py-1.5 text-xs font-medium flex items-center gap-1 transition-colors border-l border-gray-200",
+                view === "icon" ? "bg-gray-100 text-gray-900" : "bg-white text-gray-400 hover:bg-gray-50"
+              )}
+            >
+              <LayoutGrid size={12} /> Icons
             </button>
             <button
               onClick={() => setView("treemap")}
@@ -944,7 +908,7 @@ function CompaniesContent() {
                 view === "treemap" ? "bg-gray-100 text-gray-900" : "bg-white text-gray-400 hover:bg-gray-50"
               )}
             >
-              <LayoutGrid size={12} /> Map
+              <BarChart2 size={12} /> Map
             </button>
           </div>
 
@@ -1072,7 +1036,7 @@ function CompaniesContent() {
         </div>
       )}
 
-      {/* Filter chips row — wraps on mobile; separators hidden below sm */}
+      {/* Filter chips row */}
       <div className="flex flex-wrap gap-2 mb-5 items-center">
         {/* Size filter */}
         <div className="flex items-center gap-1">
@@ -1193,6 +1157,78 @@ function CompaniesContent() {
         />
       )}
 
+      {/* Icon grid view */}
+      {view === "icon" && (companies.length === 0 ? (
+        <div className="text-center py-20 text-gray-400 text-sm">
+          No companies yet — sync your LinkedIn contacts first.
+        </div>
+      ) : visibleCount === 0 && !showIgnored && suspicious.length === 0 ? (
+        <div className="text-center py-20 text-gray-400 text-sm">No companies match your filters.</div>
+      ) : (
+        <div className="space-y-4">
+          {suspicious.length > 0 && showReview && (
+            <div>
+              <button
+                onClick={() => setShowReview((v) => !v)}
+                className="text-xs font-semibold text-amber-600 uppercase tracking-wide flex items-center gap-1.5 hover:text-amber-700 transition-colors mb-2"
+              >
+                <AlertTriangle size={11} /> Needs review ({suspicious.length})
+                {showReview ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                {suspicious.map(renderIconCard)}
+              </div>
+            </div>
+          )}
+          {preferred.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide flex items-center gap-1.5 mb-2">
+                <Star size={11} fill="currentColor" /> Preferred
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                {preferred.map(renderIconCard)}
+              </div>
+            </div>
+          )}
+          {partners.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide flex items-center gap-1.5 mb-2">
+                <Handshake size={11} /> Partners
+              </p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                {partners.map(renderIconCard)}
+              </div>
+            </div>
+          )}
+          {neutral.length > 0 && (
+            <div>
+              {(preferred.length > 0 || partners.length > 0) && (
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 mt-2">All companies</p>
+              )}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                {neutral.map(renderIconCard)}
+              </div>
+            </div>
+          )}
+          {ignored.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowIgnored((v) => !v)}
+                className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex items-center gap-1.5 hover:text-gray-500 transition-colors mb-2"
+              >
+                <EyeOff size={11} /> Ignored ({ignored.length})
+                {showIgnored ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+              {showIgnored && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                  {ignored.map(renderIconCard)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+
       {/* List view */}
       {view === "list" && (companies.length === 0 ? (
         <div className="text-center py-20 text-gray-400 text-sm">
@@ -1263,16 +1299,6 @@ function CompaniesContent() {
           )}
         </div>
       ))}
-
-      <ContactDetail contactId={activeContactId} onClose={closeContact} />
-      {addToListContacts && (
-        <AddToListModal
-          contactIds={addToListContacts.map((c) => c.id)}
-          contacts={addToListContacts}
-          onClose={() => setAddToListContacts(null)}
-          onDone={() => { setAddToListContacts(null) }}
-        />
-      )}
     </div>
   )
 }
