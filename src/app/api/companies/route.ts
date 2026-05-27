@@ -4,6 +4,25 @@ import prisma from "@/lib/prisma"
 
 const PREF_SELECT = { company: true, ignored: true, isPartner: true, size: true, type: true, parentCompany: true, industry: true, website: true } as const
 
+/**
+ * Ensure partial indexes exist for fast photo/location lookups.
+ * CREATE INDEX IF NOT EXISTS is near-instant when the index already exists.
+ * We run this once per cold start (serverless: per lambda invocation on first request).
+ */
+let _indexesReady: Promise<void> | null = null
+function ensureIndexes() {
+  if (_indexesReady) return _indexesReady
+  _indexesReady = Promise.all([
+    prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "Contact_userId_photoUrl_idx"
+      ON "Contact"("userId", "extensionSyncedAt" DESC)
+      WHERE "photoUrl" IS NOT NULL AND "company" IS NOT NULL`.catch(() => {}),
+    prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "Contact_userId_location_idx"
+      ON "Contact"("userId", "company")
+      WHERE "location" IS NOT NULL AND "company" IS NOT NULL`.catch(() => {}),
+  ]).then(() => {})
+  return _indexesReady
+}
+
 async function getPrefs(userId: string) {
   return prisma.companyPreference.findMany({ where: { userId }, select: PREF_SELECT })
     .catch(async () => {
@@ -22,6 +41,9 @@ export async function GET() {
 
   const userId = session.user.id
 
+  // Ensure partial indexes exist (fast no-op when already present)
+  ensureIndexes()
+
   const [rows, prefs] = await Promise.all([
     prisma.contact.groupBy({
       by: ["company"],
@@ -33,24 +55,27 @@ export async function GET() {
   ])
 
   const prefMap = new Map(prefs.map((p) => [p.company, p]))
-  const companyNames = rows.map((r) => r.company as string)
 
+  // Avoid large IN clause by scanning only relevant subsets:
+  // - contacts with a photo (for avatar chips) — partial index makes this fast
+  // - contacts with a location (for dominant-country derivation) — partial index
+  // - contacts with an industry (for company industry inference) — existing indexes
   const [samples, industries, locationRows] = await Promise.all([
     prisma.contact.findMany({
-      where: { userId, company: { in: companyNames }, photoUrl: { not: null } },
-      select: { company: true, photoUrl: true, id: true },
+      where: { userId, company: { not: null }, photoUrl: { not: null } },
+      select: { company: true, photoUrl: true },
       orderBy: { extensionSyncedAt: "desc" },
     }),
     prisma.contact.groupBy({
       by: ["company", "industry"],
-      where: { userId, company: { in: companyNames }, industry: { not: null } },
+      where: { userId, company: { not: null }, industry: { not: null } },
       _count: { id: true },
       orderBy: { _count: { id: "desc" } },
     }),
     // Derive dominant country per company from contact location strings
     // ("Paris, Île-de-France, France" → last comma-segment → "France")
     prisma.contact.findMany({
-      where: { userId, company: { in: companyNames }, location: { not: null } },
+      where: { userId, company: { not: null }, location: { not: null } },
       select: { company: true, location: true },
     }),
   ])

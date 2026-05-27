@@ -4,6 +4,9 @@ import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { STALE } from "@/lib/query-client"
+import { useContactsIndex } from "@/hooks/useContactsIndex"
 import { Plus, List, Trash2, Users, Share2, Building2, Sparkles } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 import { cn } from "@/lib/utils"
@@ -22,35 +25,35 @@ type ContactList = {
 }
 
 export default function ListsPage() {
-  const { status } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
-  const [lists, setLists] = useState<ContactList[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const userId = session?.user?.id
+
   const [creating, setCreating] = useState(false)
   const [createMode, setCreateMode] = useState<"manual" | "company">("manual")
   const [newName, setNewName] = useState("")
   const [newDesc, setNewDesc] = useState("")
   const [newCompany, setNewCompany] = useState("")
-  const [companies, setCompanies] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
-  useEffect(() => {
-    if (status !== "authenticated") return
-    fetch("/api/lists")
-      .then((r) => r.json())
-      .then(setLists)
-      .finally(() => setLoading(false))
-    // Load distinct companies for autocomplete
-    fetch("/api/contacts?limit=1")
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (d?.companies) setCompanies(d.companies.map((c: { company: string }) => c.company).filter(Boolean))
-      })
-  }, [status])
+  // Cached lists query — served instantly from IDB on re-navigation
+  const { data: lists = [], isLoading } = useQuery<ContactList[]>({
+    queryKey: ["lists", userId],
+    queryFn: () => fetch("/api/lists").then((r) => r.json()),
+    enabled: status === "authenticated" && !!userId,
+    staleTime: STALE.lists,
+  })
+
+  // Use offline contacts index for company autocomplete (already cached in IDB)
+  const contactsIndex = useContactsIndex()
+  const companies = Array.from(
+    new Set(contactsIndex.map((c) => c.company).filter(Boolean) as string[])
+  ).sort()
 
   async function createList() {
     const name = createMode === "company"
@@ -69,7 +72,9 @@ export default function ListsPage() {
       body: JSON.stringify(body),
     })
     const list = await res.json()
-    setLists((prev) => [list, ...prev])
+    // Optimistic: prepend new list and invalidate to get fresh server count
+    queryClient.setQueryData<ContactList[]>(["lists", userId], (old = []) => [list, ...old])
+    queryClient.invalidateQueries({ queryKey: ["lists", userId] })
     setNewName("")
     setNewDesc("")
     setNewCompany("")
@@ -89,10 +94,15 @@ export default function ListsPage() {
     e.preventDefault()
     if (!confirm("Delete this list?")) return
     await fetch(`/api/lists/${id}`, { method: "DELETE" })
-    setLists((prev) => prev.filter((l) => l.id !== id))
+    // Optimistic remove
+    queryClient.setQueryData<ContactList[]>(["lists", userId], (old = []) =>
+      old.filter((l) => l.id !== id)
+    )
   }
 
-  if (status === "loading" || loading) {
+  const loading = status === "loading" || isLoading
+
+  if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-6">
         <div className="h-8 w-32 bg-gray-200 rounded animate-pulse mb-6" />
