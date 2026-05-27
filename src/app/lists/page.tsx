@@ -4,15 +4,17 @@ import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Plus, List, Trash2, Users, Share2, Building2 } from "lucide-react"
+import { Plus, List, Trash2, Users, Share2, Building2, Sparkles } from "lucide-react"
 import { formatDate } from "@/lib/utils"
 import { cn } from "@/lib/utils"
+import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
 
 type ContactList = {
   id: string
   name: string
   description: string | null
   filterCompany: string | null
+  filterSegment: string | null
   shareEnabled: boolean
   createdAt: string
   updatedAt: string
@@ -232,34 +234,60 @@ export default function ListsPage() {
               href={`/lists/${list.id}`}
               className="group bg-white rounded-2xl border border-gray-200 hover:border-gray-300 hover:shadow-sm p-5 transition-all flex flex-col"
             >
-              <div className="flex items-start justify-between mb-3">
-                <div className={cn(
-                  "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
-                  list.filterCompany ? "bg-violet-50" : "bg-blue-50"
-                )}>
-                  {list.filterCompany
-                    ? <Building2 size={16} className="text-violet-600" />
-                    : <List size={16} className="text-blue-600" />
-                  }
-                </div>
-                <button
-                  onClick={(e) => deleteList(list.id, e)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
+              {(() => {
+                const isCompany = !!list.filterCompany
+                const isSmart   = !!list.filterSegment && !isCompany
+                return (
+                  <>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className={cn(
+                        "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
+                        isCompany ? "bg-violet-50" : isSmart ? "bg-emerald-50" : "bg-blue-50"
+                      )}>
+                        {isCompany
+                          ? <Building2 size={16} className="text-violet-600" />
+                          : isSmart
+                            ? <Sparkles size={16} className="text-emerald-600" />
+                            : <List size={16} className="text-blue-600" />
+                        }
+                      </div>
+                      <button
+                        onClick={(e) => deleteList(list.id, e)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
 
-              <h3 className="font-semibold text-gray-900 truncate">{list.name}</h3>
-              {list.filterCompany && (
-                <p className="text-xs text-violet-600 font-medium mt-0.5 flex items-center gap-1">
-                  <Building2 size={10} />
-                  Dynamic · {list.filterCompany}
-                </p>
-              )}
-              {list.description && (
-                <p className="text-xs text-gray-500 mt-1 line-clamp-2">{list.description}</p>
-              )}
+                    <h3 className="font-semibold text-gray-900 truncate">{list.name}</h3>
+
+                    {isCompany && (
+                      <p className="text-xs text-violet-600 font-medium mt-0.5 flex items-center gap-1">
+                        <Building2 size={10} />
+                        Dynamic · {list.filterCompany}
+                      </p>
+                    )}
+
+                    {isSmart && (() => {
+                      try {
+                        const def = JSON.parse(list.filterSegment!) as SegmentDef
+                        return (
+                          <p className="text-xs text-emerald-700 font-medium mt-0.5 flex items-start gap-1">
+                            <Sparkles size={10} className="mt-0.5 shrink-0" />
+                            <span className="truncate">{summariseSegment(def)}</span>
+                          </p>
+                        )
+                      } catch {
+                        return <p className="text-xs text-emerald-600 mt-0.5">Smart list</p>
+                      }
+                    })()}
+
+                    {list.description && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">{list.description}</p>
+                    )}
+                  </>
+                )
+              })()}
 
               <div className="mt-auto pt-4 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs text-gray-500">

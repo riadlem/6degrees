@@ -156,7 +156,8 @@ model ContactList {
   userId        String
   name          String
   description   String?
-  filterCompany String?  // when set, list is dynamic: shows all contacts at this company
+  filterCompany  String?  // when set, list is dynamic: shows all contacts at this company
+  filterSegment  String?  // JSON SegmentDef — smart list with arbitrary criteria
   shareToken    String?  @unique @default(cuid())
   shareEnabled  Boolean  @default(false)
   createdAt     DateTime @default(now())
