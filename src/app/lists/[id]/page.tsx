@@ -55,8 +55,10 @@ function countryFlag(country: string): string {
 // French (and alternate) → English country name map — used to fix display of
 // existing contacts whose city/country was stored with French names.
 const FR_COUNTRY_DISPLAY: Record<string, string> = {
-  "royaume-uni": "United Kingdom",
+  "royaume-uni": "United Kingdom", "royaume uni": "United Kingdom",
   "états-unis": "United States", "etats-unis": "United States",
+  "etats unis": "United States", "états unis": "United States",
+  "usa": "United States",
   "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
   "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
   "autriche": "Austria", "chine": "China", "japon": "Japan",
@@ -74,6 +76,8 @@ const FR_COUNTRY_DISPLAY: Record<string, string> = {
   "émirats arabes unis": "United Arab Emirates",
   "arabie saoudite": "Saudi Arabia",
   "sénégal": "Senegal", "senegal": "Senegal",
+  "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+  "cameroun": "Cameroon",
 }
 
 /** Normalize city/country for display: translate French names + promote city→country
@@ -82,16 +86,19 @@ function normalizeLocationFields(
   city: string | null,
   country: string | null,
 ): { city: string | null; country: string | null } {
-  const normCountry = country ? (FR_COUNTRY_DISPLAY[country.toLowerCase()] ?? country) : null
+  const normCountry = country
+    ? (FR_COUNTRY_DISPLAY[country.trim().toLowerCase()] ?? country.trim())
+    : null
   if (city) {
-    const cityKey = city.toLowerCase()
-    // City is a French country name
+    const cityKey = city.trim().toLowerCase()
+    // City is a French/alternate country name
     const frCountry = FR_COUNTRY_DISPLAY[cityKey]
     if (frCountry) return { city: null, country: normCountry ?? frCountry }
     // City is an English country name (present in the COUNTRY_ISO map)
-    if (!country && COUNTRY_ISO[city]) return { city: null, country: city }
+    const trimmedCity = city.trim()
+    if (!country && COUNTRY_ISO[trimmedCity]) return { city: null, country: trimmedCity }
   }
-  return { city, country: normCountry }
+  return { city: city?.trim() ?? null, country: normCountry }
 }
 
 function whatsappHref(phone: string): string {

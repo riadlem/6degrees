@@ -107,8 +107,10 @@ export async function POST(req: Request) {
   // Normalise city/country: translate French country names to English and
   // promote city→country when the city field contains a country name.
   const FR_COUNTRY: Record<string, string> = {
-    "royaume-uni": "United Kingdom",
+    "royaume-uni": "United Kingdom", "royaume uni": "United Kingdom",
     "états-unis": "United States", "etats-unis": "United States",
+    "etats unis": "United States", "états unis": "United States",
+    "usa": "United States",
     "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
     "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
     "autriche": "Austria", "chine": "China", "japon": "Japan",
@@ -131,7 +133,7 @@ export async function POST(req: Request) {
   }
   function normCountryName(v: string | null | undefined): string | null {
     if (!v) return v ?? null
-    return FR_COUNTRY[v.toLowerCase()] ?? v
+    return FR_COUNTRY[v.trim().toLowerCase()] ?? v.trim()
   }
   // Resolve city/country:
   //   1. Translate French country names in `country` to English

@@ -9,7 +9,7 @@ import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, Arr
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
-import ContactRow from "@/components/ContactRow"
+import ContactRow, { CONTACT_ROW_GRID } from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
@@ -721,20 +721,22 @@ function ContactsContent() {
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
           {/* Sortable column headers — list view only */}
-          <div className="hidden sm:grid items-center gap-3 px-3 py-2 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide"
-               style={{ gridTemplateColumns: "2.5rem 2.5rem 1.5rem 10rem 1fr 11rem 8rem 6rem" }}>
+          <div className="hidden sm:grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide"
+               style={{ gridTemplateColumns: CONTACT_ROW_GRID }}>
             <div /> {/* checkbox */}
             <div /> {/* avatar */}
-            <div /> {/* LinkedIn level */}
+            <div /> {/* LinkedIn badge */}
             {([
-              { label: "Name",        sort: "name",      sortDesc: "name_desc"     },
-              { label: "Position",    sort: null,         sortDesc: null            },
+              { label: "Name",        sort: "name",       sortDesc: "name_desc"     },
               { label: "Company",     sort: "company",    sortDesc: null            },
-              { label: "Location",    sort: "location",   sortDesc: null            },
-              { label: "Connections", sort: "mutual",     sortDesc: "mutual_asc"    },
+              { label: "City",        sort: null,          sortDesc: null            },
+              { label: "Country",     sort: "country",    sortDesc: "country_desc"  },
+              { label: "WA",          sort: null,          sortDesc: null            },
+              { label: "LI DM",       sort: null,          sortDesc: null            },
+              { label: "",            sort: null,          sortDesc: null            },
             ] as const).map(({ label, sort: s, sortDesc }) => (
               <button
-                key={label}
+                key={label || "actions"}
                 disabled={!s}
                 onClick={() => {
                   if (!s) return

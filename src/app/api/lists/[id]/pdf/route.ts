@@ -8,7 +8,7 @@ import { createElement } from "react"
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  page:       { padding: 36, fontFamily: "Helvetica", size: "A4" },
+  page:       { padding: 36, fontFamily: "Helvetica" },
   header:     { marginBottom: 20 },
   title:      { fontSize: 20, fontWeight: "bold", color: "#111827" },
   description:{ fontSize: 10, color: "#6B7280", marginTop: 4 },

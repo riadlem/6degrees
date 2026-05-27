@@ -15,6 +15,91 @@ import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
 
+// ── Location / interaction helpers ────────────────────────────────────────────
+
+const COUNTRY_ISO: Record<string, string> = {
+  "Afghanistan":"AF","Albania":"AL","Algeria":"DZ","Angola":"AO","Argentina":"AR",
+  "Armenia":"AM","Australia":"AU","Austria":"AT","Azerbaijan":"AZ","Bahrain":"BH",
+  "Bangladesh":"BD","Belarus":"BY","Belgium":"BE","Bolivia":"BO","Brazil":"BR",
+  "Bulgaria":"BG","Cambodia":"KH","Cameroon":"CM","Canada":"CA","Chile":"CL",
+  "China":"CN","Colombia":"CO","Costa Rica":"CR","Croatia":"HR","Cyprus":"CY",
+  "Czech Republic":"CZ","Czechia":"CZ","Denmark":"DK","Dominican Republic":"DO",
+  "Ecuador":"EC","Egypt":"EG","Estonia":"EE","Ethiopia":"ET","Finland":"FI",
+  "France":"FR","Georgia":"GE","Germany":"DE","Ghana":"GH","Greece":"GR",
+  "Guatemala":"GT","Honduras":"HN","Hong Kong":"HK","Hungary":"HU","Iceland":"IS",
+  "India":"IN","Indonesia":"ID","Iran":"IR","Iraq":"IQ","Ireland":"IE",
+  "Israel":"IL","Italy":"IT","Ivory Coast":"CI","Japan":"JP","Jordan":"JO",
+  "Kazakhstan":"KZ","Kenya":"KE","Kuwait":"KW","Latvia":"LV","Lebanon":"LB",
+  "Libya":"LY","Lithuania":"LT","Luxembourg":"LU","Malaysia":"MY","Malta":"MT",
+  "Mexico":"MX","Moldova":"MD","Morocco":"MA","Mozambique":"MZ","Myanmar":"MM",
+  "Nepal":"NP","Netherlands":"NL","New Zealand":"NZ","Nigeria":"NG","Norway":"NO",
+  "Oman":"OM","Pakistan":"PK","Palestine":"PS","Panama":"PA","Peru":"PE",
+  "Philippines":"PH","Poland":"PL","Portugal":"PT","Qatar":"QA","Romania":"RO",
+  "Russia":"RU","Rwanda":"RW","Saudi Arabia":"SA","Senegal":"SN","Serbia":"RS",
+  "Singapore":"SG","Slovakia":"SK","Slovenia":"SI","South Africa":"ZA",
+  "South Korea":"KR","Spain":"ES","Sri Lanka":"LK","Sudan":"SD","Sweden":"SE",
+  "Switzerland":"CH","Syria":"SY","Taiwan":"TW","Tanzania":"TZ","Thailand":"TH",
+  "Tunisia":"TN","Turkey":"TR","Türkiye":"TR","Uganda":"UG","Ukraine":"UA",
+  "United Arab Emirates":"AE","UAE":"AE","United Kingdom":"GB","UK":"GB",
+  "United States":"US","USA":"US","Uruguay":"UY","Uzbekistan":"UZ",
+  "Venezuela":"VE","Vietnam":"VN","Yemen":"YE","Zambia":"ZM","Zimbabwe":"ZW",
+}
+
+function countryFlag(country: string): string {
+  const iso = COUNTRY_ISO[country]
+  if (!iso) return ""
+  return iso.split("").map((c) => String.fromCodePoint(c.charCodeAt(0) + 127397)).join("")
+}
+
+const FR_COUNTRY_DISPLAY: Record<string, string> = {
+  "royaume-uni": "United Kingdom", "royaume uni": "United Kingdom",
+  "états-unis": "United States", "etats-unis": "United States",
+  "etats unis": "United States", "états unis": "United States",
+  "usa": "United States",
+  "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
+  "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
+  "autriche": "Austria", "chine": "China", "japon": "Japan",
+  "russie": "Russia", "pologne": "Poland",
+  "grèce": "Greece", "grece": "Greece",
+  "danemark": "Denmark", "norvège": "Norway", "norvege": "Norway",
+  "suède": "Sweden", "suede": "Sweden",
+  "finlande": "Finland", "irlande": "Ireland", "turquie": "Turkey",
+  "maroc": "Morocco", "australie": "Australia",
+  "brésil": "Brazil", "bresil": "Brazil",
+  "mexique": "Mexico", "inde": "India",
+  "égypte": "Egypt", "egypte": "Egypt",
+  "afrique du sud": "South Africa",
+  "emirats arabes unis": "United Arab Emirates",
+  "émirats arabes unis": "United Arab Emirates",
+  "arabie saoudite": "Saudi Arabia",
+  "sénégal": "Senegal", "senegal": "Senegal",
+  "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+  "cameroun": "Cameroon",
+}
+
+function normalizeCountry(country: string | null | undefined): string | null {
+  if (!country) return null
+  const key = country.trim().toLowerCase()
+  return FR_COUNTRY_DISPLAY[key] ?? country.trim()
+}
+
+function relTime(dateStr: string | Date): string {
+  const ms = Date.now() - new Date(dateStr).getTime()
+  const h = ms / 3_600_000
+  if (h < 1)  return "now"
+  if (h < 24) return `${Math.floor(h)}h`
+  const d = ms / 86_400_000
+  if (d < 7)  return `${Math.floor(d)}d`
+  if (d < 30) return `${Math.floor(d / 7)}w`
+  return `${Math.floor(d / 30)}mo`
+}
+
+const LI_ICON_PATH =
+  "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+
+// Grid columns for company contact list
+const COMPANY_CONTACT_GRID = "36px 2.5rem 1.5rem 1fr 80px 90px 5rem 5rem auto"
+
 type CompanyType = "brand" | "non-brand" | "independent"
 type CompanySize = "small" | "medium" | "corporate" | "fortune500"
 
@@ -56,11 +141,14 @@ type ContactRow = {
   interactionScore: number | null
   outreachStatus: string | null
   profileUrl: string | null
+  city: string | null
   country: string | null
   industry: string | null
   commonConnections: number | null
   connectedOn: string | null
   labels: { label: { id: string; name: string; color: string } }[]
+  whatsAppMessages:   { sentAt: string; isOutbound: boolean }[]
+  linkedInDMMessages: { sentAt: string; isOutbound: boolean }[]
 }
 
 type UnmatchedSender = {
@@ -867,22 +955,48 @@ export default function CompanyDetailPage() {
         ) : (
           /* ── List view ── */
           <div className="divide-y divide-gray-50">
+            {/* Column header */}
+            <div
+              className="grid items-center gap-2 px-3 py-2 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide"
+              style={{ gridTemplateColumns: COMPANY_CONTACT_GRID }}
+            >
+              <div />{/* checkbox */}
+              <div />{/* avatar */}
+              <div />{/* LI */}
+              <div>Name</div>
+              <div>City</div>
+              <div>Country</div>
+              <div className="text-right">WA</div>
+              <div className="text-right">LI DM</div>
+              <div />
+            </div>
             {filteredContacts.map((c) => {
               const inits = initials(c.firstName, c.lastName)
-              const score = c.interactionScore ?? 0
-              const scoreWidth = Math.min(100, score * 20)
+              const normCountry = normalizeCountry(c.country)
+              const flag = normCountry ? countryFlag(normCountry) : ""
+              const waMsg = c.whatsAppMessages?.[0]
+              const liDmMsg = c.linkedInDMMessages?.[0]
+
+              // LinkedIn level for color coding (use connectedOn as fallback — DMA-synced contacts always have it)
+              const liColor =
+                c.outreachStatus === "lkd_pending" ? "#7C3AED" :
+                !c.profileUrl ? null :
+                c.connectedOn ? "#0A66C2" :
+                "#9CA3AF"
+
               return (
                 <div
                   key={c.id}
                   className={cn(
-                    "flex items-center gap-3 px-5 py-3 cursor-pointer transition-colors group",
+                    "group grid items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs",
                     selectedContactIds.has(c.id) ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
                   )}
+                  style={{ gridTemplateColumns: COMPANY_CONTACT_GRID }}
                   onClick={() => setSelectedContactId(c.id)}
                 >
                   {/* Checkbox */}
                   <div
-                    className="shrink-0"
+                    className="flex items-center justify-center"
                     onClick={(e) => { e.stopPropagation(); toggleContactSelect(c.id) }}
                   >
                     <div className={cn(
@@ -898,36 +1012,38 @@ export default function CompanyDetailPage() {
                   </div>
 
                   {/* Avatar */}
-                  {c.photoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-xl object-cover shrink-0", blurred && "blur")} />
-                  ) : (
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                      {inits}
-                    </div>
-                  )}
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className={cn("font-medium text-gray-900 text-sm truncate", blurred && "blur-sm select-none")}>{c.firstName} {c.lastName}</p>
-                    {c.position && <p className="text-xs text-gray-500 truncate">{c.position}</p>}
-                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                      {c.country && <span className="text-[9px] bg-gray-100 text-gray-500 rounded px-1 py-0.5">{c.country}</span>}
-                      {c.industry && <span className="text-[9px] bg-blue-50 text-blue-500 rounded px-1 py-0.5 truncate max-w-[80px]">{c.industry}</span>}
-                      {c.commonConnections != null && c.commonConnections > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-2 py-0.5 shadow-sm">
-                          <Users size={10} />{c.commonConnections}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="w-16 h-1 bg-gray-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-400 rounded-full" style={{ width: `${scoreWidth}%` }} />
+                  <div className="w-9 h-9 rounded-full overflow-hidden shrink-0">
+                    {c.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">
+                        {inits}
                       </div>
-                      {c.lastInteractionAt && (
-                        <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                          <Clock size={9} />
-                          {formatDate(c.lastInteractionAt)}
+                    )}
+                  </div>
+
+                  {/* LinkedIn icon */}
+                  <div className="flex items-center justify-center">
+                    {liColor && c.profileUrl && (
+                      <a href={c.profileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+                        <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: liColor }}>
+                          <path d={LI_ICON_PATH} />
+                        </svg>
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Name + position + status */}
+                  <div className="min-w-0">
+                    <p className={cn("font-semibold text-gray-900 text-sm truncate leading-tight", blurred && "blur-sm select-none")}>
+                      {c.firstName} {c.lastName}
+                    </p>
+                    {c.position && <p className="text-xs text-gray-400 truncate leading-tight">{c.position}</p>}
+                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                      {c.commonConnections != null && c.commonConnections > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5">
+                          <Users size={9} />{c.commonConnections}
                         </span>
                       )}
                       {c.outreachStatus && STATUS_BADGE[c.outreachStatus] && (
@@ -935,25 +1051,58 @@ export default function CompanyDetailPage() {
                           {STATUS_BADGE[c.outreachStatus].label}
                         </span>
                       )}
+                      {c.emailAddress && (
+                        <span className="text-[10px] text-green-600 bg-green-50 rounded-full px-1.5 py-0.5">
+                          <Mail size={9} className="inline" />
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  {/* Email + LinkedIn */}
-                  <div className="flex items-center gap-2 shrink-0 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                    {c.emailAddress && (
-                      <span className="flex items-center gap-0.5 text-[10px] text-green-600 bg-green-50 rounded-full px-2 py-0.5">
-                        <Mail size={10} /> email
+                  {/* City */}
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-400 truncate">{c.city ?? ""}</p>
+                  </div>
+
+                  {/* Country + flag */}
+                  <div className="min-w-0 flex items-center gap-1">
+                    {flag && <span className="text-sm leading-none shrink-0">{flag}</span>}
+                    <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>
+                  </div>
+
+                  {/* WA last interaction */}
+                  <div className="flex items-center justify-end shrink-0">
+                    {waMsg ? (
+                      <span className={cn("font-medium tabular-nums", waMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}>
+                        {waMsg.isOutbound ? "↑" : "↓"} {relTime(waMsg.sentAt)}
                       </span>
+                    ) : (
+                      <span className="text-gray-200">—</span>
                     )}
+                  </div>
+
+                  {/* LI DM last interaction */}
+                  <div className="flex items-center justify-end shrink-0">
+                    {liDmMsg ? (
+                      <span className={cn("font-medium tabular-nums", liDmMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}>
+                        {liDmMsg.isOutbound ? "↑" : "↓"} {relTime(liDmMsg.sentAt)}
+                      </span>
+                    ) : (
+                      <span className="text-gray-200">—</span>
+                    )}
+                  </div>
+
+                  {/* Actions: quick LinkedIn open */}
+                  <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     {c.profileUrl && (
                       <a
                         href={c.profileUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] text-blue-500 hover:text-blue-700"
+                        className="text-blue-400 hover:text-blue-600"
                       >
-                        <ExternalLink size={11} />
+                        <ExternalLink size={12} />
                       </a>
                     )}
                   </div>
