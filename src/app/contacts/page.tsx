@@ -141,6 +141,7 @@ function ContactsContent() {
     })
     setSelectedIds(new Set())
     queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+    queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
   }
 
   type ImportState =
@@ -226,10 +227,11 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  // Refresh contact list on sync completion
+  // Refresh contact list and search index on sync completion
   useEffect(() => {
     if (syncState.phase === "done") {
       queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+      queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncState.phase])  // only re-run when phase changes, not on every synced increment
@@ -302,6 +304,7 @@ function ContactsContent() {
             } else if (event.type === "done") {
               setImportState({ phase: "done", synced: event.synced, skipped: event.skipped ?? 0, failed: event.failed })
               queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
+              queryClient.invalidateQueries({ queryKey: ["contacts-index"] })
               setTimeout(() => setImportState({ phase: "idle" }), 5000)
             } else if (event.type === "error") {
               setImportState({ phase: "error", message: event.message })
@@ -603,6 +606,7 @@ function ContactsContent() {
             onViewChange={handleViewChange}
             onChange={handleFilterChange}
             onReset={resetFilters}
+            onSelectContact={openContact}
           />
         </div>
       )}

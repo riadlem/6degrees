@@ -20,8 +20,13 @@ export function photoSrc(url: string | null | undefined): string | null {
   return url
 }
 
+/** Strip visible emoji so they don't appear as initials in avatar chips. */
+function stripEmoji(s: string): string {
+  return s.replace(/\p{Emoji_Presentation}/gu, "").trim()
+}
+
 export function initials(firstName: string, lastName: string) {
-  return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase()
+  return `${stripEmoji(firstName)[0] ?? ""}${stripEmoji(lastName)[0] ?? ""}`.toUpperCase()
 }
 
 export function formatDate(date: Date | string | null | undefined) {

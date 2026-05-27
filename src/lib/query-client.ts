@@ -34,6 +34,7 @@ export const PERSIST_KEYS = new Set([
   "labels",
   "dashboard",
   "treemap",
+  "contacts-index",
 ])
 
 /**
