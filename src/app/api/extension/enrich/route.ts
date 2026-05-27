@@ -104,6 +104,48 @@ export async function POST(req: Request) {
     ? String(degree).match(/([123])/)?.[1] ?? null
     : null
 
+  // Normalise city/country: translate French country names to English and
+  // promote city→country when the city field contains a country name.
+  const FR_COUNTRY: Record<string, string> = {
+    "royaume-uni": "United Kingdom",
+    "états-unis": "United States", "etats-unis": "United States",
+    "allemagne": "Germany", "espagne": "Spain", "italie": "Italy",
+    "pays-bas": "Netherlands", "belgique": "Belgium", "suisse": "Switzerland",
+    "autriche": "Austria", "chine": "China", "japon": "Japan",
+    "russie": "Russia", "pologne": "Poland",
+    "grèce": "Greece", "grece": "Greece",
+    "danemark": "Denmark", "norvège": "Norway", "norvege": "Norway",
+    "suède": "Sweden", "suede": "Sweden",
+    "finlande": "Finland", "irlande": "Ireland", "turquie": "Turkey",
+    "maroc": "Morocco", "australie": "Australia",
+    "brésil": "Brazil", "bresil": "Brazil",
+    "mexique": "Mexico", "inde": "India",
+    "égypte": "Egypt", "egypte": "Egypt",
+    "afrique du sud": "South Africa",
+    "emirats arabes unis": "United Arab Emirates",
+    "émirats arabes unis": "United Arab Emirates",
+    "arabie saoudite": "Saudi Arabia",
+    "sénégal": "Senegal", "senegal": "Senegal",
+    "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+    "cameroun": "Cameroon",
+  }
+  function normCountryName(v: string | null | undefined): string | null {
+    if (!v) return v ?? null
+    return FR_COUNTRY[v.toLowerCase()] ?? v
+  }
+  // Resolve city/country:
+  //   1. Translate French country names in `country` to English
+  //   2. If `city` itself is a country name, promote it to `country` and clear `city`
+  let resolvedCity:    string | null | undefined = city    != null ? city    : undefined
+  let resolvedCountry: string | null | undefined = country != null ? normCountryName(country) : undefined
+  if (city != null) {
+    const cityAsCountry = FR_COUNTRY[city.toLowerCase()]
+    if (cityAsCountry) {
+      resolvedCity    = null                    // clear the wrongly-stored city
+      resolvedCountry = resolvedCountry ?? cityAsCountry
+    }
+  }
+
   const enrichData = {
     // Only overwrite text fields when the scraper actually got a value —
     // null means "scraping failed", not "the field is blank on LinkedIn".
@@ -111,8 +153,9 @@ export async function POST(req: Request) {
     ...(headline != null  && { headline }),
     ...(photoUrl != null  && { photoUrl }),
     ...(location != null  && { location }),
-    ...(city     != null  && { city }),
-    ...(country  != null  && { country }),
+    // city/country use resolved values (French names normalised + city↔country swap)
+    ...(resolvedCity    !== undefined && { city:    resolvedCity }),
+    ...(resolvedCountry !== undefined && { country: resolvedCountry }),
     ...(commonConnections != null && { commonConnections }),
     ...(sharedConnections !== undefined && { sharedConnections }),
     ...(position && { position }),
