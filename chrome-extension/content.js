@@ -574,7 +574,11 @@
     }
 
     // ── Dash separator: "Company - Role" or "Company – Role" ──
-    const dashM = headline.match(/^(.+?)\s*[-–—]\s*(.+)$/)
+    // En-dash (–) and em-dash (—) are always field separators (optional surrounding spaces).
+    // ASCII hyphen (-) is a separator ONLY when it has whitespace on both sides:
+    //   "Sales Director - Nuvei"  ← separator (spaces around it)
+    //   "Cross-Border Digital"    ← compound word (no spaces), NOT a separator
+    const dashM = headline.match(/^(.+?)(?:\s*[–—]\s*|\s+-\s+)(.+)$/)
     if (dashM) {
       const [left, right] = [dashM[1].trim(), dashM[2].trim()]
       if (left.length > 1 && right.length > 1 && left.length < 60) {
@@ -828,13 +832,16 @@
             if (t.length > 20) seenHeadline = true
             continue
           }
-          // After headline: first short (<60 chars), non-geo, non-pipe text = company
-          if (t.length <= 60 && !isGeo(t) && !t.includes("|")) {
-            // LinkedIn sometimes concatenates current company + school: "BVNK · La Salle University"
-            // Take only the first token before any " · " separator.
-            const company = t.split(/\s*·\s*/)[0].trim()
-            console.debug("[6D company] Strategy 6 (topcard plain text):", company)
-            return company
+          // After headline: first short non-geo, non-pipe text = company.
+          // LinkedIn sometimes concatenates current company + school with " · ":
+          //   "Nuvei · ESIEA - Ecole d'Ingénieurs..."  (full string > 60 chars, but first token is valid)
+          // Split on " · " first, then apply length check on the token, not the full string.
+          if (!t.includes("|")) {
+            const firstToken = t.split(/\s*·\s*/)[0].trim()
+            if (firstToken.length >= 2 && firstToken.length <= 60 && !isGeo(firstToken)) {
+              console.debug("[6D company] Strategy 6 (topcard plain text):", firstToken)
+              return firstToken
+            }
           }
           // Location follows company in the topcard layout — stop here
           if (isGeo(t) || t.includes(",")) break
@@ -879,23 +886,93 @@
     "hamburg": "Germany",
   }
 
+  // Strip LinkedIn's "surrounding area" noise suffixes that appear in many locales.
+  // Examples: "Paris et périphérie", "London and surrounding area",
+  //           "Greater London", "Großraum München", "Région de Lyon",
+  //           "Paris Area, France", "San Francisco Bay Area"
+  const AREA_SUFFIX_RE = /\s+(?:et\s+p[eé]riph[eé]rie|et\s+environs?|et\s+r[eé]gion|und\s+umgebung|und\s+umland|and\s+surrounding\s+area|and\s+vicinity|area|bay\s+area|metropolitan\s+area|metro\s+area|r[eé]gion\s+m[eé]tropolitaine)\s*$/i
+  const AREA_PREFIX_RE = /^(?:greater\s+|grand\s+|gro[ßs]raum\s+|r[eé]gion\s+(?:de\s+)?|grand[e]?\s+r[eé]gion\s+(?:de\s+)?)/i
+
+  // Well-known cities → country, for single-segment locations where LinkedIn omits the country.
+  const CITY_TO_COUNTRY = {
+    "paris": "France", "lyon": "France", "marseille": "France", "toulouse": "France",
+    "nice": "France", "nantes": "France", "bordeaux": "France", "lille": "France",
+    "rennes": "France", "strasbourg": "France", "montpellier": "France",
+    "london": "United Kingdom", "manchester": "United Kingdom", "birmingham": "United Kingdom",
+    "edinburgh": "United Kingdom", "glasgow": "United Kingdom", "bristol": "United Kingdom",
+    "leeds": "United Kingdom", "liverpool": "United Kingdom",
+    "new york": "United States", "san francisco": "United States", "los angeles": "United States",
+    "chicago": "United States", "boston": "United States", "seattle": "United States",
+    "austin": "United States", "miami": "United States", "washington": "United States",
+    "berlin": "Germany", "munich": "Germany", "münchen": "Germany", "hamburg": "Germany",
+    "frankfurt": "Germany", "cologne": "Germany", "köln": "Germany", "düsseldorf": "Germany",
+    "amsterdam": "Netherlands", "rotterdam": "Netherlands",
+    "brussels": "Belgium", "bruxelles": "Belgium", "antwerp": "Belgium",
+    "zurich": "Switzerland", "zürich": "Switzerland", "geneva": "Switzerland", "genève": "Switzerland",
+    "madrid": "Spain", "barcelona": "Spain", "valencia": "Spain", "seville": "Spain",
+    "milan": "Italy", "rome": "Italy", "milano": "Italy", "roma": "Italy", "florence": "Italy",
+    "stockholm": "Sweden", "gothenburg": "Sweden", "göteborg": "Sweden",
+    "oslo": "Norway", "copenhagen": "Denmark", "kobenhavn": "Denmark",
+    "helsinki": "Finland", "dublin": "Ireland",
+    "lisbon": "Portugal", "lisboa": "Portugal", "porto": "Portugal",
+    "warsaw": "Poland", "warszawa": "Poland", "krakow": "Poland", "kraków": "Poland",
+    "prague": "Czech Republic", "budapest": "Hungary", "vienna": "Austria", "wien": "Austria",
+    "singapore": "Singapore", "hong kong": "Hong Kong", "tokyo": "Japan", "osaka": "Japan",
+    "beijing": "China", "shanghai": "China", "shenzhen": "China",
+    "dubai": "United Arab Emirates", "abu dhabi": "United Arab Emirates",
+    "sydney": "Australia", "melbourne": "Australia", "toronto": "Canada", "montreal": "Canada",
+    "vancouver": "Canada", "sao paulo": "Brazil", "são paulo": "Brazil",
+    "mexico city": "Mexico", "ciudad de méxico": "Mexico",
+    "tel aviv": "Israel", "jerusalem": "Israel",
+    "johannesburg": "South Africa", "cape town": "South Africa",
+    "nairobi": "Kenya", "lagos": "Nigeria", "cairo": "Egypt", "casablanca": "Morocco",
+  }
+
   function extractCityCountry(location) {
     if (!location) return { city: null, country: null }
-    const parts = location.split(",").map((p) => p.trim())
+
+    // Normalise: collapse whitespace, strip leading/trailing spaces
+    const raw = location.trim().replace(/\s+/g, " ")
+
+    // Split on commas — LinkedIn format: "City, Region, Country" or "City, Country"
+    const parts = raw.split(",").map((p) => p.trim()).filter(Boolean)
+
+    // Clean the city part (first segment):
+    //   • strip trailing noise ("et périphérie", "and surrounding area", etc.)
+    //   • strip leading noise ("Greater", "Grand", "Großraum", "Région de", etc.)
+    function cleanCity(raw) {
+      return raw
+        .replace(AREA_SUFFIX_RE, "")   // strip suffix noise
+        .replace(AREA_PREFIX_RE, "")   // strip prefix noise
+        .trim()
+    }
+
     if (parts.length >= 2) {
-      const city = parts[0]
+      const city = cleanCity(parts[0])
       const lastPart = parts[parts.length - 1]
-      // Check if the last segment is a known region (not a country name)
+      // Check if the last segment is a known region rather than a country
       const inferredCountry = REGION_TO_COUNTRY[lastPart.toLowerCase()]
       const country = inferredCountry ?? lastPart
-      return { city, country }
+      // If city cleaned to empty fall back to original first part
+      return { city: city || parts[0], country }
     }
-    // Single segment: could be a city or country
-    const inferred = REGION_TO_COUNTRY[parts[0].toLowerCase()]
-    return inferred
-      ? { city: parts[0], country: inferred }
-      : { city: null, country: parts[0] }
+
+    // Single segment — could be "Paris et périphérie", "Greater London", etc.
+    const cleaned = cleanCity(parts[0])
+    const key = cleaned.toLowerCase()
+
+    // Try region → country first (e.g. "Bretagne")
+    const regionCountry = REGION_TO_COUNTRY[key] || REGION_TO_COUNTRY[parts[0].toLowerCase()]
+    if (regionCountry) return { city: cleaned || parts[0], country: regionCountry }
+
+    // Try city → country lookup
+    const cityCountry = CITY_TO_COUNTRY[key] || CITY_TO_COUNTRY[parts[0].toLowerCase().replace(AREA_SUFFIX_RE, "").replace(AREA_PREFIX_RE, "").trim()]
+    if (cityCountry) return { city: cleaned || parts[0], country: cityCountry }
+
+    // Unknown single segment — store as country (safest default, avoids "Paris et périphérie" as city)
+    return { city: cleaned || null, country: cleaned ? null : parts[0] }
   }
+
 
   // Scrape the title of the CURRENT role from the experience section.
   // This is more reliable than parsing the headline for people who use tagline-style

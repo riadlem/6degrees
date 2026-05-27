@@ -339,6 +339,9 @@ copyFixtureBtn?.addEventListener("click", () => {
         firstName: p.firstName ?? null,
         lastName: p.lastName ?? null,
         company: p.company ?? null,
+        position: p.position ?? null,
+        city: p.city ?? null,
+        country: p.country ?? null,
         hasPhoto: !!p.photoUrl,
         photoIdContains: p.photoUrl
           ? (p.photoUrl.match(/\/([A-Za-z0-9_-]{20,})\//)?.[1] ?? null)
