@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import prisma from "@/lib/prisma"
+import { buildSegmentWhere, type SegmentDef } from "@/lib/segment-executor"
 import { initials, formatDate, photoSrc } from "@/lib/utils"
 import { MapPin, Building2, Users } from "lucide-react"
 
@@ -17,6 +18,13 @@ export async function generateMetadata({ params }: Props) {
   }
 }
 
+const CONTACT_SELECT = {
+  id: true, firstName: true, lastName: true,
+  position: true, company: true, location: true,
+  industry: true, photoUrl: true, commonConnections: true,
+  headline: true,
+} as const
+
 export default async function SharedListPage({ params }: Props) {
   const list = await prisma.contactList.findFirst({
     where: { shareToken: params.token, shareEnabled: true },
@@ -24,24 +32,45 @@ export default async function SharedListPage({ params }: Props) {
       user: { select: { name: true, image: true } },
       members: {
         orderBy: { addedAt: "asc" },
-        include: {
-          contact: {
-            select: {
-              id: true, firstName: true, lastName: true,
-              position: true, company: true, location: true,
-              industry: true, photoUrl: true, commonConnections: true,
-              headline: true,
-            },
-          },
-        },
+        include: { contact: { select: CONTACT_SELECT } },
       },
-      _count: { select: { members: true } },
     },
   })
 
   if (!list) notFound()
 
-  const contacts = list.members.map((m) => m.contact)
+  const listAny = list as typeof list & { userId: string; filterCompany?: string | null; filterSegment?: string | null }
+  const userId = listAny.userId
+  const filterCompany = listAny.filterCompany ?? null
+  const filterSegment = listAny.filterSegment ?? null
+
+  // Resolve contacts — same 3-path logic as the list GET API
+  type ContactRow = { id: string; firstName: string; lastName: string; position: string | null; company: string | null; location: string | null; industry: string | null; photoUrl: string | null; commonConnections: number | null; headline: string | null }
+  let contacts: ContactRow[]
+
+  if (filterCompany) {
+    contacts = await prisma.contact.findMany({
+      where: { userId, company: { equals: filterCompany, mode: "insensitive" } },
+      orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+      select: CONTACT_SELECT,
+    })
+  } else if (filterSegment) {
+    try {
+      const def = JSON.parse(filterSegment) as SegmentDef
+      const where = await buildSegmentWhere(userId, def)
+      contacts = await prisma.contact.findMany({
+        where,
+        orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
+        select: CONTACT_SELECT,
+      })
+    } catch {
+      contacts = list.members.map((m) => m.contact)
+    }
+  } else {
+    contacts = list.members.map((m) => m.contact)
+  }
+
+  const memberCount = contacts.length
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -73,7 +102,7 @@ export default async function SharedListPage({ params }: Props) {
                 </div>
                 <span className="text-gray-300">·</span>
                 <span className="text-sm text-gray-500">
-                  {list._count.members} contact{list._count.members !== 1 ? "s" : ""}
+                  {memberCount} contact{memberCount !== 1 ? "s" : ""}
                 </span>
               </div>
             </div>
