@@ -386,6 +386,7 @@ model LinkedInDMConversation {
   contactId      String?
   messageCount   Int       @default(0)
   importedAt     DateTime  @default(now())
+  ignored        Boolean   @default(false)
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
