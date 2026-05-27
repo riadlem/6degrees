@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown, UserPlus,
-  ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
+  ExternalLink, Loader2, Settings, Users, Pencil, Unlink2, EyeOff, RotateCcw
 } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -108,12 +108,16 @@ type LiDMChat = {
     photoUrl: string | null
     city: string | null
     country: string | null
+    linkedinDegree: string | null
+    connectedOn: string | null
   } | null
   messageCount: number
   outboundCount: number
   firstAt: string | null
   lastAt: string | null
   lastIsOutbound: boolean | null
+  ignored: boolean
+  recentMessages: { sentAt: string; isOutbound: boolean }[]
 }
 
 type Stats = {
@@ -121,9 +125,11 @@ type Stats = {
   totalMessages: number
   matched: number
   unmatched: number
+  notConnected: number
+  ignored: number
 }
 
-type Filter = "all" | "matched" | "unmatched"
+type Filter = "all" | "matched" | "unmatched" | "not_connected" | "ignored"
 type Sort   = "lastAt" | "messageCount"
 type Order  = "desc" | "asc"
 
@@ -132,11 +138,13 @@ function ChatRow({
   blurred,
   onLinkClick,
   onContactClick,
+  onRestore,
 }: {
   chat: LiDMChat
   blurred: boolean
   onLinkClick: (chat: LiDMChat) => void
   onContactClick: (contactId: string) => void
+  onRestore?: (conversationId: string) => void
 }) {
   const contact = chat.contact
   const displayName = contact
@@ -263,7 +271,16 @@ function ChatRow({
 
       {/* Actions */}
       <div className="shrink-0 flex items-center justify-end gap-2">
-        {contact ? (
+        {onRestore ? (
+          <button
+            onClick={() => onRestore(chat.conversationId)}
+            className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+            title="Restore from ignored"
+          >
+            <RotateCcw size={11} />
+            <span>Restore</span>
+          </button>
+        ) : contact ? (
           <>
             <Link
               href={`/contacts?contact=${contact.id}`}
@@ -288,6 +305,146 @@ function ChatRow({
             <UserPlus size={12} />
             <span>Link</span>
           </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NotConnectedCard({
+  chat,
+  blurred,
+  onLinkClick,
+  onContactClick,
+  onIgnore,
+}: {
+  chat: LiDMChat
+  blurred: boolean
+  onLinkClick: (chat: LiDMChat) => void
+  onContactClick: (contactId: string) => void
+  onIgnore: (conversationId: string) => void
+}) {
+  const contact = chat.contact
+  const displayName = contact
+    ? `${contact.firstName} ${contact.lastName}`
+    : chat.chatName
+  const inits = contact
+    ? initials(contact.firstName, contact.lastName)
+    : initials(chat.chatName.split(" ")[0] ?? "", chat.chatName.split(" ")[1] ?? "")
+
+  const degreeLabel = contact?.linkedinDegree === "2" ? "2nd degree"
+    : contact?.linkedinDegree === "3" ? "3rd degree"
+    : "No connection"
+
+  const country = normCountry(contact?.country)
+  const flag = country ? countryFlag(country) : ""
+
+  return (
+    <div className="group flex items-start gap-3 px-4 py-4 border-b border-gray-50 last:border-0 hover:bg-blue-50/30 transition-colors">
+      {/* Avatar */}
+      <div
+        className={cn("shrink-0 w-10 h-10 rounded-full overflow-hidden mt-0.5", contact && "cursor-pointer")}
+        onClick={() => contact && onContactClick(contact.id)}
+      >
+        {contact?.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc(contact.photoUrl)!}
+            alt={displayName}
+            className={cn("w-10 h-10 rounded-full object-cover", blurred && "blur")}
+          />
+        ) : (
+          <div className={cn(
+            "w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-semibold",
+            contact ? "bg-gradient-to-br from-blue-500 to-blue-700" : "bg-gradient-to-br from-gray-400 to-gray-600"
+          )}>
+            {inits}
+          </div>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p
+                className={cn("font-semibold text-gray-900 hover:text-blue-600 transition-colors", contact && "cursor-pointer", blurred && "blur-sm select-none")}
+                onClick={() => contact && onContactClick(contact.id)}
+              >
+                {displayName}
+              </p>
+              {chat.profileUrl && (
+                <a
+                  href={chat.profileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-600 transition-colors"
+                  title="View LinkedIn profile"
+                >
+                  <ExternalLink size={12} />
+                </a>
+              )}
+            </div>
+            {contact?.company && (
+              <p className="text-xs text-gray-400 mt-0.5">{contact.company}</p>
+            )}
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                {degreeLabel}
+              </span>
+              {flag && country && (
+                <span className="text-[10px] text-gray-400">{flag} {country}</span>
+              )}
+              {chat.messageCount > 0 && (
+                <span className="text-[10px] text-gray-400">
+                  {chat.messageCount} msg{chat.messageCount !== 1 ? "s" : ""}
+                  {" · "}
+                  <span className="text-emerald-600">↓{chat.messageCount - chat.outboundCount}</span>
+                  {" "}
+                  <span className="text-blue-500">↑{chat.outboundCount}</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={() => onLinkClick(chat)}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg px-2 py-1 transition-colors"
+              title={contact ? "Re-assign" : "Link to contact"}
+            >
+              {contact ? <Pencil size={11} /> : <UserPlus size={11} />}
+              <span>{contact ? "Re-assign" : "Link"}</span>
+            </button>
+            <button
+              onClick={() => onIgnore(chat.conversationId)}
+              className="flex items-center gap-1 text-xs text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-lg px-2 py-1 transition-colors"
+              title="Move to Ignored"
+            >
+              <EyeOff size={11} />
+              <span>Ignore</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Message timeline — last 3 interactions */}
+        {chat.recentMessages.length > 0 && (
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">History</span>
+            {chat.recentMessages.map((msg, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "inline-flex items-center gap-0.5 text-[11px] font-medium tabular-nums",
+                  msg.isOutbound ? "text-blue-500" : "text-emerald-600"
+                )}
+              >
+                {msg.isOutbound ? "↑" : "↓"} {relTime(msg.sentAt)}
+              </span>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -401,6 +558,24 @@ export default function LinkedInDMPage() {
     }
   }
 
+  async function doIgnore(conversationId: string) {
+    await fetch("/api/linkedin-dm/ignore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId }),
+    })
+    await load()
+  }
+
+  async function doRestore(conversationId: string) {
+    await fetch("/api/linkedin-dm/ignore", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId }),
+    })
+    await load()
+  }
+
   async function doUnlink(conversationId: string) {
     setLinking(true)
     try {
@@ -497,19 +672,33 @@ export default function LinkedInDMPage() {
       {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {/* Filter tabs */}
-        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-          {(["all", "matched", "unmatched"] as Filter[]).map((f) => (
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 flex-wrap">
+          {([
+            { id: "all",           label: "All",           count: stats?.totalChats },
+            { id: "matched",       label: "Matched",       count: stats?.matched },
+            { id: "unmatched",     label: "Unmatched",     count: stats?.unmatched },
+            { id: "not_connected", label: "Not Connected", count: stats?.notConnected, alert: true },
+            { id: "ignored",       label: "Ignored",       count: stats?.ignored },
+          ] as { id: Filter; label: string; count?: number; alert?: boolean }[]).map((tab) => (
             <button
-              key={f}
-              onClick={() => setFilter(f)}
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
               className={cn(
-                "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize whitespace-nowrap",
-                filter === f ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap",
+                filter === tab.id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}
             >
-              {f === "all" ? `All${stats ? ` (${stats.totalChats})` : ""}` :
-               f === "matched" ? `Matched${stats ? ` (${stats.matched})` : ""}` :
-               `Unmatched${stats ? ` (${stats.unmatched})` : ""}`}
+              {tab.label}
+              {tab.count != null && tab.count > 0 && (
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+                  tab.alert
+                    ? filter === tab.id ? "bg-amber-100 text-amber-700" : "bg-amber-200 text-amber-800"
+                    : filter === tab.id ? "bg-blue-100 text-blue-600" : "bg-gray-200 text-gray-500"
+                )}>
+                  {tab.count}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -530,31 +719,43 @@ export default function LinkedInDMPage() {
 
       {/* Chat list */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        {/* Column headers */}
-        <div
-          className="grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide"
-          style={{ gridTemplateColumns: GRID }}
-        >
-          <div />
-          <div>Name</div>
-          <button
-            onClick={() => toggleSort("messageCount")}
-            className={cn("flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
+        {/* Column headers — hidden for not_connected (uses card layout) */}
+        {filter !== "not_connected" && (
+          <div
+            className="grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide"
+            style={{ gridTemplateColumns: GRID }}
           >
-            Msgs
-            {sort === "messageCount" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
-          </button>
-          <div>Response</div>
-          <div>Country</div>
-          <button
-            onClick={() => toggleSort("lastAt")}
-            className={cn("flex items-center justify-end gap-1 hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
-          >
-            Last
-            {sort === "lastAt" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
-          </button>
-          <div />
-        </div>
+            <div />
+            <div>Name</div>
+            <button
+              onClick={() => toggleSort("messageCount")}
+              className={cn("flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
+            >
+              Msgs
+              {sort === "messageCount" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
+            </button>
+            <div>Response</div>
+            <div>Country</div>
+            <button
+              onClick={() => toggleSort("lastAt")}
+              className={cn("flex items-center justify-end gap-1 hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
+            >
+              Last
+              {sort === "lastAt" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
+            </button>
+            <div />
+          </div>
+        )}
+
+        {filter === "not_connected" && chats.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-gray-100 bg-amber-50 flex items-center gap-2">
+            <EyeOff size={12} className="text-amber-600 shrink-0" />
+            <p className="text-xs text-amber-700">
+              These contacts sent you messages but are not in your LinkedIn connections.
+              Keep, link to a contact, or ignore each one.
+            </p>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-16 text-gray-400">
@@ -570,10 +771,25 @@ export default function LinkedInDMPage() {
                   <Link href="/settings#linkedin-dm" className="text-blue-600 hover:underline">Import your messages</Link> from Settings
                 </p>
               </>
+            ) : filter === "not_connected" ? (
+              <p className="text-sm text-gray-400">No unconnected senders found</p>
+            ) : filter === "ignored" ? (
+              <p className="text-sm text-gray-400">No ignored conversations</p>
             ) : (
               <p className="text-sm text-gray-400">No chats match your filters</p>
             )}
           </div>
+        ) : filter === "not_connected" ? (
+          chats.map((chat) => (
+            <NotConnectedCard
+              key={chat.conversationId}
+              chat={chat}
+              blurred={blurred}
+              onLinkClick={openLinkModal}
+              onContactClick={setActiveContactId}
+              onIgnore={doIgnore}
+            />
+          ))
         ) : (
           chats.map((chat) => (
             <ChatRow
@@ -582,6 +798,7 @@ export default function LinkedInDMPage() {
               blurred={blurred}
               onLinkClick={openLinkModal}
               onContactClick={setActiveContactId}
+              onRestore={filter === "ignored" ? doRestore : undefined}
             />
           ))
         )}
