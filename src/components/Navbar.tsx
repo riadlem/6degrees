@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff, Chrome } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
@@ -33,8 +33,9 @@ const navLinks = [
   { href: "/companies",   label: "Companies",  icon: Building2 },
   { href: "/lists",       label: "Lists",      icon: List },
   { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
-  { href: "/whatsapp",    label: "WhatsApp",   icon: null, waIcon: true },
-  { href: "/linkedin-dm", label: "LinkedIn",   icon: null, liIcon: true },
+  { href: "/whatsapp",          label: "WhatsApp",  icon: null,   waIcon: true },
+  { href: "/linkedin-dm",       label: "LinkedIn",  icon: null,   liIcon: true },
+  { href: "/extension-history", label: "Saved",     icon: Chrome, waIcon: false, liIcon: false },
 ]
 
 // All 6 items shown on mobile bottom tab bar
