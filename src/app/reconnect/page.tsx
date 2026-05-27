@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2 } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2, Chrome } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -52,7 +52,7 @@ function ReconnectContent() {
   const router = useRouter()
   const { blurred } = usePrivacy()
 
-  const [activeTab, setActiveTab] = useState<"reconnect" | "review" | "enrich">("reconnect")
+  const [activeTab, setActiveTab] = useState<"reconnect" | "review" | "enrich" | "saved">("reconnect")
   const [contacts, setContacts] = useState<ReconnectContact[]>([])
   const [total, setTotal] = useState(0)
   const [blockedCount, setBlockedCount] = useState(0)
@@ -63,6 +63,33 @@ function ReconnectContent() {
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
   const [reviewContacts, setReviewContacts] = useState<ReconnectContact[]>([])
   const [reviewLoading, setReviewLoading] = useState(false)
+
+  // Saved (extension history) tab state
+  type ExtContact = { id: string; firstName: string; lastName: string; company: string | null; position: string | null; city: string | null; country: string | null; location: string | null; photoUrl: string | null; profileUrl: string | null; extensionSyncedAt: string }
+  const [savedContacts, setSavedContacts] = useState<ExtContact[]>([])
+  const [savedTotal, setSavedTotal] = useState(0)
+  const [savedPage, setSavedPage] = useState(0)
+  const [savedLoading, setSavedLoading] = useState(false)
+  const [savedInitialLoad, setSavedInitialLoad] = useState(true)
+
+  const loadSaved = useCallback(async (p: number, replace = false) => {
+    setSavedLoading(true)
+    try {
+      const res = await fetch(`/api/extension/history?page=${p}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setSavedContacts(prev => replace ? data.contacts : [...prev, ...data.contacts])
+      setSavedTotal(data.total)
+      setSavedPage(p)
+    } finally {
+      setSavedLoading(false)
+      setSavedInitialLoad(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === "saved" && savedInitialLoad) loadSaved(0, true)
+  }, [activeTab, savedInitialLoad, loadSaved])
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/")
@@ -269,11 +296,87 @@ function ReconnectContent() {
           <Sparkles size={13} />
           Enrich
         </button>
+        <button
+          onClick={() => setActiveTab("saved")}
+          className={cn(
+            "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+            activeTab === "saved" ? "border-violet-600 text-violet-700" : "border-transparent text-gray-500 hover:text-gray-700",
+          )}
+        >
+          <Chrome size={13} />
+          Saved
+        </button>
         <div className="flex-1" />
       </div>
 
       {/* Enrich tab */}
       {activeTab === "enrich" && <EnrichContent />}
+
+      {/* Saved tab */}
+      {activeTab === "saved" && (
+        <div>
+          <p className="text-sm text-gray-500 mb-4">
+            {savedTotal > 0 ? `${savedTotal.toLocaleString()} profile${savedTotal !== 1 ? "s" : ""} saved via the Chrome extension` : "Profiles saved via the Chrome extension"}
+          </p>
+          {savedInitialLoad && savedLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />)}
+            </div>
+          ) : savedContacts.length === 0 ? (
+            <div className="text-center py-16 text-sm text-gray-400">
+              No profiles saved yet. Install the Chrome extension and visit LinkedIn profiles to get started.
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="hidden sm:grid grid-cols-[40px_2fr_2fr_2fr_1.5fr] gap-x-4 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                <div />
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Name</div>
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Company</div>
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wide">Role</div>
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wide text-right">Saved</div>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {savedContacts.map((c) => {
+                  const ini = ((c.firstName?.[0] ?? "") + (c.lastName?.[0] ?? "")).toUpperCase() || "?"
+                  const loc = [c.city, c.country].filter(Boolean).join(", ") || c.location || ""
+                  const savedAt = new Date(c.extensionSyncedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex sm:grid sm:grid-cols-[40px_2fr_2fr_2fr_1.5fr] gap-x-4 items-center px-4 py-3 hover:bg-gray-50 cursor-pointer group"
+                      onClick={() => router.push(`/contacts?contact=${c.id}`)}
+                    >
+                      {c.photoUrl
+                        ? <img src={c.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
+                        : <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xs font-semibold shrink-0">{ini}</div>
+                      }
+                      <div className="flex items-center gap-1.5 min-w-0 ml-3 sm:ml-0">
+                        <span className="text-sm font-medium text-gray-900 truncate">{c.firstName} {c.lastName}</span>
+                        {c.profileUrl && (
+                          <a href={c.profileUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="opacity-0 group-hover:opacity-60 hover:!opacity-100 text-blue-500 shrink-0">
+                            <ExternalLink size={11} />
+                          </a>
+                        )}
+                      </div>
+                      <div className="hidden sm:block text-sm text-gray-700 truncate">{c.company ?? <span className="text-gray-300">—</span>}</div>
+                      <div className="hidden sm:block text-sm text-gray-600 truncate">{c.position ?? <span className="text-gray-300">—</span>}</div>
+                      <div className="hidden sm:block text-xs text-gray-400 text-right whitespace-nowrap">{savedAt}</div>
+                      <div className="sm:hidden ml-auto text-xs text-gray-400 whitespace-nowrap shrink-0">{savedAt}</div>
+                    </div>
+                  )
+                })}
+              </div>
+              {savedContacts.length < savedTotal && (
+                <div className="px-4 py-3 border-t border-gray-100 text-center">
+                  <button onClick={() => loadSaved(savedPage + 1)} disabled={savedLoading} className="text-sm text-violet-600 hover:text-violet-700 font-medium disabled:opacity-40">
+                    {savedLoading ? "Loading…" : `Load more (${savedTotal - savedContacts.length} remaining)`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Review tab */}
       {activeTab === "review" && (

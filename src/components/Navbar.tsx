@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff, Chrome } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
@@ -33,13 +33,17 @@ const navLinks = [
   { href: "/companies",   label: "Companies",  icon: Building2 },
   { href: "/lists",       label: "Lists",      icon: List },
   { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
-  { href: "/whatsapp",          label: "WhatsApp",  icon: null,   waIcon: true },
-  { href: "/linkedin-dm",       label: "LinkedIn",  icon: null,   liIcon: true },
-  { href: "/extension-history", label: "Saved",     icon: Chrome, waIcon: false, liIcon: false },
+  { href: "/whatsapp",    label: "Messages",   icon: null, waIcon: true },
 ]
 
-// All 6 items shown on mobile bottom tab bar
-const mobileNavLinks = navLinks
+// Subset shown on mobile bottom tab bar (most-used pages)
+const mobileNavLinks = [
+  { href: "/contacts",    label: "Contacts",   icon: Users },
+  { href: "/companies",   label: "Companies",  icon: Building2 },
+  { href: "/lists",       label: "Lists",      icon: List },
+  { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
+  { href: "/whatsapp",    label: "Messages",   icon: null, waIcon: true },
+]
 
 function formatParis(date: Date): string {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -98,9 +102,11 @@ export default function Navbar() {
 
         {/* Nav links — desktop only */}
         <div className="hidden sm:flex items-center gap-1">
-          {navLinks.map(({ href, label, icon: Icon, waIcon, liIcon }) => {
-            const isWA = href === "/whatsapp"
-            const active = pathname.startsWith(href)
+          {navLinks.map(({ href, label, icon: Icon, waIcon }) => {
+            const isMessages = href === "/whatsapp"
+            const active = isMessages
+              ? pathname.startsWith("/whatsapp") || pathname.startsWith("/linkedin-dm")
+              : pathname.startsWith(href)
             return (
               <Link
                 key={href}
@@ -108,11 +114,11 @@ export default function Navbar() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                   active
-                    ? isWA ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
+                    ? isMessages ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
                     : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 )}
               >
-                {waIcon ? <WANavIcon size={15} /> : liIcon ? <LiNavIcon size={15} /> : Icon ? <Icon size={15} /> : null}
+                {waIcon ? <WANavIcon size={15} /> : Icon ? <Icon size={15} /> : null}
                 {label}
               </Link>
             )
@@ -228,11 +234,13 @@ export default function Navbar() {
       )}
     </nav>
 
-    {/* Bottom tab bar — mobile only */}
+    {/* Bottom tab bar — mobile only (5 key pages) */}
     <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 flex h-16 safe-area-inset-bottom">
-      {mobileNavLinks.map(({ href, label, icon: Icon, waIcon, liIcon }) => {
-        const active = pathname.startsWith(href)
-        const isWA = href === "/whatsapp"
+      {mobileNavLinks.map(({ href, label, icon: Icon, waIcon }) => {
+        const isMessages = href === "/whatsapp"
+        const active = isMessages
+          ? pathname.startsWith("/whatsapp") || pathname.startsWith("/linkedin-dm")
+          : pathname.startsWith(href)
         return (
           <Link
             key={href}
@@ -240,14 +248,12 @@ export default function Navbar() {
             className={cn(
               "flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-w-0 transition-colors",
               active
-                ? isWA ? "text-green-600" : "text-blue-600"
+                ? isMessages ? "text-green-600" : "text-blue-600"
                 : "text-gray-400 hover:text-gray-600"
             )}
           >
             {waIcon
               ? <WANavIcon size={20} />
-              : liIcon
-              ? <LiNavIcon size={20} />
               : Icon ? <Icon size={20} strokeWidth={active ? 2.5 : 1.8} /> : null
             }
             <span className="text-[10px] font-medium leading-none truncate w-full text-center px-0.5">
