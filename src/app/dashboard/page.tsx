@@ -616,7 +616,6 @@ export default function DashboardPage() {
         "partner",
         "brand",
         "non-brand",
-        "independent",
         "untagged",
       ]),
   )
