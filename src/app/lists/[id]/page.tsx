@@ -76,6 +76,7 @@ type Contact = {
   commonConnections: number | null
   interactionScore: number | null
   connectedOn: string | null
+  linkedinDegree: string | null
   notes: { id: string }[]
   labels: { label: { id: string; name: string; color: string } }[]
 }
@@ -465,11 +466,13 @@ function ListDetailContent() {
               liLevel === "connected" ? "#0A66C2"
               : liLevel === "pending"   ? "#7C3AED"
               : liLevel === "followed"  ? "#D97706"
+              : liLevel === "saved"     ? "#9CA3AF"
               : null
             const liTitle =
               liLevel === "connected" ? "1st-degree connection"
               : liLevel === "pending"   ? "Pending request"
-              : "Followed"
+              : liLevel === "followed"  ? "Followed (not connected)"
+              : "Profile saved – not connected"
             const flag = contact.country ? countryFlag(contact.country) : ""
             const hasWhatsApp = !!contact.phoneNumber
 

@@ -1,6 +1,16 @@
 import prisma from "@/lib/prisma"
 import { emitContactEvent } from "@/lib/contact-events"
 
+// Ensure the linkedinDegree column exists (added after initial schema deploy)
+let _colReady: Promise<void> | null = null
+function ensureLinkedinDegreeCol() {
+  if (_colReady) return _colReady
+  _colReady = prisma.$executeRaw`
+    ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "linkedinDegree" TEXT
+  `.then(() => {}).catch(() => {})
+  return _colReady
+}
+
 // This endpoint is called from the Chrome extension (chrome-extension:// origin).
 // Security is token-based, so a permissive CORS origin is safe.
 const CORS = {
@@ -57,6 +67,8 @@ export async function POST(req: Request) {
   })
   if (!user) return new Response("Invalid token", { status: 401, headers: CORS })
 
+  await ensureLinkedinDegreeCol()
+
   const body = await req.json().catch(() => null)
   if (!body?.profileUrl) {
     return Response.json({ error: "profileUrl is required" }, { status: 400, headers: CORS })
@@ -87,6 +99,11 @@ export async function POST(req: Request) {
   const firstName: string = body.firstName || fallback.firstName
   const lastName: string  = body.lastName  || fallback.lastName
 
+  // Normalise degree: extension sends "1st"/"2nd"/"3rd" or bare "1"/"2"/"3"
+  const normDegree = degree
+    ? String(degree).match(/([123])/)?.[1] ?? null
+    : null
+
   const enrichData = {
     // Only overwrite text fields when the scraper actually got a value —
     // null means "scraping failed", not "the field is blank on LinkedIn".
@@ -100,6 +117,8 @@ export async function POST(req: Request) {
     ...(sharedConnections !== undefined && { sharedConnections }),
     ...(position && { position }),
     ...(company  && { company }),
+    // Always update linkedinDegree when we have a value (scrape can change: 2→1 after connecting)
+    ...(normDegree != null && { linkedinDegree: normDegree }),
     profileUrl,
     extensionSyncedAt: new Date(),
   }

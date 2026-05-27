@@ -115,6 +115,7 @@ type Contact = {
   industry: string | null
   headline: string | null
   profileUrl: string | null
+  linkedinDegree: string | null
   photoUrl: string | null
   commonConnections: number | null
   connectedOn: string | null
@@ -660,17 +661,33 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
 
               {/* Action buttons */}
               <div className="flex gap-2 mt-4 flex-wrap">
-                {contact.profileUrl && (
-                  <a
-                    href={contact.profileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-blue-600 border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors"
-                  >
-                    <ExternalLink size={12} />
-                    LinkedIn
-                  </a>
-                )}
+                {contact.profileUrl && (() => {
+                  // Mirror linkedinLevel() logic: degree "1" or connectedOn → connected
+                  const deg = contact.linkedinDegree
+                  const isConnected = deg === "1" || (!deg && !!contact.connectedOn)
+                  const degSuffix: Record<string, string> = { "1": "1st", "2": "2nd", "3": "3rd" }
+                  const degLabel = deg ? degSuffix[deg] : null
+                  const colorCls = isConnected
+                    ? "text-blue-600 border-blue-200 hover:bg-blue-50"
+                    : "text-gray-500 border-gray-200 hover:bg-gray-50"
+                  const titleText = isConnected
+                    ? "1st-degree LinkedIn connection"
+                    : (deg === "2" || deg === "3")
+                      ? "Profile saved – not connected on LinkedIn"
+                      : "View on LinkedIn"
+                  return (
+                    <a
+                      href={contact.profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`flex items-center gap-1.5 text-xs border rounded-lg px-3 py-1.5 transition-colors ${colorCls}`}
+                      title={titleText}
+                    >
+                      <ExternalLink size={12} />
+                      LinkedIn{degLabel && <span className="opacity-50 text-[10px]">{degLabel}</span>}
+                    </a>
+                  )
+                })()}
                 <button
                   onClick={enrich}
                   disabled={enriching}

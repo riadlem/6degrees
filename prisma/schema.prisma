@@ -104,6 +104,7 @@ model Contact {
   education         Json?
   sharedConnections Json?
   extensionSyncedAt DateTime?
+  linkedinDegree    String?   // "1", "2", or "3" — scraped by extension at save time
   // Email interaction tracking
   emailAddress      String?
   phoneNumber       String?
