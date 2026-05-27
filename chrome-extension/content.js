@@ -574,7 +574,11 @@
     }
 
     // ── Dash separator: "Company - Role" or "Company – Role" ──
-    const dashM = headline.match(/^(.+?)\s*[-–—]\s*(.+)$/)
+    // En-dash (–) and em-dash (—) are always field separators (optional surrounding spaces).
+    // ASCII hyphen (-) is a separator ONLY when it has whitespace on both sides:
+    //   "Sales Director - Nuvei"  ← separator (spaces around it)
+    //   "Cross-Border Digital"    ← compound word (no spaces), NOT a separator
+    const dashM = headline.match(/^(.+?)(?:\s*[–—]\s*|\s+-\s+)(.+)$/)
     if (dashM) {
       const [left, right] = [dashM[1].trim(), dashM[2].trim()]
       if (left.length > 1 && right.length > 1 && left.length < 60) {
@@ -828,13 +832,16 @@
             if (t.length > 20) seenHeadline = true
             continue
           }
-          // After headline: first short (<60 chars), non-geo, non-pipe text = company
-          if (t.length <= 60 && !isGeo(t) && !t.includes("|")) {
-            // LinkedIn sometimes concatenates current company + school: "BVNK · La Salle University"
-            // Take only the first token before any " · " separator.
-            const company = t.split(/\s*·\s*/)[0].trim()
-            console.debug("[6D company] Strategy 6 (topcard plain text):", company)
-            return company
+          // After headline: first short non-geo, non-pipe text = company.
+          // LinkedIn sometimes concatenates current company + school with " · ":
+          //   "Nuvei · ESIEA - Ecole d'Ingénieurs..."  (full string > 60 chars, but first token is valid)
+          // Split on " · " first, then apply length check on the token, not the full string.
+          if (!t.includes("|")) {
+            const firstToken = t.split(/\s*·\s*/)[0].trim()
+            if (firstToken.length >= 2 && firstToken.length <= 60 && !isGeo(firstToken)) {
+              console.debug("[6D company] Strategy 6 (topcard plain text):", firstToken)
+              return firstToken
+            }
           }
           // Location follows company in the topcard layout — stop here
           if (isGeo(t) || t.includes(",")) break
