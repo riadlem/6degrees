@@ -6,6 +6,8 @@ import { buildSegmentWhere, type SegmentDef } from "@/lib/segment-executor"
 const CONTACT_INCLUDE = {
   notes: { take: 1, orderBy: { createdAt: "desc" } },
   labels: { include: { label: { select: { id: true, name: true, color: true } } } },
+  whatsAppMessages:  { take: 1, orderBy: { sentAt: "desc" as const }, select: { sentAt: true, isOutbound: true } },
+  linkedInDMMessages: { take: 1, orderBy: { sentAt: "desc" as const }, select: { sentAt: true, isOutbound: true } },
 } as const
 
 export async function GET(
