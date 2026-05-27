@@ -9,7 +9,7 @@ import {
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
-import BulkAssignPopover from "@/components/BulkAssignPopover"
+import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import CompanyLogo from "@/components/CompanyLogo"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
@@ -334,14 +334,14 @@ export default function CompanyDetailPage() {
   function selectAllContacts() { setSelectedContactIds(new Set(filteredContacts.map(c => c.id))) }
   function clearContactSelection() { setSelectedContactIds(new Set()) }
 
-  async function handleBulkAssign(field: "country" | "industry" | "note", value: string) {
+  async function handleBulkAssign(field: BulkField, value: string) {
     const ids = [...selectedContactIds]
     await fetch("/api/contacts/bulk", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, field, value }),
     })
-    // Optimistically update local state for country/industry
+    // Optimistically update local state for non-note fields
     if (field !== "note") {
       setContacts((prev) => prev.map((c) =>
         selectedContactIds.has(c.id) ? { ...c, [field]: value || null } : c
@@ -768,7 +768,11 @@ export default function CompanyDetailPage() {
             {selectedContactIds.size > 0 && (
               <BulkAssignPopover
                 count={selectedContactIds.size}
-                industries={[...new Set(contacts.map(c => c.industry).filter(Boolean))] as string[]}
+                options={{
+                  companies:  [...new Set(contacts.map(c => c.company).filter(Boolean))] as string[],
+                  industries: [...new Set(contacts.map(c => c.industry).filter(Boolean))] as string[],
+                  countries:  [...new Set(contacts.map(c => c.country).filter(Boolean))] as string[],
+                }}
                 onAssign={handleBulkAssign}
               />
             )}
