@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma"
+import { emitContactEvent } from "@/lib/contact-events"
 
 // This endpoint is called from the Chrome extension (chrome-extension:// origin).
 // Security is token-based, so a permissive CORS origin is safe.
@@ -163,6 +164,28 @@ export async function POST(req: Request) {
         })
       } catch { /* ignore duplicate / constraint errors */ }
     }
+  }
+
+  // Broadcast to any open browser tabs so they can patch their caches live
+  if (action === "updated") {
+    emitContactEvent(user.id, {
+      type: "contact_updated",
+      contactId: contact.id,
+      // Only include fields that were actually present in the payload
+      ...(photoUrl     != null && { photoUrl }),
+      ...(firstName              && { firstName }),
+      ...(lastName               && { lastName }),
+      ...(headline     != null && { headline }),
+      ...(position               && { position }),
+      ...(company                && { company }),
+      ...(location     != null && { location }),
+      ...(city         != null && { city }),
+      ...(country      != null && { country }),
+      ...(commonConnections != null && { commonConnections }),
+    })
+  } else {
+    // New contact — tell the list to refetch so the card appears
+    emitContactEvent(user.id, { type: "contact_created", contactId: contact.id })
   }
 
   return Response.json({ ok: true, action, contactId: contact.id }, { headers: CORS })
