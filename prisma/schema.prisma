@@ -135,6 +135,10 @@ model Contact {
   @@index([userId, interactionScore])
   @@index([userId, firstName])
   @@index([userId, lastName])
+  @@index([userId, outreachStatus])
+  @@index([userId, connectedOn])
+  @@index([userId, extensionSyncedAt])
+  @@index([userId, country])
 }
 
 model ContactNote {

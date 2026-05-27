@@ -4,6 +4,66 @@ import prisma from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 import { getSectorIndustries } from "@/lib/industry-sectors"
 
+// Server-side in-memory cache for filter metadata (distinct values per user).
+// Avoids 4 full-table distinct scans on every contacts page load.
+type FilterCache = {
+  industries: string[]
+  companies: string[]
+  locations: string[]
+  countries: string[]
+  expiresAt: number
+}
+const filterCache = new Map<string, FilterCache>()
+const FILTER_TTL_MS = 5 * 60 * 1000  // 5 minutes
+
+async function getFilterMetadata(userId: string, companyPrefs: { industry: string | null }[]): Promise<Omit<FilterCache, 'expiresAt'>> {
+  const cached = filterCache.get(userId)
+  if (cached && cached.expiresAt > Date.now()) {
+    return { industries: cached.industries, companies: cached.companies, locations: cached.locations, countries: cached.countries }
+  }
+
+  // Run all 4 distinct queries in parallel
+  const [industryRows, companyRows, locationRows, countryRows] = await Promise.all([
+    prisma.contact.findMany({
+      where: { userId, industry: { not: null } },
+      select: { industry: true },
+      distinct: ["industry"],
+      orderBy: { industry: "asc" },
+    }),
+    prisma.contact.findMany({
+      where: { userId, company: { not: null } },
+      select: { company: true },
+      distinct: ["company"],
+      orderBy: { company: "asc" },
+    }),
+    prisma.contact.findMany({
+      where: { userId, location: { not: null } },
+      select: { location: true },
+      distinct: ["location"],
+      orderBy: { location: "asc" },
+    }),
+    prisma.contact.findMany({
+      where: { userId, country: { not: null } },
+      select: { country: true },
+      distinct: ["country"],
+      orderBy: { country: "asc" },
+    }),
+  ])
+
+  // Merge company-level industry prefs into industry list
+  const industrySet = new Set(industryRows.map((r) => r.industry).filter(Boolean) as string[])
+  for (const p of companyPrefs) {
+    if (p.industry) industrySet.add(p.industry)
+  }
+  const industries = [...industrySet].sort((a, b) => a.localeCompare(b))
+  const companies = companyRows.map((r) => r.company).filter(Boolean) as string[]
+  const locations = locationRows.map((r) => r.location).filter(Boolean) as string[]
+  const countries = countryRows.map((r) => r.country).filter(Boolean) as string[]
+
+  filterCache.set(userId, { industries, companies, locations, countries, expiresAt: Date.now() + FILTER_TTL_MS })
+  return { industries, companies, locations, countries }
+}
+
 // Ensure search indexes exist (idempotent, runs once on first cold-start)
 let _indexesEnsured = false
 async function ensureIndexes() {
@@ -206,39 +266,8 @@ export async function GET(request: Request) {
     prisma.contact.count({ where }),
   ])
 
-  const [industries, companyRows, locations, countries, labels] = await Promise.all([
-    prisma.contact.findMany({
-      where: { userId: session.user.id, industry: { not: null } },
-      select: { industry: true },
-      distinct: ["industry"],
-      orderBy: { industry: "asc" },
-    }).then((rows) => {
-      // Merge confirmed company industries into the dropdown so company-level
-      // industry assignments are always visible as filter options.
-      const contactIndustries = new Set(rows.map((r) => r.industry).filter(Boolean) as string[])
-      for (const p of companyPrefs) {
-        if (p.industry) contactIndustries.add(p.industry)
-      }
-      return [...contactIndustries].sort((a, b) => a.localeCompare(b)).map((i) => ({ industry: i }))
-    }),
-    prisma.contact.findMany({
-      where: { userId: session.user.id, company: { not: null } },
-      select: { company: true },
-      distinct: ["company"],
-      orderBy: { company: "asc" },
-    }),
-    prisma.contact.findMany({
-      where: { userId: session.user.id, location: { not: null } },
-      select: { location: true },
-      distinct: ["location"],
-      orderBy: { location: "asc" },
-    }),
-    prisma.contact.findMany({
-      where: { userId: session.user.id, country: { not: null } },
-      select: { country: true },
-      distinct: ["country"],
-      orderBy: { country: "asc" },
-    }),
+  const [filterMeta, labels] = await Promise.all([
+    getFilterMetadata(userId, companyPrefs),
     prisma.label.findMany({
       where: { userId: session.user.id },
       orderBy: { name: "asc" },
@@ -251,10 +280,10 @@ export async function GET(request: Request) {
     page,
     pages: Math.ceil(total / limit),
     filters: {
-      industries: industries.map((r) => r.industry).filter(Boolean),
-      companies: companyRows.map((r) => r.company).filter(Boolean),
-      locations: locations.map((r) => r.location).filter(Boolean),
-      countries: countries.map((r) => r.country).filter(Boolean),
+      industries: filterMeta.industries,
+      companies: filterMeta.companies,
+      locations: filterMeta.locations,
+      countries: filterMeta.countries,
       labels,
     },
   })
@@ -318,6 +347,7 @@ export async function POST(request: Request) {
     prisma.contact.count({ where }),
   ])
 
+  filterCache.delete(session.user.id)
   // Return empty filter options in segment mode — filters panel is hidden
   return Response.json({
     contacts,

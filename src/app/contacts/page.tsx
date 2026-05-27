@@ -225,15 +225,13 @@ function ContactsContent() {
       .catch(() => {})
   }, [status])
 
-  // Refresh contact list on sync completion / partial progress
+  // Refresh contact list on sync completion
   useEffect(() => {
     if (syncState.phase === "done") {
       queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
-    } else if (syncState.phase === "syncing" && syncState.synced % 100 === 0) {
-      queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncState])
+  }, [syncState.phase])  // only re-run when phase changes, not on every synced increment
 
   // IntersectionObserver sentinel for infinite scroll
   useEffect(() => {

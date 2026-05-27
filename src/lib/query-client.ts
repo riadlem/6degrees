@@ -9,18 +9,20 @@ import { QueryClient } from "@tanstack/react-query"
  * survives for the full browser session.
  *
  * Defaults:
- * - staleTime 2 min  — contacts don't change by the second; avoid redundant fetches on tab focus
+ * - staleTime 5 min  — contacts don't change by the second; avoid redundant fetches on tab focus
  * - gcTime 10 min    — keep cached data in memory for 10 min after all subscribers unmount
  * - refetchOnWindowFocus false — avoids surprise network traffic when user switches apps on mobile
+ * - refetchOnMount false — data is already fresh when navigating between pages
  * - retry 1          — one automatic retry on transient errors
  */
 export function makeQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
-        staleTime: 2 * 60 * 1000,       // 2 minutes
+        staleTime: 5 * 60 * 1000,       // 5 minutes
         gcTime: 10 * 60 * 1000,         // 10 minutes
         refetchOnWindowFocus: false,
+        refetchOnMount: false,
         retry: 1,
       },
     },
