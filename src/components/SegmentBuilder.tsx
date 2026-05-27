@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Plus, X, Loader2, Users, BookmarkPlus, Check, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { COUNTRIES } from "@/lib/countries"
+import { INDUSTRY_SECTORS } from "@/lib/industry-sectors"
 import { useContactsIndex } from "@/hooks/useContactsIndex"
 import type { SegmentRule, SegmentDef } from "@/lib/segment-executor"
 
 // ── Field definitions ────────────────────────────────────────────────────────
 
-type FieldType = "boolean" | "number" | "text_eq" | "text_contains" | "aggregate" | "status" | "label" | "date"
+type FieldType = "boolean" | "number" | "text_eq" | "text_contains" | "aggregate" | "status" | "label" | "date" | "company_type" | "sector"
 
 type FieldDef = {
   id: string
@@ -20,8 +21,13 @@ type FieldDef = {
 
 const FIELDS: FieldDef[] = [
   // Company / network
-  { id: "companyContactCount", label: "Contacts at same company",  type: "aggregate",     group: "Company" },
-  { id: "company",             label: "Company name",              type: "text_eq",       group: "Company" },
+  { id: "companyContactCount", label: "Contacts at same company",    type: "aggregate",     group: "Company" },
+  { id: "company",             label: "Company name",                type: "text_eq",       group: "Company" },
+  { id: "companyWithSubs",     label: "Company + subsidiaries",      type: "text_eq",       group: "Company" },
+  { id: "companyType",         label: "Company type",                type: "company_type",  group: "Company" },
+  { id: "isPartner",           label: "Is partner company",          type: "boolean",       group: "Company" },
+  { id: "isPreferred",         label: "Is preferred company",        type: "boolean",       group: "Company" },
+  { id: "sector",              label: "Sector",                      type: "sector",        group: "Company" },
   // Enrichment
   { id: "coworkEnriched",      label: "Cowork enriched",           type: "boolean",       group: "Enrichment" },
   { id: "hasEmail",            label: "Has email address",         type: "boolean",       group: "Enrichment" },
@@ -53,6 +59,8 @@ const OPERATORS: Record<FieldType, { value: string; label: string }[]> = {
   status:       [{ value: "any", label: "has any" }, { value: "none", label: "has none" }, { value: "is", label: "is" }, { value: "is_not", label: "is not" }],
   label:        [{ value: "has", label: "has" }, { value: "has_not", label: "doesn't have" }],
   date:         [{ value: "after", label: "after" }, { value: "before", label: "before" }],
+  company_type: [{ value: "is", label: "is" }, { value: "is_not", label: "is not" }],
+  sector:       [{ value: "is", label: "is" }, { value: "is_not", label: "is not" }],
 }
 
 const STATUS_OPTIONS = [
@@ -309,12 +317,14 @@ export default function SegmentBuilder({
   const fieldOptions = useMemo<Record<string, string[]>>(() => {
     const uniq = (vals: (string | null | undefined)[]) =>
       [...new Set(vals.filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b))
+    const companies = uniq(index.map((c) => c.company))
     return {
-      company:  uniq(index.map((c) => c.company)),
-      city:     uniq(index.map((c) => c.city)),
-      country:  COUNTRIES,
-      industry: uniq(index.map((c) => c.industry)),
-      position: uniq(index.map((c) => c.position)),
+      company:         companies,
+      companyWithSubs: companies,
+      city:            uniq(index.map((c) => c.city)),
+      country:         COUNTRIES,
+      industry:        uniq(index.map((c) => c.industry)),
+      position:        uniq(index.map((c) => c.position)),
     }
   }, [index])
 
@@ -536,7 +546,29 @@ export default function SegmentBuilder({
               {showValue && (
                 <>
                   {def?.type === "boolean" ? null
-                    : def?.type === "status" ? (
+                    : def?.type === "company_type" ? (
+                      <select
+                        value={rule.value}
+                        onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 shrink-0"
+                      >
+                        <option value="">pick type…</option>
+                        <option value="brand">Brand</option>
+                        <option value="non-brand">Non-brand</option>
+                        <option value="independent">Independent</option>
+                      </select>
+                    ) : def?.type === "sector" ? (
+                      <select
+                        value={rule.value}
+                        onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 shrink-0"
+                      >
+                        <option value="">pick sector…</option>
+                        {INDUSTRY_SECTORS.map((s) => (
+                          <option key={s.key} value={s.key}>{s.shortLabel}</option>
+                        ))}
+                      </select>
+                    ) : def?.type === "status" ? (
                       <select
                         value={rule.value}
                         onChange={(e) => updateRule(rule.id, { value: e.target.value })}

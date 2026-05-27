@@ -9,6 +9,7 @@
 
 import prisma from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
+import { getSectorIndustries } from "@/lib/industry-sectors"
 
 // ─── Types (re-exported for consumers) ───────────────────────────────────────
 
@@ -27,6 +28,88 @@ export type SegmentDef = {
 }
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
+
+type CompanyPref = {
+  company: string
+  parentCompany: string | null
+  type: string | null
+  isPartner: boolean
+  ignored: boolean
+  industry: string | null
+}
+
+// Rules that require company preferences pre-fetched from DB
+const COMPANY_PREF_FIELDS = new Set(["companyWithSubs", "companyType", "isPartner", "isPreferred", "sector"])
+
+function buildCompanyPrefCondition(
+  rule: SegmentRule,
+  prefs: CompanyPref[],
+): Prisma.ContactWhereInput | null {
+  const { field, operator, value } = rule
+  const mode = "insensitive" as const
+
+  if (field === "companyWithSubs") {
+    const vals = rule.values && rule.values.length > 0 ? rule.values : (value ? [value] : [])
+    if (vals.length === 0) return null
+    // Expand each selected company to include its subsidiaries
+    const allNames = new Set<string>()
+    for (const v of vals) {
+      allNames.add(v)
+      for (const p of prefs) {
+        if (p.parentCompany?.toLowerCase() === v.toLowerCase()) allNames.add(p.company)
+      }
+    }
+    const nameList = [...allNames]
+    const clause: Prisma.ContactWhereInput = { OR: nameList.map((n) => ({ company: { equals: n, mode } })) }
+    return operator === "is_not" ? { NOT: clause } : clause
+  }
+
+  if (field === "companyType") {
+    const typeCompanies = prefs.filter((p) => p.type === value).map((p) => p.company)
+    if (typeCompanies.length === 0) return { id: "__no_match__" }
+    const clause: Prisma.ContactWhereInput = { OR: typeCompanies.map((n) => ({ company: { equals: n, mode } })) }
+    return operator === "is_not" ? { NOT: clause } : clause
+  }
+
+  if (field === "isPartner") {
+    const partnerCompanies = prefs.filter((p) => p.isPartner).map((p) => p.company)
+    if (operator === "yes") {
+      if (partnerCompanies.length === 0) return { id: "__no_match__" }
+      return { OR: partnerCompanies.map((n) => ({ company: { equals: n, mode } })) }
+    }
+    // "no" = not at any partner company
+    return { AND: partnerCompanies.map((n) => ({ NOT: { company: { equals: n, mode } } })) }
+  }
+
+  if (field === "isPreferred") {
+    const preferredCompanies = prefs.filter((p) => !p.ignored).map((p) => p.company)
+    const ignoredCompanies   = prefs.filter((p) =>  p.ignored).map((p) => p.company)
+    if (operator === "yes") {
+      if (preferredCompanies.length === 0) return { id: "__no_match__" }
+      return { OR: preferredCompanies.map((n) => ({ company: { equals: n, mode } })) }
+    }
+    if (ignoredCompanies.length === 0) return { id: "__no_match__" }
+    return { OR: ignoredCompanies.map((n) => ({ company: { equals: n, mode } })) }
+  }
+
+  if (field === "sector") {
+    if (!value) return null
+    const sectorIndustries = getSectorIndustries(value)
+    if (sectorIndustries.length === 0) return null
+    const sectorMatchCompanies = prefs
+      .filter((p) => p.industry && sectorIndustries.some((si) => si.toLowerCase() === p.industry!.toLowerCase()))
+      .map((p) => p.company)
+    const sectorOtherCompanies = prefs
+      .filter((p) => p.industry && !sectorIndustries.some((si) => si.toLowerCase() === p.industry!.toLowerCase()))
+      .map((p) => p.company)
+    const contactSectorClause: Prisma.ContactWhereInput = sectorOtherCompanies.length > 0
+      ? { OR: sectorIndustries.map((ind) => ({ industry: { equals: ind, mode } })), NOT: { company: { in: sectorOtherCompanies } } }
+      : { OR: sectorIndustries.map((ind) => ({ industry: { equals: ind, mode } })) }
+    return { OR: [...(sectorMatchCompanies.length > 0 ? [{ company: { in: sectorMatchCompanies } }] : []), contactSectorClause] }
+  }
+
+  return null
+}
 
 const NUM_OP: Record<string, string> = {
   gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=",
@@ -133,6 +216,16 @@ export async function buildSegmentWhere(
     return true // value check is done per-rule in buildCondition
   })
 
+  // Pre-fetch company prefs if any rule needs them
+  const needsCompanyPrefs = activeRules.some((r) => COMPANY_PREF_FIELDS.has(r.field))
+  let companyPrefs: CompanyPref[] = []
+  if (needsCompanyPrefs) {
+    companyPrefs = await prisma.companyPreference.findMany({
+      where: { userId },
+      select: { company: true, parentCompany: true, type: true, isPartner: true, ignored: true, industry: true },
+    }).catch(() => [])
+  }
+
   const conditions: Prisma.ContactWhereInput[] = []
 
   for (const rule of activeRules) {
@@ -153,6 +246,9 @@ export async function buildSegmentWhere(
         `
       )
       conditions.push({ company: { in: rows.map((r) => r.company) } })
+    } else if (COMPANY_PREF_FIELDS.has(rule.field)) {
+      const cond = buildCompanyPrefCondition(rule, companyPrefs)
+      if (cond) conditions.push(cond)
     } else {
       const cond = buildCondition(rule)
       if (cond) conditions.push(cond)
@@ -194,6 +290,11 @@ export async function executeSegmentCount(
 
 const FIELD_LABELS: Record<string, string> = {
   company:             "Company",
+  companyWithSubs:     "Company (incl. subsidiaries)",
+  companyType:         "Company type",
+  isPartner:           "Partner company",
+  isPreferred:         "Preferred company",
+  sector:              "Sector",
   position:            "Role",
   industry:            "Industry",
   country:             "Country",

@@ -26,6 +26,8 @@ type LabelOption = { id: string; name: string; color: string }
 
 interface FilterOptions {
   companies: (string | null)[]
+  /** Companies that have at least one subsidiary — shown with "(+subs)" hint */
+  parentCompanies?: string[]
   industries: (string | null)[]
   locations: (string | null)[]
   countries: (string | null)[]
@@ -101,16 +103,19 @@ function FilterSelect({
 function CompanyMultiSelect({
   selected,
   options,
+  parentCompanies,
   onChange,
 }: {
   selected: string[]
   options: (string | null)[]
+  parentCompanies?: string[]
   onChange: (v: string[]) => void
 }) {
   const [input, setInput] = useState("")
   const [open, setOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const parentSet = new Set((parentCompanies ?? []).map((c) => c.toLowerCase()))
   const allCompanies = options.filter(Boolean) as string[]
   const suggestions = allCompanies
     .filter((c) => c.toLowerCase().includes(input.toLowerCase()) && !selected.includes(c))
@@ -197,7 +202,10 @@ function CompanyMultiSelect({
                 className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-gray-700 flex items-center gap-2 transition-colors"
               >
                 <Building2 size={12} className="text-gray-400 shrink-0" />
-                {c}
+                <span className="flex-1 truncate">{c}</span>
+                {parentSet.has(c.toLowerCase()) && (
+                  <span className="text-[10px] text-blue-500 bg-blue-50 border border-blue-200 rounded px-1 shrink-0">+subs</span>
+                )}
               </button>
             ))}
             {/* Allow adding a company not in the list (e.g. not yet in contacts) */}
@@ -221,16 +229,19 @@ function CompanyMultiSelect({
 function InlineCompanyAdd({
   selected,
   options,
+  parentCompanies,
   onChange,
 }: {
   selected: string[]
   options: (string | null)[]
+  parentCompanies?: string[]
   onChange: (v: string[]) => void
 }) {
   const [active, setActive] = useState(false)
   const [input, setInput] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const parentSet = new Set((parentCompanies ?? []).map((c) => c.toLowerCase()))
   const allCompanies = options.filter(Boolean) as string[]
   const suggestions = allCompanies
     .filter((c) => c.toLowerCase().includes(input.toLowerCase()) && !selected.includes(c))
@@ -284,7 +295,10 @@ function InlineCompanyAdd({
               className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 text-gray-700 flex items-center gap-2 transition-colors"
             >
               <Building2 size={12} className="text-gray-400 shrink-0" />
-              {c}
+              <span className="flex-1 truncate">{c}</span>
+              {parentSet.has(c.toLowerCase()) && (
+                <span className="text-[10px] text-blue-500 bg-blue-50 border border-blue-200 rounded px-1 shrink-0">+subs</span>
+              )}
             </button>
           ))}
           {input.trim() && !allCompanies.find((c) => c.toLowerCase() === input.toLowerCase()) && (
@@ -389,6 +403,7 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
           <InlineCompanyAdd
             selected={filters.companies}
             options={options.companies}
+            parentCompanies={options.parentCompanies}
             onChange={(v) => onChange({ companies: v })}
           />
         </div>
@@ -512,6 +527,7 @@ export default function ContactFilters({ filters, options, total, view, onViewCh
           <CompanyMultiSelect
             selected={filters.companies}
             options={options.companies}
+            parentCompanies={options.parentCompanies}
             onChange={(v) => onChange({ companies: v })}
           />
 
