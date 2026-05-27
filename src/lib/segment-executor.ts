@@ -17,6 +17,8 @@ export type SegmentRule = {
   field: string
   operator: string
   value: string
+  /** Multi-value override for text_eq fields with "is" / "is_not" operators */
+  values?: string[]
 }
 
 export type SegmentDef = {
@@ -49,9 +51,19 @@ export function buildCondition(rule: SegmentRule): Prisma.ContactWhereInput | nu
     case "city":
     case "company": {
       const mode = "insensitive" as const
-      if (operator === "is")          return { [field]: { equals: value, mode } }
-      if (operator === "is_not")      return { NOT: { [field]: { equals: value, mode } } }
-      if (operator === "contains")    return { [field]: { contains: value, mode } }
+      // Multi-value: use OR of case-insensitive equals (Prisma 'in' lacks mode support)
+      const vals = rule.values && rule.values.length > 0 ? rule.values : (value ? [value] : [])
+      if (operator === "is") {
+        if (vals.length === 0) return null
+        if (vals.length === 1) return { [field]: { equals: vals[0], mode } }
+        return { OR: vals.map((v) => ({ [field]: { equals: v, mode } })) }
+      }
+      if (operator === "is_not") {
+        if (vals.length === 0) return null
+        if (vals.length === 1) return { NOT: { [field]: { equals: vals[0], mode } } }
+        return { AND: vals.map((v) => ({ NOT: { [field]: { equals: v, mode } } })) }
+      }
+      if (operator === "contains")     return { [field]: { contains: value, mode } }
       if (operator === "not_contains") return { NOT: { [field]: { contains: value, mode } } }
       return null
     }
@@ -114,7 +126,12 @@ export async function buildSegmentWhere(
   def: SegmentDef,
 ): Promise<Prisma.ContactWhereInput> {
   const { combinator = "AND", rules = [] } = def
-  const activeRules = rules.filter((r) => r.field && r.operator)
+  const activeRules = rules.filter((r) => {
+    if (!r.field || !r.operator) return false
+    // Rules with a values array are valid even when value is empty
+    if (r.values && r.values.length > 0) return true
+    return true // value check is done per-rule in buildCondition
+  })
 
   const conditions: Prisma.ContactWhereInput[] = []
 
@@ -210,6 +227,11 @@ export function summariseSegment(def: SegmentDef, maxRules = 2): string {
     if (r.operator === "no")  return `${label}: No`
     if (r.operator === "any") return `${label}: any`
     if (r.operator === "none") return `${label}: none`
+    // Multi-value display
+    if (r.values && r.values.length > 0) {
+      const op = r.operator === "is" ? "is" : r.operator === "is_not" ? "isn't" : r.operator
+      return `${label} ${op} ${r.values.join(", ")}`
+    }
     if (r.value) return `${label} ${r.operator} "${r.value}"`
     return label
   })

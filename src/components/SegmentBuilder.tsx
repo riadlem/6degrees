@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Plus, X, Loader2, Users, BookmarkPlus, Check } from "lucide-react"
+import { Plus, X, Loader2, Users, BookmarkPlus, Check, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { COUNTRIES } from "@/lib/countries"
 import { useContactsIndex } from "@/hooks/useContactsIndex"
-import type { SegmentRule } from "@/app/api/contacts/segment/route"
+import type { SegmentRule, SegmentDef } from "@/lib/segment-executor"
 
 // ── Field definitions ────────────────────────────────────────────────────────
 
@@ -79,13 +79,122 @@ function needsValue(type: FieldType, operator: string): boolean {
   return true
 }
 
+/** Whether this field+operator supports multi-value tag input */
+function isMultiValue(type: FieldType, operator: string): boolean {
+  return type === "text_eq" && (operator === "is" || operator === "is_not")
+}
+
 let ruleCounter = 0
 function newRule(field = "coworkEnriched"): SegmentRule {
   const type = FIELD_MAP[field]?.type ?? "boolean"
-  return { id: String(++ruleCounter), field, operator: defaultOperator(type), value: "" }
+  return { id: String(++ruleCounter), field, operator: defaultOperator(type), value: "", values: [] }
 }
 
-// ── Combobox for text fields ──────────────────────────────────────────────────
+function ruleFromDef(r: SegmentRule): SegmentRule {
+  // Ensure id is unique in case it collides with the counter
+  ruleCounter = Math.max(ruleCounter, parseInt(r.id) || 0)
+  return { ...r, values: r.values ?? [] }
+}
+
+// ── Multi-value tag combobox ──────────────────────────────────────────────────
+
+function MultiValueCombobox({
+  values,
+  onChange,
+  options,
+}: {
+  values: string[]
+  onChange: (vals: string[]) => void
+  options: string[]
+}) {
+  const [input, setInput] = useState("")
+  const [open, setOpen] = useState(false)
+  const boxRef  = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const filtered = useMemo(
+    () =>
+      options
+        .filter((o) => !values.includes(o) && o.toLowerCase().includes(input.toLowerCase()))
+        .slice(0, 10),
+    [options, values, input],
+  )
+
+  function add(val: string) {
+    const v = val.trim()
+    if (!v || values.includes(v)) { setInput(""); return }
+    onChange([...values, v])
+    setInput("")
+  }
+
+  function remove(val: string) {
+    onChange(values.filter((v) => v !== val))
+  }
+
+  useEffect(() => {
+    if (!open) return
+    function handleDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handleDown)
+    return () => document.removeEventListener("mousedown", handleDown)
+  }, [open])
+
+  return (
+    <div ref={boxRef} className="relative flex-1 min-w-0">
+      <div
+        className="flex flex-wrap gap-1 min-h-[30px] border border-gray-200 rounded-lg px-2 py-1 bg-white cursor-text focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {values.map((v) => (
+          <span
+            key={v}
+            className="inline-flex items-center gap-0.5 text-[11px] bg-blue-100 text-blue-800 rounded px-1.5 py-0.5 font-medium max-w-[140px]"
+          >
+            <span className="truncate">{v}</span>
+            <button
+              onMouseDown={(e) => { e.preventDefault(); remove(v) }}
+              className="text-blue-400 hover:text-blue-700 shrink-0 ml-0.5"
+            >
+              <X size={9} />
+            </button>
+          </span>
+        ))}
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={(e) => { setInput(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { add(input); e.preventDefault() }
+            if (e.key === "Escape") setOpen(false)
+            if (e.key === "Backspace" && !input && values.length > 0) {
+              remove(values[values.length - 1])
+            }
+          }}
+          placeholder={values.length === 0 ? "type to add…" : ""}
+          className="text-xs outline-none bg-transparent flex-1 min-w-[80px] py-0.5"
+          autoComplete="off"
+        />
+      </div>
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-50 left-0 top-full mt-0.5 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto min-w-[160px]">
+          {filtered.map((opt) => (
+            <li
+              key={opt}
+              onMouseDown={(e) => { e.preventDefault(); add(opt) }}
+              className="px-2.5 py-1.5 text-xs cursor-pointer hover:bg-blue-50 hover:text-blue-700 truncate"
+            >
+              {opt}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Single-value combobox ──────────────────────────────────────────────────────
 
 function SegmentCombobox({
   value,
@@ -153,24 +262,47 @@ function SegmentCombobox({
 // ── Component ────────────────────────────────────────────────────────────────
 
 interface Props {
-  onSelect: (ids: string[]) => void
+  /** Called with matching contact IDs; if omitted, "Select N" button is hidden */
+  onSelect?: (ids: string[]) => void
   onClose: () => void
+  /** Pre-load rules from an existing segment (for edit mode) */
+  initialDef?: SegmentDef
+  /** If set, shows "Update criteria" button that PATCHes this list */
+  editingListId?: string
+  /** Display name of the list being edited */
+  editingListName?: string
+  /** Called after a successful save or update */
+  onSaved?: () => void
 }
 
 type LabelOption = { id: string; name: string; color: string }
 
-export default function SegmentBuilder({ onSelect, onClose }: Props) {
-  const [combinator, setCombinator] = useState<"AND" | "OR">("AND")
-  const [rules, setRules] = useState<SegmentRule[]>([newRule()])
+export default function SegmentBuilder({
+  onSelect,
+  onClose,
+  initialDef,
+  editingListId,
+  editingListName,
+  onSaved,
+}: Props) {
+  const [combinator, setCombinator] = useState<"AND" | "OR">(initialDef?.combinator ?? "AND")
+  const [rules, setRules] = useState<SegmentRule[]>(
+    initialDef?.rules?.length
+      ? initialDef.rules.map(ruleFromDef)
+      : [newRule()]
+  )
   const [count, setCount] = useState<number | null>(null)
   const [ids, setIds] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [labels, setLabels] = useState<LabelOption[]>([])
 
-  // Save-as-smart-list state
+  // Save-as-smart-list state (create mode)
   const [savingList, setSavingList] = useState(false)
   const [listName, setListName] = useState("")
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+
+  // Update criteria state (edit mode)
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "saving" | "saved">("idle")
 
   // Autocomplete options derived from the offline contacts index
   const index = useContactsIndex()
@@ -196,6 +328,7 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
       const def = FIELD_MAP[r.field]
       if (!def) return false
       if (!needsValue(def.type, r.operator)) return true
+      if (isMultiValue(def.type, r.operator)) return (r.values && r.values.length > 0)
       return r.value.trim() !== ""
     })
     if (active.length === 0) { setCount(null); setIds([]); return }
@@ -231,11 +364,19 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
         const def = FIELD_MAP[patch.field]
         updated.operator = def ? defaultOperator(def.type) : "is"
         updated.value = ""
+        updated.values = []
       }
-      // Reset value when operator changes to one that doesn't need it
-      if (patch.operator) {
+      // When operator changes, reset values if switching away from multi-value
+      if (patch.operator && patch.operator !== r.operator) {
         const def = FIELD_MAP[updated.field]
-        if (def && !needsValue(def.type, patch.operator)) updated.value = ""
+        if (def && !needsValue(def.type, patch.operator)) {
+          updated.value = ""
+          updated.values = []
+        } else if (def && !isMultiValue(def.type, patch.operator)) {
+          // switching from multi to single (e.g. is → contains)
+          updated.values = []
+          updated.value = ""
+        }
       }
       return updated
     }))
@@ -249,15 +390,25 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
     setRules((prev) => [...prev, newRule()])
   }
 
-  // Helper: get active (filled) rules
-  function getActiveRules() {
-    return rules.filter((r) => {
-      if (!r.field || !r.operator) return false
-      const def = FIELD_MAP[r.field]
-      if (!def) return false
-      if (!needsValue(def.type, r.operator)) return true
-      return r.value.trim() !== ""
-    })
+  // Helper: get active (filled) rules, cleaned for serialisation
+  function getActiveRules(): SegmentRule[] {
+    return rules
+      .filter((r) => {
+        if (!r.field || !r.operator) return false
+        const def = FIELD_MAP[r.field]
+        if (!def) return false
+        if (!needsValue(def.type, r.operator)) return true
+        if (isMultiValue(def.type, r.operator)) return r.values && r.values.length > 0
+        return r.value.trim() !== ""
+      })
+      .map((r) => {
+        // For multi-value rules, omit legacy value; for single-value rules, omit values
+        const def = FIELD_MAP[r.field]
+        if (def && isMultiValue(def.type, r.operator)) {
+          return { id: r.id, field: r.field, operator: r.operator, value: "", values: r.values ?? [] }
+        }
+        return { id: r.id, field: r.field, operator: r.operator, value: r.value }
+      })
   }
 
   async function saveAsSmartList() {
@@ -276,21 +427,50 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
       setSaveStatus("saved")
       setListName("")
       setSavingList(false)
+      onSaved?.()
       setTimeout(() => setSaveStatus("idle"), 4000)
     } catch {
       setSaveStatus("idle")
     }
   }
 
+  async function updateCriteria() {
+    if (!editingListId) return
+    setUpdateStatus("saving")
+    try {
+      await fetch(`/api/lists/${editingListId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filterSegment: JSON.stringify({ combinator, rules: getActiveRules() }),
+        }),
+      })
+      setUpdateStatus("saved")
+      onSaved?.()
+      setTimeout(() => setUpdateStatus("idle"), 3000)
+    } catch {
+      setUpdateStatus("idle")
+    }
+  }
+
   // Group fields for the select optgroup
   const groups = Array.from(new Set(FIELDS.map((f) => f.group)))
+
+  const isEditMode = !!editingListId
 
   return (
     <div className="bg-white border border-blue-200 rounded-2xl p-4 space-y-3 shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-gray-700">Segment builder</span>
+          {isEditMode ? (
+            <span className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+              <Pencil size={11} className="text-emerald-500" />
+              {editingListName ? `Editing "${editingListName}"` : "Edit criteria"}
+            </span>
+          ) : (
+            <span className="text-xs font-semibold text-gray-700">Segment builder</span>
+          )}
           {/* AND / OR toggle */}
           <div className="flex items-center text-xs border border-gray-200 rounded-lg overflow-hidden">
             {(["AND", "OR"] as const).map((c) => (
@@ -317,11 +497,12 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
           const def = FIELD_MAP[rule.field]
           const ops = def ? OPERATORS[def.type] : []
           const showValue = def ? needsValue(def.type, rule.operator) : false
+          const multiVal  = def ? isMultiValue(def.type, rule.operator) : false
 
           return (
-            <div key={rule.id} className="flex items-center gap-2">
+            <div key={rule.id} className="flex items-start gap-2">
               {/* Combinator label */}
-              <span className="text-xs text-gray-400 w-6 shrink-0 text-right">
+              <span className="text-xs text-gray-400 w-6 shrink-0 text-right mt-2">
                 {i === 0 ? "If" : combinator}
               </span>
 
@@ -329,7 +510,7 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
               <select
                 value={rule.field}
                 onChange={(e) => updateRule(rule.id, { field: e.target.value })}
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0 flex-1"
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-0 flex-none"
               >
                 {groups.map((group) => (
                   <optgroup key={group} label={group}>
@@ -393,6 +574,13 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
                         placeholder="0"
                         className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-20 shrink-0"
                       />
+                    ) : multiVal ? (
+                      // Multi-value tag input for text_eq with "is" / "is not"
+                      <MultiValueCombobox
+                        values={rule.values ?? []}
+                        onChange={(vals) => updateRule(rule.id, { values: vals })}
+                        options={fieldOptions[rule.field] ?? []}
+                      />
                     ) : fieldOptions[rule.field]?.length ? (
                       <SegmentCombobox
                         value={rule.value}
@@ -415,7 +603,7 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
               <button
                 onClick={() => removeRule(rule.id)}
                 disabled={rules.length === 1}
-                className="p-1 text-gray-300 hover:text-red-400 disabled:opacity-30 shrink-0"
+                className="p-1 text-gray-300 hover:text-red-400 disabled:opacity-30 shrink-0 mt-1"
               >
                 <X size={12} />
               </button>
@@ -427,8 +615,8 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
       {/* Footer */}
       <div className="space-y-2 pt-1">
 
-        {/* Save-as-smart-list inline form */}
-        {savingList && (
+        {/* Save-as-smart-list inline form (create mode) */}
+        {!isEditMode && savingList && (
           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
             <BookmarkPlus size={13} className="text-green-600 shrink-0" />
             <input
@@ -458,12 +646,20 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
           </div>
         )}
 
-        {/* Saved confirmation */}
-        {saveStatus === "saved" && !savingList && (
+        {/* Saved confirmation (create mode) */}
+        {!isEditMode && saveStatus === "saved" && !savingList && (
           <p className="text-xs text-green-600 flex items-center gap-1">
             <Check size={11} />
             Smart list saved —{" "}
             <a href="/lists" className="underline hover:text-green-800">view in Lists</a>
+          </p>
+        )}
+
+        {/* Update saved confirmation (edit mode) */}
+        {isEditMode && updateStatus === "saved" && (
+          <p className="text-xs text-emerald-600 flex items-center gap-1">
+            <Check size={11} />
+            Criteria updated
           </p>
         )}
 
@@ -483,24 +679,43 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
                 <span className="font-semibold text-gray-900">{count.toLocaleString()}</span> match
               </span>
             )}
-            {/* Save as smart list — shown when segment has results */}
-            {!savingList && count !== null && count > 0 && (
+
+            {/* Edit mode: "Update criteria" button */}
+            {isEditMode && (
               <button
-                onClick={() => setSavingList(true)}
-                className="flex items-center gap-1 text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                onClick={updateCriteria}
+                disabled={count === null || updateStatus === "saving"}
+                className="flex items-center gap-1 text-xs bg-emerald-600 text-white rounded-lg px-3 py-1.5 hover:bg-emerald-700 disabled:opacity-40 transition-colors font-medium"
               >
-                <BookmarkPlus size={11} />
-                Save as list
+                <Check size={11} />
+                {updateStatus === "saving" ? "Saving…" : "Update criteria"}
               </button>
             )}
-            <button
-              disabled={count === null || count === 0 || loading}
-              onClick={() => onSelect(ids)}
-              className="flex items-center gap-1.5 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
-            >
-              <Users size={11} />
-              Select {count !== null && count > 0 ? count.toLocaleString() : ""}
-            </button>
+
+            {/* Create mode: "Save as list" + "Select N" */}
+            {!isEditMode && (
+              <>
+                {!savingList && count !== null && count > 0 && (
+                  <button
+                    onClick={() => setSavingList(true)}
+                    className="flex items-center gap-1 text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                  >
+                    <BookmarkPlus size={11} />
+                    Save as list
+                  </button>
+                )}
+                {onSelect && (
+                  <button
+                    disabled={count === null || count === 0 || loading}
+                    onClick={() => onSelect(ids)}
+                    className="flex items-center gap-1.5 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
+                  >
+                    <Users size={11} />
+                    Select {count !== null && count > 0 ? count.toLocaleString() : ""}
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>

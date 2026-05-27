@@ -14,6 +14,8 @@ export const STALE = {
   /** Companies & labels — very stable */
   companies: 7 * 24 * 60 * 60 * 1000,   // 7 days
   labels:    7 * 24 * 60 * 60 * 1000,   // 7 days
+  /** Lists — very stable, mutated only on create/delete/member changes */
+  lists:     7 * 24 * 60 * 60 * 1000,   // 7 days
   /** Dashboard / treemap stats — refresh once a day is plenty */
   dashboard: 24 * 60 * 60 * 1000,       // 24 hours
   /** Transient / frequently-updated UI data — keep short */
@@ -32,6 +34,7 @@ export const PERSIST_KEYS = new Set([
   "contact",
   "companies",
   "labels",
+  "lists",
   "dashboard",
   "treemap",
   "contacts-index",

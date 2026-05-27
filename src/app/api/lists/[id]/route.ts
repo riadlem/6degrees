@@ -80,12 +80,18 @@ export async function PATCH(
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  const { name, description } = await request.json()
+  const body = await request.json()
+  const { name, description, filterSegment } = body as {
+    name?: string
+    description?: string
+    filterSegment?: string | null
+  }
   const list = await prisma.contactList.updateMany({
     where: { id: params.id, userId: session.user.id },
     data: {
-      ...(name        != null && { name: name.trim() }),
-      ...(description != null && { description: description.trim() }),
+      ...(name           != null && { name: name.trim() }),
+      ...(description    != null && { description: description.trim() }),
+      ...(filterSegment  !== undefined && { filterSegment }),
     },
   })
   if (list.count === 0) return new Response("Not found", { status: 404 })
