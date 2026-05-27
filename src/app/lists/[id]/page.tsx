@@ -6,12 +6,13 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap,
-  ArrowUpDown, ArrowUp, ArrowDown, Sparkles,
+  ArrowUpDown, ArrowUp, ArrowDown, Sparkles, Pencil,
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
 import ShareModal from "@/components/ShareModal"
 import ContactDetail from "@/components/ContactDetail"
+import SegmentBuilder from "@/components/SegmentBuilder"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { linkedinLevel, type ContactSummary } from "@/components/ContactCard"
 
@@ -63,6 +64,7 @@ function ListDetailContent() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sortCol, setSortCol] = useState<"name" | "company" | "location" | "connections" | "added">("name")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+  const [editingSegment, setEditingSegment] = useState(false)
 
   function cycleSort(col: "name" | "company" | "location" | "connections" | "added") {
     if (sortCol === col) {
@@ -249,6 +251,13 @@ function ListDetailContent() {
                   <span className="text-xs text-gray-500 truncate max-w-xs">
                     {summariseSegment(def, 3)}
                   </span>
+                  <button
+                    onClick={() => setEditingSegment((v) => !v)}
+                    className="inline-flex items-center gap-0.5 text-xs text-emerald-600 hover:text-emerald-800 hover:underline transition-colors"
+                  >
+                    <Pencil size={9} />
+                    {editingSegment ? "Cancel" : "Edit criteria"}
+                  </button>
                 </div>
               )
             } catch { return null }
@@ -285,6 +294,27 @@ function ListDetailContent() {
           </button>
         </div>
       </div>
+
+      {/* Inline segment editor for smart lists */}
+      {editingSegment && list.filterSegment && !list.filterCompany && (() => {
+        try {
+          const def = JSON.parse(list.filterSegment) as SegmentDef
+          return (
+            <div className="mb-6">
+              <SegmentBuilder
+                initialDef={def}
+                editingListId={id}
+                editingListName={list.name}
+                onClose={() => setEditingSegment(false)}
+                onSaved={() => {
+                  setEditingSegment(false)
+                  fetchList()
+                }}
+              />
+            </div>
+          )
+        } catch { return null }
+      })()}
 
       {/* Contact table */}
       {list.members.length === 0 ? (

@@ -11,6 +11,7 @@ import { Plus, List, Trash2, Users, Share2, Building2, Sparkles } from "lucide-r
 import { formatDate } from "@/lib/utils"
 import { cn } from "@/lib/utils"
 import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
+import SegmentBuilder from "@/components/SegmentBuilder"
 
 type ContactList = {
   id: string
@@ -31,7 +32,7 @@ export default function ListsPage() {
   const userId = session?.user?.id
 
   const [creating, setCreating] = useState(false)
-  const [createMode, setCreateMode] = useState<"manual" | "company">("manual")
+  const [createMode, setCreateMode] = useState<"manual" | "company" | "smart">("manual")
   const [newName, setNewName] = useState("")
   const [newDesc, setNewDesc] = useState("")
   const [newCompany, setNewCompany] = useState("")
@@ -82,7 +83,7 @@ export default function ListsPage() {
     setSaving(false)
   }
 
-  function openCreate(mode: "manual" | "company") {
+  function openCreate(mode: "manual" | "company" | "smart") {
     setCreateMode(mode)
     setCreating(true)
     setNewName("")
@@ -124,6 +125,13 @@ export default function ListsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => openCreate("smart")}
+            className="flex items-center gap-1.5 text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-medium transition-colors"
+          >
+            <Sparkles size={14} />
+            Smart list
+          </button>
+          <button
             onClick={() => openCreate("company")}
             className="flex items-center gap-1.5 text-sm bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl font-medium transition-colors"
           >
@@ -141,7 +149,19 @@ export default function ListsPage() {
       </div>
 
       {/* Create list form */}
-      {creating && (
+      {creating && createMode === "smart" && (
+        <div className="mb-5">
+          <SegmentBuilder
+            onClose={() => setCreating(false)}
+            onSaved={() => {
+              setCreating(false)
+              queryClient.invalidateQueries({ queryKey: ["lists", userId] })
+            }}
+          />
+        </div>
+      )}
+
+      {creating && createMode !== "smart" && (
         <div className="mb-5 bg-white border border-gray-200 rounded-2xl p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-3">
             <div className={cn(
