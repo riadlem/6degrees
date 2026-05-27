@@ -50,6 +50,7 @@ export async function GET(
         lastName: true,
         position: true,
         company: true,
+        city: true,
         country: true,
         industry: true,
         photoUrl: true,
@@ -62,6 +63,8 @@ export async function GET(
         connectedOn: true,
         labels: { select: { label: { select: { id: true, name: true, color: true } } } },
         emailAddresses: { select: { email: true }, take: 5 },
+        whatsAppMessages:   { take: 1, orderBy: { sentAt: "desc" as const }, select: { sentAt: true, isOutbound: true } },
+        linkedInDMMessages: { take: 1, orderBy: { sentAt: "desc" as const }, select: { sentAt: true, isOutbound: true } },
       },
     }),
     prisma.companyDomain.findMany({

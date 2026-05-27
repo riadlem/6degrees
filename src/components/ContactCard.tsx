@@ -15,6 +15,8 @@ export type ContactSummary = {
   position: string | null
   company: string | null
   location: string | null
+  city: string | null
+  country: string | null
   industry: string | null
   photoUrl: string | null
   emailAddress: string | null
@@ -27,6 +29,8 @@ export type ContactSummary = {
   notes: { id: string }[]
   listMembers: { listId: string; list: { name: string } }[]
   labels: { label: { id: string; name: string; color: string } }[]
+  whatsAppMessages:   { sentAt: string; isOutbound: boolean }[]
+  linkedInDMMessages: { sentAt: string; isOutbound: boolean }[]
 }
 
 /**
