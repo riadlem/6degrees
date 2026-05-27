@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Plus, X, Loader2, Users } from "lucide-react"
+import { Plus, X, Loader2, Users, BookmarkPlus, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { SegmentRule } from "@/app/api/contacts/segment/route"
 
@@ -100,6 +100,11 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
   const [loading, setLoading] = useState(false)
   const [labels, setLabels] = useState<LabelOption[]>([])
 
+  // Save-as-smart-list state
+  const [savingList, setSavingList] = useState(false)
+  const [listName, setListName] = useState("")
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
+
   useEffect(() => {
     fetch("/api/labels").then((r) => r.ok ? r.json() : []).then(setLabels).catch(() => {})
   }, [])
@@ -161,6 +166,39 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
 
   function addRule() {
     setRules((prev) => [...prev, newRule()])
+  }
+
+  // Helper: get active (filled) rules
+  function getActiveRules() {
+    return rules.filter((r) => {
+      if (!r.field || !r.operator) return false
+      const def = FIELD_MAP[r.field]
+      if (!def) return false
+      if (!needsValue(def.type, r.operator)) return true
+      return r.value.trim() !== ""
+    })
+  }
+
+  async function saveAsSmartList() {
+    const name = listName.trim()
+    if (!name || count === null || count === 0) return
+    setSaveStatus("saving")
+    try {
+      await fetch("/api/lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          filterSegment: JSON.stringify({ combinator, rules: getActiveRules() }),
+        }),
+      })
+      setSaveStatus("saved")
+      setListName("")
+      setSavingList(false)
+      setTimeout(() => setSaveStatus("idle"), 4000)
+    } catch {
+      setSaveStatus("idle")
+    }
   }
 
   // Group fields for the select optgroup
@@ -300,30 +338,83 @@ export default function SegmentBuilder({ onSelect, onClose }: Props) {
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between pt-1">
-        <button
-          onClick={addRule}
-          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
-        >
-          <Plus size={12} />
-          Add rule
-        </button>
+      <div className="space-y-2 pt-1">
 
-        <div className="flex items-center gap-3">
-          {loading && <Loader2 size={13} className="animate-spin text-gray-400" />}
-          {!loading && count !== null && (
-            <span className="text-xs text-gray-500">
-              <span className="font-semibold text-gray-900">{count.toLocaleString()}</span> contact{count !== 1 ? "s" : ""} match
-            </span>
-          )}
+        {/* Save-as-smart-list inline form */}
+        {savingList && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+            <BookmarkPlus size={13} className="text-green-600 shrink-0" />
+            <input
+              autoFocus
+              value={listName}
+              onChange={(e) => setListName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter")  saveAsSmartList()
+                if (e.key === "Escape") { setSavingList(false); setListName("") }
+              }}
+              placeholder="Smart list name…"
+              className="text-xs flex-1 bg-transparent outline-none placeholder-green-400 text-green-900"
+            />
+            <button
+              onClick={saveAsSmartList}
+              disabled={!listName.trim() || saveStatus === "saving"}
+              className="text-xs text-green-700 font-semibold hover:text-green-900 disabled:opacity-40 shrink-0"
+            >
+              {saveStatus === "saving" ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => { setSavingList(false); setListName("") }}
+              className="text-green-400 hover:text-green-600 shrink-0"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
+        {/* Saved confirmation */}
+        {saveStatus === "saved" && !savingList && (
+          <p className="text-xs text-green-600 flex items-center gap-1">
+            <Check size={11} />
+            Smart list saved —{" "}
+            <a href="/lists" className="underline hover:text-green-800">view in Lists</a>
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
           <button
-            disabled={count === null || count === 0 || loading}
-            onClick={() => onSelect(ids)}
-            className="flex items-center gap-1.5 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
+            onClick={addRule}
+            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors"
           >
-            <Users size={11} />
-            Select {count !== null && count > 0 ? count.toLocaleString() : ""}
+            <Plus size={12} />
+            Add rule
           </button>
+
+          <div className="flex items-center gap-2">
+            {loading && <Loader2 size={13} className="animate-spin text-gray-400" />}
+            {!loading && count !== null && (
+              <span className="text-xs text-gray-500">
+                <span className="font-semibold text-gray-900">{count.toLocaleString()}</span> match
+              </span>
+            )}
+            {/* Save as smart list — shown when segment has results */}
+            {!savingList && count !== null && count > 0 && (
+              <button
+                onClick={() => setSavingList(true)}
+                className="flex items-center gap-1 text-xs text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+              >
+                <BookmarkPlus size={11} />
+                Save as list
+              </button>
+            )}
+            <button
+              disabled={count === null || count === 0 || loading}
+              onClick={() => onSelect(ids)}
+              className="flex items-center gap-1.5 text-xs bg-blue-600 text-white rounded-lg px-3 py-1.5 hover:bg-blue-700 disabled:opacity-40 transition-colors font-medium"
+            >
+              <Users size={11} />
+              Select {count !== null && count > 0 ? count.toLocaleString() : ""}
+            </button>
+          </div>
         </div>
       </div>
     </div>

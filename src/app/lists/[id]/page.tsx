@@ -6,9 +6,10 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, Share2, Trash2, UserMinus, Building2, MapPin, Users, StickyNote, Zap,
-  ArrowUpDown, ArrowUp, ArrowDown
+  ArrowUpDown, ArrowUp, ArrowDown, Sparkles,
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
+import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
 import ShareModal from "@/components/ShareModal"
 import ContactDetail from "@/components/ContactDetail"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -38,6 +39,7 @@ type ListData = {
   name: string
   description: string | null
   filterCompany: string | null
+  filterSegment: string | null
   shareEnabled: boolean
   shareToken: string | null
   members: Member[]
@@ -235,6 +237,22 @@ function ListDetailContent() {
               </span>
             </div>
           )}
+          {list.filterSegment && !list.filterCompany && (() => {
+            try {
+              const def = JSON.parse(list.filterSegment) as SegmentDef
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                    <Sparkles size={9} />
+                    Smart list
+                  </span>
+                  <span className="text-xs text-gray-500 truncate max-w-xs">
+                    {summariseSegment(def, 3)}
+                  </span>
+                </div>
+              )
+            } catch { return null }
+          })()}
           {list.description && (
             <p className="text-sm text-gray-500 mt-1">{list.description}</p>
           )}
@@ -276,7 +294,9 @@ function ListDetailContent() {
           <p className="text-sm text-gray-400 mt-1">
             {list.filterCompany
               ? <>No contacts found at <strong>{list.filterCompany}</strong>. Import or sync contacts to populate this list.</>
-              : <>Go to{" "}<Link href="/contacts" className="text-blue-500 hover:underline">Contacts</Link>{" "}and add some here.</>
+              : list.filterSegment
+                ? <>No contacts match the current criteria. Try editing your{" "}<Link href="/contacts" className="text-blue-500 hover:underline">Segment</Link>{" "}rules.</>
+                : <>Go to{" "}<Link href="/contacts" className="text-blue-500 hover:underline">Contacts</Link>{" "}and add some here.</>
             }
           </p>
         </div>
@@ -408,7 +428,7 @@ function ListDetailContent() {
 
                 {/* Remove — hidden for dynamic company lists */}
                 <div className="w-20 flex justify-end">
-                  {!list.filterCompany && (
+                  {!list.filterCompany && !list.filterSegment && (
                     <button
                       onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}
                       disabled={removingId === contact.id}
