@@ -33,7 +33,7 @@ async function ensureColumns() {
 }
 
 function isNotConnected(contact: ContactRow | null | undefined): boolean {
-  if (!contact) return false
+  if (!contact) return true                      // unmatched sender = not a connection
   if (contact.connectedOn) return false          // has formal connection date
   if (contact.linkedinDegree === "1") return false // 1st degree
   return true

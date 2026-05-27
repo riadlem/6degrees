@@ -1061,9 +1061,19 @@
   // Scrape the title of the CURRENT role from the experience section.
   // This is more reliable than parsing the headline for people who use tagline-style
   // headlines like "Ex Morgan Stanley - Banking, Crypto, iGaming…" instead of
-  // "Sales Director at BVNK". Returns the title string or null.
+  // "Sales Director at BVNK". Returns { title, company } or null.
+  //
+  // When a person holds multiple concurrent roles (e.g. "Advisor at X" +
+  // "Head of Y at Danske Bank") the first DOM entry isn't always the primary
+  // job.  We collect all "Present" items, score them, and prefer operational
+  // roles over advisory/board/non-exec ones.  Within the same tier we prefer
+  // the role with the later start year.
   function scrapeCurrentTitle() {
     const PRESENT_RE = /\b(present|aujourd'hui|heute|heden|ahora|attuale|maintenant|현재|現在|сейчас|جاري)\b/i
+
+    // Secondary/advisory role keywords — these titles are deprioritized when a
+    // concurrent operational role exists.
+    const SECONDARY_RE = /\b(advisor|adviser|advisory|non-?executive|independent\s+director|board\s+(?:member|director|observer)|trustee|patron|mentor|ambassador|council|committee|bénévole|volunteer)\b/i
 
     // Helper: extract a clean title string from an experience item element.
     // LinkedIn renders experience items as <li> or pvs-entity blocks; the title is
@@ -1093,6 +1103,32 @@
       return null
     }
 
+    // Helper: extract the company name from an experience item.
+    function companyFromItem(item) {
+      // Best signal: aria-label on the company/profile link is often "Title at Company"
+      const link = item.querySelector("a[href*='/company/'], a[href*='/in/']")
+      if (link) {
+        const label = (link.getAttribute("aria-label") ?? "").trim()
+        if (label) {
+          const { company } = parsePositionCompany(label)
+          if (company && company.length > 1 && company.length < 80) return company
+        }
+        // Try the text of the company link itself
+        for (const span of link.querySelectorAll("span[aria-hidden='true']")) {
+          const t = (span.textContent ?? "").trim()
+          if (t && t.length > 1 && t.length < 80) return t
+        }
+      }
+      return null
+    }
+
+    // Helper: extract the start year of a role for recency scoring.
+    function startYearFromItem(item) {
+      const matches = [...(item.textContent ?? "").matchAll(/\b(19|20)(\d{2})\b/g)]
+      const years = matches.map(m => parseInt(m[0]))
+      return years.length ? Math.min(...years) : 0  // earliest year = start year
+    }
+
     // Look inside the experience section for an item with a "Present" date range.
     function findExperienceSection() {
       const byAttr = document.querySelector("section[data-view-name*='experience']")
@@ -1106,14 +1142,31 @@
     }
 
     const expSection = findExperienceSection()
-    if (expSection) {
-      for (const item of expSection.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
-        if (!PRESENT_RE.test(item.textContent)) continue
-        const title = titleFromItem(item)
-        if (title && title.length > 1 && title.length < 80) return title
-      }
+    if (!expSection) return null
+
+    // Collect all concurrent "Present" roles.
+    const candidates = []
+    for (const item of expSection.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+      if (!PRESENT_RE.test(item.textContent)) continue
+      const title = titleFromItem(item)
+      if (!title || title.length < 2 || title.length >= 80) continue
+      const company   = companyFromItem(item)
+      const startYear = startYearFromItem(item)
+      const secondary = SECONDARY_RE.test(title)
+      candidates.push({ title, company, startYear, secondary })
     }
-    return null
+
+    if (!candidates.length) return null
+
+    // Sort: primary (non-advisory) roles first, then by most recent start year.
+    candidates.sort((a, b) => {
+      if (a.secondary !== b.secondary) return a.secondary ? 1 : -1
+      return b.startYear - a.startYear
+    })
+
+    const best = candidates[0]
+    console.debug("[6D title] candidates:", candidates, "→ best:", best)
+    return { title: best.title, company: best.company }
   }
 
   function scrapeProfile() {
@@ -1126,16 +1179,17 @@
     // DOM-based company (JSON-LD worksFor + company logo alt text) is more reliable
     // than headline string parsing — headline separators are ambiguous (e.g.
     // "Unified Commerce | Newblack" where "Unified Commerce" is a specialty, not a
-    // company). scrapeCompanyFromTopCard() tries JSON-LD first, then logo alt, then
-    // experience items — all more authoritative than headline text parsing.
-    // Only fall back to headline-parsed company when the DOM yields nothing.
-    const company = scrapeCompanyFromTopCard() || parsed.company || null
+    // company). scrapeCurrentTitle() now returns { title, company } from the ranked
+    // experience entry — use that company first so title and company stay in sync
+    // (avoids storing "Advisor" title but JSON-LD company from a different role).
+    const currentRole = scrapeCurrentTitle()  // { title, company } | null
+    const company = currentRole?.company || scrapeCompanyFromTopCard() || parsed.company || null
 
     // Prefer the current role title from the experience section over the headline-parsed
     // position. Headlines are often taglines ("Ex Morgan Stanley - Banking, Crypto…")
     // that don't encode the actual current title cleanly. Only fall back to the
     // headline-derived position when the DOM experience section yields nothing.
-    const position = scrapeCurrentTitle() || parsed.position
+    const position = currentRole?.title || parsed.position
     const profileUrl = "https://www.linkedin.com/in/" + slugFromUrl() + "/"
 
     const profile = {
