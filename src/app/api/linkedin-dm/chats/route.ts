@@ -11,6 +11,7 @@ type RawRow = {
   outboundCount: bigint
   firstAt: Date | null
   lastAt: Date | null
+  lastIsOutbound: boolean | null
 }
 
 export async function GET(req: Request) {
@@ -26,30 +27,39 @@ export async function GET(req: Request) {
 
   // One query: group by conversationId, pick the first non-null contactId per conversation
   const rows = await prisma.$queryRaw<RawRow[]>`
+    WITH last_msg AS (
+      SELECT DISTINCT ON ("conversationId") "conversationId", "isOutbound" AS "lastIsOutbound"
+      FROM "LinkedInDMMessage"
+      WHERE "userId" = ${userId}
+      ORDER BY "conversationId", "sentAt" DESC
+    )
     SELECT
-      "conversationId",
-      MAX("chatName")                                              AS "chatName",
-      MAX("profileUrl")                                           AS "profileUrl",
-      MAX("contactId")                                            AS "contactId",
-      COUNT(*)::int                                               AS "messageCount",
-      SUM(CASE WHEN "isOutbound" THEN 1 ELSE 0 END)::int         AS "outboundCount",
-      MIN("sentAt")                                               AS "firstAt",
-      MAX("sentAt")                                               AS "lastAt"
-    FROM "LinkedInDMMessage"
-    WHERE "userId" = ${userId}
-    GROUP BY "conversationId"
+      m."conversationId",
+      MAX(m."chatName")                                              AS "chatName",
+      MAX(m."profileUrl")                                           AS "profileUrl",
+      MAX(m."contactId")                                            AS "contactId",
+      COUNT(*)::int                                                  AS "messageCount",
+      SUM(CASE WHEN m."isOutbound" THEN 1 ELSE 0 END)::int          AS "outboundCount",
+      MIN(m."sentAt")                                                AS "firstAt",
+      MAX(m."sentAt")                                                AS "lastAt",
+      lm."lastIsOutbound"
+    FROM "LinkedInDMMessage" m
+    JOIN last_msg lm ON lm."conversationId" = m."conversationId"
+    WHERE m."userId" = ${userId}
+    GROUP BY m."conversationId", lm."lastIsOutbound"
   `
 
   // Normalise bigint → number (driver may return BigInt on some platforms)
   let chats = rows.map((r) => ({
-    conversationId: r.conversationId,
-    chatName:       r.chatName,
-    profileUrl:     r.profileUrl ?? null,
-    contactId:      r.contactId ?? null,
-    messageCount:   Number(r.messageCount),
-    outboundCount:  Number(r.outboundCount),
-    firstAt:        r.firstAt?.toISOString() ?? null,
-    lastAt:         r.lastAt?.toISOString()  ?? null,
+    conversationId:  r.conversationId,
+    chatName:        r.chatName,
+    profileUrl:      r.profileUrl ?? null,
+    contactId:       r.contactId ?? null,
+    messageCount:    Number(r.messageCount),
+    outboundCount:   Number(r.outboundCount),
+    firstAt:         r.firstAt?.toISOString() ?? null,
+    lastAt:          r.lastAt?.toISOString()  ?? null,
+    lastIsOutbound:  r.lastIsOutbound ?? null,
   }))
 
   // Apply filter
@@ -92,7 +102,7 @@ export async function GET(req: Request) {
   const contacts = contactIds.length
     ? await prisma.contact.findMany({
         where: { id: { in: contactIds } },
-        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true },
+        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true, city: true, country: true },
       })
     : []
   const contactMap = new Map(contacts.map((c) => [c.id, c]))

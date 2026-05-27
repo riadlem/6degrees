@@ -4,12 +4,83 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import {
-  Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronUp, ChevronDown, UserPlus,
+  Search, ArrowUpDown, ArrowUp, ArrowDown, UserPlus,
   ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
 } from "lucide-react"
-import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
+import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const COUNTRY_ISO: Record<string, string> = {
+  "Afghanistan":"AF","Albania":"AL","Algeria":"DZ","Angola":"AO","Argentina":"AR",
+  "Armenia":"AM","Australia":"AU","Austria":"AT","Azerbaijan":"AZ","Bahrain":"BH",
+  "Bangladesh":"BD","Belarus":"BY","Belgium":"BE","Bolivia":"BO","Brazil":"BR",
+  "Bulgaria":"BG","Cambodia":"KH","Cameroon":"CM","Canada":"CA","Chile":"CL",
+  "China":"CN","Colombia":"CO","Costa Rica":"CR","Croatia":"HR","Cyprus":"CY",
+  "Czech Republic":"CZ","Czechia":"CZ","Denmark":"DK","Dominican Republic":"DO",
+  "Ecuador":"EC","Egypt":"EG","Estonia":"EE","Ethiopia":"ET","Finland":"FI",
+  "France":"FR","Georgia":"GE","Germany":"DE","Ghana":"GH","Greece":"GR",
+  "Guatemala":"GT","Honduras":"HN","Hong Kong":"HK","Hungary":"HU","Iceland":"IS",
+  "India":"IN","Indonesia":"ID","Iran":"IR","Iraq":"IQ","Ireland":"IE",
+  "Israel":"IL","Italy":"IT","Ivory Coast":"CI","Japan":"JP","Jordan":"JO",
+  "Kazakhstan":"KZ","Kenya":"KE","Kuwait":"KW","Latvia":"LV","Lebanon":"LB",
+  "Libya":"LY","Lithuania":"LT","Luxembourg":"LU","Malaysia":"MY","Malta":"MT",
+  "Mexico":"MX","Moldova":"MD","Morocco":"MA","Mozambique":"MZ","Myanmar":"MM",
+  "Nepal":"NP","Netherlands":"NL","New Zealand":"NZ","Nigeria":"NG","Norway":"NO",
+  "Oman":"OM","Pakistan":"PK","Palestine":"PS","Panama":"PA","Peru":"PE",
+  "Philippines":"PH","Poland":"PL","Portugal":"PT","Qatar":"QA","Romania":"RO",
+  "Russia":"RU","Rwanda":"RW","Saudi Arabia":"SA","Senegal":"SN","Serbia":"RS",
+  "Singapore":"SG","Slovakia":"SK","Slovenia":"SI","South Africa":"ZA",
+  "South Korea":"KR","Spain":"ES","Sri Lanka":"LK","Sudan":"SD","Sweden":"SE",
+  "Switzerland":"CH","Syria":"SY","Taiwan":"TW","Tanzania":"TZ","Thailand":"TH",
+  "Tunisia":"TN","Turkey":"TR","Türkiye":"TR","Uganda":"UG","Ukraine":"UA",
+  "United Arab Emirates":"AE","UAE":"AE","United Kingdom":"GB","UK":"GB",
+  "United States":"US","USA":"US","Uruguay":"UY","Uzbekistan":"UZ",
+  "Venezuela":"VE","Vietnam":"VN","Yemen":"YE","Zambia":"ZM","Zimbabwe":"ZW",
+}
+const FR_COUNTRY: Record<string, string> = {
+  "royaume-uni": "United Kingdom", "royaume uni": "United Kingdom",
+  "états-unis": "United States", "etats-unis": "United States",
+  "etats unis": "United States", "états unis": "United States",
+  "usa": "United States", "allemagne": "Germany", "espagne": "Spain",
+  "italie": "Italy", "pays-bas": "Netherlands", "belgique": "Belgium",
+  "suisse": "Switzerland", "autriche": "Austria", "chine": "China",
+  "japon": "Japan", "russie": "Russia", "pologne": "Poland",
+  "grèce": "Greece", "grece": "Greece", "danemark": "Denmark",
+  "norvège": "Norway", "norvege": "Norway", "suède": "Sweden",
+  "suede": "Sweden", "finlande": "Finland", "irlande": "Ireland",
+  "turquie": "Turkey", "maroc": "Morocco", "australie": "Australia",
+  "brésil": "Brazil", "bresil": "Brazil", "mexique": "Mexico",
+  "inde": "India", "égypte": "Egypt", "egypte": "Egypt",
+  "afrique du sud": "South Africa",
+  "emirats arabes unis": "United Arab Emirates",
+  "émirats arabes unis": "United Arab Emirates",
+  "arabie saoudite": "Saudi Arabia",
+  "sénégal": "Senegal", "senegal": "Senegal",
+  "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
+  "cameroun": "Cameroon",
+}
+function normCountry(c: string | null | undefined): string | null {
+  if (!c) return null
+  return FR_COUNTRY[c.trim().toLowerCase()] ?? c.trim()
+}
+function countryFlag(country: string): string {
+  const iso = COUNTRY_ISO[country]
+  if (!iso) return ""
+  return iso.split("").map((c) => String.fromCodePoint(c.charCodeAt(0) + 127397)).join("")
+}
+function relTime(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime()
+  const h = ms / 3_600_000
+  if (h < 1)  return "now"
+  if (h < 24) return `${Math.floor(h)}h`
+  const d = ms / 86_400_000
+  if (d < 7)  return `${Math.floor(d)}d`
+  if (d < 30) return `${Math.floor(d / 7)}w`
+  return `${Math.floor(d / 30)}mo`
+}
 
 // LinkedIn blue SVG logo
 function LiIcon({ size = 16, className = "" }: { size?: number; className?: string }) {
@@ -19,6 +90,9 @@ function LiIcon({ size = 16, className = "" }: { size?: number; className?: stri
     </svg>
   )
 }
+
+// Grid columns — header + rows must match
+const GRID = "2.5rem 1fr auto 6rem 5rem 6rem 3.5rem"
 
 type LiDMChat = {
   conversationId: string
@@ -31,11 +105,14 @@ type LiDMChat = {
     lastName: string
     company: string | null
     photoUrl: string | null
+    city: string | null
+    country: string | null
   } | null
   messageCount: number
   outboundCount: number
   firstAt: string | null
   lastAt: string | null
+  lastIsOutbound: boolean | null
 }
 
 type Stats = {
@@ -71,8 +148,14 @@ function ChatRow({
     ? Math.round((inboundCount / chat.messageCount) * 100)
     : 0
 
+  const country = normCountry(contact?.country)
+  const flag = country ? countryFlag(country) : ""
+
   return (
-    <div className="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 transition-colors group border-b border-gray-50 last:border-0">
+    <div
+      className="group grid items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-xs"
+      style={{ gridTemplateColumns: GRID }}
+    >
       {/* Avatar */}
       <div className="shrink-0 w-9 h-9 rounded-full overflow-hidden">
         {contact?.photoUrl ? (
@@ -92,10 +175,10 @@ function ChatRow({
         )}
       </div>
 
-      {/* Name + company — flex-1 on mobile, fixed on sm+ */}
-      <div className="flex-1 min-w-0 sm:w-44 sm:flex-none">
+      {/* Name + company + LinkedIn link */}
+      <div className="min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
-          <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm select-none")}>
+          <p className={cn("text-sm font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>
             {displayName}
           </p>
           {chat.profileUrl && (
@@ -111,21 +194,17 @@ function ChatRow({
             </a>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap mt-0.5">
           {contact?.company && (
             <p className="text-xs text-gray-400 truncate">{contact.company}</p>
           )}
           {!contact && (
             <p className="text-xs text-amber-500 font-medium">Not matched</p>
           )}
-          {/* Show last date inline on mobile */}
-          {chat.lastAt && (
-            <p className="text-xs text-gray-400 sm:hidden">{formatDate(chat.lastAt)}</p>
-          )}
         </div>
       </div>
 
-      {/* Message count */}
+      {/* Message count badge */}
       <div className="shrink-0">
         <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
           <LiIcon size={9} />
@@ -133,48 +212,61 @@ function ChatRow({
         </span>
       </div>
 
-      {/* Response rate — md+ only */}
-      <div className="w-28 shrink-0 hidden md:block">
+      {/* Response rate bar */}
+      <div className="min-w-0">
         <div className="flex items-center gap-1.5">
-          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+          <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-0">
             <div className="h-full bg-blue-400 rounded-full" style={{ width: `${responseRate}%` }} />
           </div>
-          <span className="text-xs text-gray-400 w-8 text-right">{responseRate}%</span>
+          <span className="text-xs text-gray-400 w-7 text-right shrink-0">{responseRate}%</span>
         </div>
-        <p className="text-[10px] text-gray-400 mt-0.5">
-          {inboundCount} recv · {chat.outboundCount} sent
+        <p className="text-[10px] text-gray-400 mt-0.5 tabular-nums">
+          <span className="text-emerald-600">↓{inboundCount}</span>
+          {" · "}
+          <span className="text-blue-500">↑{chat.outboundCount}</span>
         </p>
       </div>
 
-      {/* First contact — lg+ only */}
-      <div className="w-20 shrink-0 hidden lg:block">
-        <p className="text-xs text-gray-400">{chat.firstAt ? formatDate(chat.firstAt) : "—"}</p>
-        <p className="text-[10px] text-gray-300">first</p>
+      {/* Country + flag */}
+      <div className="min-w-0 flex items-center gap-1">
+        {flag && <span className="text-sm leading-none shrink-0">{flag}</span>}
+        {country && <p className="text-xs text-gray-500 truncate">{country}</p>}
       </div>
 
-      {/* Last message — hidden on mobile (shown inline above) */}
-      <div className="w-24 shrink-0 hidden sm:block">
-        <p className="text-xs font-medium text-gray-700">{chat.lastAt ? formatDate(chat.lastAt) : "—"}</p>
-        <p className="text-[10px] text-gray-400">last</p>
+      {/* Last message + direction */}
+      <div className="flex flex-col items-end shrink-0">
+        {chat.lastAt ? (
+          <>
+            <span className={cn("font-medium tabular-nums", chat.lastIsOutbound ? "text-blue-500" : "text-emerald-600")}>
+              {chat.lastIsOutbound === true ? "↑" : chat.lastIsOutbound === false ? "↓" : ""}{" "}
+              {relTime(chat.lastAt)}
+            </span>
+            {chat.firstAt && (
+              <span className="text-[10px] text-gray-300 tabular-nums">
+                first {relTime(chat.firstAt)}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-gray-200">—</span>
+        )}
       </div>
 
       {/* Actions */}
-      <div className="shrink-0 flex items-center gap-2">
+      <div className="shrink-0 flex items-center justify-end gap-2">
         {contact ? (
           <>
-            {/* View — always visible on mobile, hover-only on desktop */}
             <Link
-              href={`/contacts?id=${contact.id}`}
-              className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+              href={`/contacts?contact=${contact.id}`}
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 hover:text-blue-700"
+              title="Open contact"
             >
               <ExternalLink size={12} />
-              <span className="hidden sm:inline">View</span>
             </Link>
-            {/* Change assignment */}
             <button
               onClick={() => onLinkClick(chat)}
-              className="sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-              title="Re-assign to different contact"
+              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-600"
+              title="Re-assign"
             >
               <Pencil size={11} />
             </button>
@@ -182,36 +274,14 @@ function ChatRow({
         ) : (
           <button
             onClick={() => onLinkClick(chat)}
-            className="flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+            className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700 font-medium"
           >
             <UserPlus size={12} />
-            <span className="hidden sm:inline">Link</span>
+            <span>Link</span>
           </button>
         )}
       </div>
     </div>
-  )
-}
-
-function SortButton({
-  label, active, order, onToggle,
-}: {
-  label: string; active: boolean; order: Order; onToggle: () => void
-}) {
-  return (
-    <button
-      onClick={onToggle}
-      className={cn(
-        "flex items-center gap-1 text-xs font-medium transition-colors",
-        active ? "text-blue-700" : "text-gray-400 hover:text-gray-600"
-      )}
-    >
-      {label}
-      {active
-        ? order === "desc" ? <ChevronDown size={13} /> : <ChevronUp size={13} />
-        : <ArrowUpDown size={12} />
-      }
-    </button>
   )
 }
 
@@ -446,47 +516,34 @@ export default function LinkedInDMPage() {
             className="text-sm outline-none flex-1 bg-transparent w-0"
           />
         </div>
-
-        {/* Sort controls */}
-        <div className="flex items-center gap-3">
-          <SortButton
-            label="Last msg"
-            active={sort === "lastAt"}
-            order={order}
-            onToggle={() => toggleSort("lastAt")}
-          />
-          <SortButton
-            label="Count"
-            active={sort === "messageCount"}
-            order={order}
-            onToggle={() => toggleSort("messageCount")}
-          />
-        </div>
       </div>
 
       {/* Chat list */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-        {/* Column headers — hidden on mobile, shown sm+ */}
-        <div className="hidden sm:flex items-center gap-3 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs text-gray-400 font-medium">
-          <div className="w-9 shrink-0" />
-          <div className="flex-1 min-w-0 sm:w-44 sm:flex-none">Name</div>
+        {/* Column headers */}
+        <div
+          className="grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide"
+          style={{ gridTemplateColumns: GRID }}
+        >
+          <div />
+          <div>Name</div>
           <button
             onClick={() => toggleSort("messageCount")}
-            className={cn("shrink-0 w-16 flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
+            className={cn("flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
           >
-            Messages
+            Msgs
             {sort === "messageCount" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
           </button>
-          <div className="w-28 shrink-0 hidden md:block">Response rate</div>
-          <div className="w-20 shrink-0 hidden lg:block">First</div>
+          <div>Response</div>
+          <div>Country</div>
           <button
             onClick={() => toggleSort("lastAt")}
-            className={cn("shrink-0 w-24 flex items-center gap-1 hidden sm:flex hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
+            className={cn("flex items-center justify-end gap-1 hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
           >
             Last
             {sort === "lastAt" ? (order === "desc" ? <ArrowDown size={10} className="text-blue-500" /> : <ArrowUp size={10} className="text-blue-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
           </button>
-          <div className="shrink-0 w-12" />
+          <div />
         </div>
 
         {loading ? (
@@ -523,7 +580,6 @@ export default function LinkedInDMPage() {
       {linkingChat && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={closeLinkModal}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
             <div className="mb-4">
               <h3 className="font-semibold text-gray-900">
                 {linkingChat.contact ? "Re-assign chat" : "Link to contact"}
@@ -531,7 +587,6 @@ export default function LinkedInDMPage() {
               <p className="text-sm text-gray-500 mt-0.5">
                 <span className="font-medium text-gray-700">{linkingChat.chatName}</span>
               </p>
-              {/* Current assignment pill */}
               {linkingChat.contact && (
                 <div className="mt-2 flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
                   <div>
@@ -547,7 +602,6 @@ export default function LinkedInDMPage() {
                     disabled={linking}
                     onClick={() => doUnlink(linkingChat.conversationId)}
                     className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium disabled:opacity-50 ml-3 shrink-0"
-                    title="Remove this link"
                   >
                     {linking ? <Loader2 size={12} className="animate-spin" /> : <Unlink2 size={13} />}
                     Unlink
@@ -555,8 +609,6 @@ export default function LinkedInDMPage() {
                 </div>
               )}
             </div>
-
-            {/* Search */}
             <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 mb-3">
               <Search size={13} className="text-gray-400 shrink-0" />
               <input
@@ -568,7 +620,6 @@ export default function LinkedInDMPage() {
                 className="text-sm outline-none flex-1"
               />
             </div>
-
             {linkResults.length > 0 && (
               <ul className="border border-gray-100 rounded-xl overflow-hidden mb-4 divide-y divide-gray-50 max-h-56 overflow-y-auto">
                 {linkResults.map((c) => (
@@ -594,16 +645,11 @@ export default function LinkedInDMPage() {
                 ))}
               </ul>
             )}
-
             {linkSearch.trim() && linkResults.length === 0 && (
               <p className="text-xs text-gray-400 text-center py-3 mb-3">No contacts found</p>
             )}
-
             <div className="flex justify-end">
-              <button
-                onClick={closeLinkModal}
-                className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-              >
+              <button onClick={closeLinkModal} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors">
                 Cancel
               </button>
             </div>

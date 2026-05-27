@@ -9,6 +9,7 @@ type RawRow = {
   outboundCount: bigint
   firstAt: Date | null
   lastAt: Date | null
+  lastIsOutbound: boolean | null
 }
 
 export async function GET(req: Request) {
@@ -24,26 +25,35 @@ export async function GET(req: Request) {
 
   // One query: group by chatName, pick the first non-null contactId per chat
   const rows = await prisma.$queryRaw<RawRow[]>`
+    WITH last_msg AS (
+      SELECT DISTINCT ON ("chatName") "chatName", "isOutbound" AS "lastIsOutbound"
+      FROM "WhatsAppMessage"
+      WHERE "userId" = ${userId}
+      ORDER BY "chatName", "sentAt" DESC
+    )
     SELECT
-      "chatName",
-      MAX("contactId")                                          AS "contactId",
-      COUNT(*)::int                                             AS "messageCount",
-      SUM(CASE WHEN "isOutbound" THEN 1 ELSE 0 END)::int       AS "outboundCount",
-      MIN("sentAt")                                             AS "firstAt",
-      MAX("sentAt")                                             AS "lastAt"
-    FROM "WhatsAppMessage"
-    WHERE "userId" = ${userId}
-    GROUP BY "chatName"
+      m."chatName",
+      MAX(m."contactId")                                          AS "contactId",
+      COUNT(*)::int                                               AS "messageCount",
+      SUM(CASE WHEN m."isOutbound" THEN 1 ELSE 0 END)::int       AS "outboundCount",
+      MIN(m."sentAt")                                             AS "firstAt",
+      MAX(m."sentAt")                                             AS "lastAt",
+      lm."lastIsOutbound"
+    FROM "WhatsAppMessage" m
+    JOIN last_msg lm ON lm."chatName" = m."chatName"
+    WHERE m."userId" = ${userId}
+    GROUP BY m."chatName", lm."lastIsOutbound"
   `
 
   // Normalise bigint → number (driver may return BigInt on some platforms)
   let chats = rows.map((r) => ({
-    chatName:      r.chatName,
-    contactId:     r.contactId ?? null,
-    messageCount:  Number(r.messageCount),
-    outboundCount: Number(r.outboundCount),
-    firstAt:       r.firstAt?.toISOString() ?? null,
-    lastAt:        r.lastAt?.toISOString()  ?? null,
+    chatName:        r.chatName,
+    contactId:       r.contactId ?? null,
+    messageCount:    Number(r.messageCount),
+    outboundCount:   Number(r.outboundCount),
+    firstAt:         r.firstAt?.toISOString() ?? null,
+    lastAt:          r.lastAt?.toISOString()  ?? null,
+    lastIsOutbound:  r.lastIsOutbound ?? null,
   }))
 
   // Apply filter
@@ -86,7 +96,7 @@ export async function GET(req: Request) {
   const contacts = contactIds.length
     ? await prisma.contact.findMany({
         where: { id: { in: contactIds } },
-        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true },
+        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true, city: true, country: true },
       })
     : []
   const contactMap = new Map(contacts.map((c) => [c.id, c]))
