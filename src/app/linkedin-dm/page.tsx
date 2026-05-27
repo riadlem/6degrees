@@ -332,9 +332,13 @@ function NotConnectedCard({
     ? initials(contact.firstName, contact.lastName)
     : initials(chat.chatName.split(" ")[0] ?? "", chat.chatName.split(" ")[1] ?? "")
 
-  const degreeLabel = contact?.linkedinDegree === "2" ? "2nd degree"
-    : contact?.linkedinDegree === "3" ? "3rd degree"
-    : "No connection"
+  const { degreeLabel, degreeClass } = !contact
+    ? { degreeLabel: "Not in contacts", degreeClass: "text-gray-500 bg-gray-100 border-gray-200" }
+    : contact.linkedinDegree === "2"
+      ? { degreeLabel: "2nd degree", degreeClass: "text-amber-700 bg-amber-50 border-amber-200" }
+      : contact.linkedinDegree === "3"
+        ? { degreeLabel: "3rd degree", degreeClass: "text-amber-700 bg-amber-50 border-amber-200" }
+        : { degreeLabel: "Not a connection", degreeClass: "text-amber-700 bg-amber-50 border-amber-200" }
 
   const country = normCountry(contact?.country)
   const flag = country ? countryFlag(country) : ""
@@ -390,7 +394,7 @@ function NotConnectedCard({
               <p className="text-xs text-gray-400 mt-0.5">{contact.company}</p>
             )}
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+              <span className={cn("inline-flex items-center text-[10px] font-semibold border rounded-full px-2 py-0.5", degreeClass)}>
                 {degreeLabel}
               </span>
               {flag && country && (
@@ -751,8 +755,9 @@ export default function LinkedInDMPage() {
           <div className="px-4 py-2.5 border-b border-gray-100 bg-amber-50 flex items-center gap-2">
             <EyeOff size={12} className="text-amber-600 shrink-0" />
             <p className="text-xs text-amber-700">
-              These contacts sent you messages but are not in your LinkedIn connections.
-              Keep, link to a contact, or ignore each one.
+              People who messaged you but are <strong>not</strong> in your LinkedIn connections —
+              includes unmatched senders and contacts without a confirmed 1st-degree connection.
+              Link them to a contact or ignore.
             </p>
           </div>
         )}
@@ -772,7 +777,7 @@ export default function LinkedInDMPage() {
                 </p>
               </>
             ) : filter === "not_connected" ? (
-              <p className="text-sm text-gray-400">No unconnected senders found</p>
+              <p className="text-sm text-gray-400">Everyone who messaged you is in your connections — great!</p>
             ) : filter === "ignored" ? (
               <p className="text-sm text-gray-400">No ignored conversations</p>
             ) : (
