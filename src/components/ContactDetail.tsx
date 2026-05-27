@@ -12,6 +12,77 @@ import LabelBadge from "./LabelBadge"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_BG, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 
+// Convert a country name to its flag emoji using regional indicator letters.
+function countryFlag(country: string | null): string {
+  if (!country) return ""
+  const map: Record<string, string> = {
+    "france": "🇫🇷", "united kingdom": "🇬🇧", "uk": "🇬🇧",
+    "united states": "🇺🇸", "usa": "🇺🇸", "us": "🇺🇸",
+    "germany": "🇩🇪", "deutschland": "🇩🇪",
+    "spain": "🇪🇸", "espagne": "🇪🇸",
+    "italy": "🇮🇹", "italie": "🇮🇹",
+    "portugal": "🇵🇹",
+    "netherlands": "🇳🇱", "pays-bas": "🇳🇱",
+    "belgium": "🇧🇪", "belgique": "🇧🇪",
+    "switzerland": "🇨🇭", "suisse": "🇨🇭",
+    "sweden": "🇸🇪", "suède": "🇸🇪",
+    "norway": "🇳🇴", "norvège": "🇳🇴",
+    "denmark": "🇩🇰", "danemark": "🇩🇰",
+    "finland": "🇫🇮", "finlande": "🇫🇮",
+    "ireland": "🇮🇪", "irlande": "🇮🇪",
+    "austria": "🇦🇹", "autriche": "🇦🇹",
+    "czech republic": "🇨🇿", "czechia": "🇨🇿",
+    "poland": "🇵🇱", "pologne": "🇵🇱",
+    "hungary": "🇭🇺", "hongrie": "🇭🇺",
+    "romania": "🇷🇴", "roumanie": "🇷🇴",
+    "bulgaria": "🇧🇬",
+    "croatia": "🇭🇷", "croatie": "🇭🇷",
+    "greece": "🇬🇷", "grèce": "🇬🇷",
+    "turkey": "🇹🇷", "turquie": "🇹🇷",
+    "ukraine": "🇺🇦",
+    "russia": "🇷🇺", "russie": "🇷🇺",
+    "canada": "🇨🇦",
+    "australia": "🇦🇺", "australie": "🇦🇺",
+    "new zealand": "🇳🇿",
+    "singapore": "🇸🇬",
+    "hong kong": "🇭🇰",
+    "japan": "🇯🇵", "japon": "🇯🇵",
+    "china": "🇨🇳", "chine": "🇨🇳",
+    "india": "🇮🇳", "inde": "🇮🇳",
+    "south korea": "🇰🇷",
+    "taiwan": "🇹🇼",
+    "indonesia": "🇮🇩",
+    "malaysia": "🇲🇾",
+    "thailand": "🇹🇭", "thaïlande": "🇹🇭",
+    "vietnam": "🇻🇳",
+    "philippines": "🇵🇭",
+    "united arab emirates": "🇦🇪", "uae": "🇦🇪",
+    "saudi arabia": "🇸🇦", "arabie saoudite": "🇸🇦",
+    "qatar": "🇶🇦",
+    "israel": "🇮🇱", "israël": "🇮🇱",
+    "brazil": "🇧🇷", "brésil": "🇧🇷",
+    "mexico": "🇲🇽", "mexique": "🇲🇽",
+    "argentina": "🇦🇷",
+    "colombia": "🇨🇴",
+    "chile": "🇨🇱",
+    "south africa": "🇿🇦", "afrique du sud": "🇿🇦",
+    "nigeria": "🇳🇬",
+    "kenya": "🇰🇪",
+    "egypt": "🇪🇬", "égypte": "🇪🇬",
+    "morocco": "🇲🇦", "maroc": "🇲🇦",
+    "luxembourg": "🇱🇺",
+    "malta": "🇲🇹", "malte": "🇲🇹",
+    "iceland": "🇮🇸", "islande": "🇮🇸",
+    "serbia": "🇷🇸", "serbie": "🇷🇸",
+    "slovakia": "🇸🇰",
+    "slovenia": "🇸🇮",
+    "estonia": "🇪🇪",
+    "latvia": "🇱🇻",
+    "lithuania": "🇱🇹",
+  }
+  return map[country.toLowerCase()] ?? ""
+}
+
 type Note = { id: string; content: string; createdAt: string }
 type ListMembership = { listId: string; list: { id: string; name: string } }
 type ContactLabelEntry = { label: { id: string; name: string; color: string } }
@@ -633,9 +704,8 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
             {/* Details */}
             <div className="px-5 py-4 border-b border-gray-100 space-y-3">
               {[
-                { field: "company", icon: Building2, value: contact.company, label: "Company" },
-                { field: "location", icon: MapPin, value: contact.location, label: "Location" },
-                { field: "industry", icon: Globe, value: contact.industry, label: "Industry" },
+                { field: "company",  icon: Building2, value: contact.company,  label: "Company" },
+                { field: "industry", icon: Globe,     value: contact.industry, label: "Industry" },
               ].map(({ field, icon: Icon, value, label }) => (
                 <div key={field} className="flex items-center gap-3">
                   <Icon size={14} className="text-gray-400 shrink-0" />
@@ -670,6 +740,64 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                   )}
                 </div>
               ))}
+
+              {/* City row */}
+              {(contact.city || contact.location) && (
+                <div className="flex items-center gap-3 group/field">
+                  <MapPin size={14} className="text-gray-400 shrink-0" />
+                  {editingField === "city" ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveField("city")}
+                        className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button onClick={() => saveField("city")} className="text-blue-600 hover:text-blue-700"><Check size={14} /></button>
+                      <button onClick={() => setEditingField(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="text-sm text-gray-700 flex-1">{contact.city ?? contact.location}</span>
+                      <button
+                        onClick={() => { setEditingField("city"); setEditValue(contact.city ?? "") }}
+                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
+                      ><Edit2 size={12} /></button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Country row */}
+              {contact.country && (
+                <div className="flex items-center gap-3 group/field">
+                  <span className="text-base leading-none w-[14px] text-center shrink-0 select-none" aria-hidden>
+                    {countryFlag(contact.country) || "🌍"}
+                  </span>
+                  {editingField === "country" ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && saveField("country")}
+                        className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <button onClick={() => saveField("country")} className="text-blue-600 hover:text-blue-700"><Check size={14} /></button>
+                      <button onClick={() => setEditingField(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 flex-1">
+                      <span className="text-sm text-gray-700 flex-1">{contact.country}</span>
+                      <button
+                        onClick={() => { setEditingField("country"); setEditValue(contact.country ?? "") }}
+                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
+                      ><Edit2 size={12} /></button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-start gap-3">
                 <Mail size={14} className="text-gray-400 shrink-0 mt-1" />

@@ -82,7 +82,7 @@ export async function PATCH(
   const body = await request.json()
 
   // Standard Prisma-managed fields
-  const allowed = ["firstName", "lastName", "location", "industry", "headline", "profileUrl", "company", "position", "phoneNumber"]
+  const allowed = ["firstName", "lastName", "location", "city", "country", "industry", "headline", "profileUrl", "company", "position", "phoneNumber"]
   const data: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) data[key] = body[key]
