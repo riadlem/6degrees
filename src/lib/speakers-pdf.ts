@@ -409,18 +409,20 @@ export async function generateSpeakersPdf({
   ownerName: string
   layout?:   PdfLayout
 }): Promise<Buffer> {
-  // Always fetch photos — all layouts now show them
-  const photoDataUrls = await Promise.all(
-    speakers.map((s) => s.photoUrl ? fetchImageDataUrl(s.photoUrl) : Promise.resolve(null))
+  // Pass PNG URLs directly — @react-pdf/image fetches them internally.
+  // Data URI encoding caused "Base64 image invalid format" warnings in @react-pdf/pdfkit.
+  // The CDN serves PNG when format=png is in the URL regardless of other headers.
+  const photoSrcs = speakers.map((s) =>
+    s.photoUrl ? s.photoUrl.replace(/([?&]format=)\w+/i, "$1png") : null
   )
 
   let doc: ReturnType<typeof createElement>
   if (layout === "list") {
-    doc = renderListLayout(speakers, photoDataUrls, eventName, subtitle, ownerName)
+    doc = renderListLayout(speakers, photoSrcs, eventName, subtitle, ownerName)
   } else if (layout === "grid") {
-    doc = renderGridLayout(speakers, photoDataUrls, eventName, subtitle, ownerName)
+    doc = renderGridLayout(speakers, photoSrcs, eventName, subtitle, ownerName)
   } else {
-    doc = renderCardsLayout(speakers, photoDataUrls, eventName, subtitle, ownerName)
+    doc = renderCardsLayout(speakers, photoSrcs, eventName, subtitle, ownerName)
   }
 
   return renderToBuffer(doc as Parameters<typeof renderToBuffer>[0]) as Promise<Buffer>
