@@ -42,8 +42,8 @@ function initials(first: string, last: string) {
 }
 
 export async function fetchImageDataUrl(url: string): Promise<string | null> {
-  // PDFKit (used by @react-pdf/renderer) only supports JPEG and PNG.
-  // The M2020 CDN (filespin.io) exposes a format= param — swap webp → jpeg.
+  // PDFKit (used by @react-pdf/renderer) only supports JPEG and PNG — not WebP.
+  // Force JPEG two ways: rewrite format=webp in the URL, and exclude webp from Accept.
   const fetchUrl = url.replace(/([?&]format=)webp/i, "$1jpeg")
   try {
     const res = await fetch(fetchUrl, {
@@ -51,7 +51,7 @@ export async function fetchImageDataUrl(url: string): Promise<string | null> {
       redirect: "follow",
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        "Accept": "image/jpeg,image/png,image/*;q=0.5",
         "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://europe.money2020.com/",
       },
