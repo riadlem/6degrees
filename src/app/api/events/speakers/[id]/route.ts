@@ -11,15 +11,33 @@ export async function PATCH(
 
   const body = await req.json().catch(() => ({}))
 
-  // priority: 1–4 or null to clear
-  const priority =
-    body.priority === null ? null
-    : typeof body.priority === "number" && [1, 2, 3, 4].includes(body.priority)
-    ? body.priority
-    : undefined
+  const data: Record<string, unknown> = {}
 
-  if (priority === undefined) {
-    return Response.json({ error: "priority must be 1–4 or null" }, { status: 400 })
+  // priority: 1–4 or null to clear
+  if ("priority" in body) {
+    const priority =
+      body.priority === null ? null
+      : typeof body.priority === "number" && [1, 2, 3, 4].includes(body.priority)
+      ? body.priority
+      : undefined
+    if (priority === undefined) {
+      return Response.json({ error: "priority must be 1–4 or null" }, { status: 400 })
+    }
+    data.priority = priority
+  }
+
+  // company: string or null to clear
+  if ("company" in body) {
+    data.company = typeof body.company === "string" ? body.company.trim() || null : null
+  }
+
+  // role: string or null to clear
+  if ("role" in body) {
+    data.role = typeof body.role === "string" ? body.role.trim() || null : null
+  }
+
+  if (Object.keys(data).length === 0) {
+    return Response.json({ error: "nothing to update" }, { status: 400 })
   }
 
   const speaker = await prisma.eventSpeaker.findFirst({
@@ -28,10 +46,11 @@ export async function PATCH(
   })
   if (!speaker) return new Response("Not found", { status: 404 })
 
-  await prisma.eventSpeaker.update({
+  const updated = await prisma.eventSpeaker.update({
     where: { id: params.id },
-    data: { priority },
+    data,
+    select: { id: true, priority: true, company: true, role: true },
   })
 
-  return Response.json({ ok: true, priority })
+  return Response.json({ ok: true, ...updated })
 }
