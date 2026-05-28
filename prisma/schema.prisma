@@ -445,6 +445,7 @@ model EventSpeaker {
   linkedinKey  String?  // LinkedIn profile slug
   photoUrl     String?
   contactId    String?  // set once speaker is added to contact base
+  priority     Int?     // 1=must meet, 2=important, 3=optional, 4=skip (sorted last, grayed)
   importedAt   DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

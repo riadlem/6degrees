@@ -36,6 +36,7 @@ interface Speaker {
   linkedinKey: string | null
   photoUrl: string | null
   contactId: string | null
+  priority: number | null
   importedAt: string
   contact: {
     id: string
@@ -96,24 +97,85 @@ function liColor(speaker: Speaker): string {
 
 const LI_PATH = "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
 
+// ─── Priority diamonds ────────────────────────────────────────────────────────
+
+// filled diamonds count + color per priority level
+const PRIO: Record<number, { filled: number; color: string; stroke: string; label: string }> = {
+  1: { filled: 4, color: "#F59E0B", stroke: "#F59E0B", label: "Must meet" },
+  2: { filled: 3, color: "#3B82F6", stroke: "#3B82F6", label: "Important"  },
+  3: { filled: 2, color: "#9CA3AF", stroke: "#9CA3AF", label: "Optional"   },
+  4: { filled: 1, color: "#E5E7EB", stroke: "#D1D5DB", label: "Skip"       },
+}
+
+function PriorityDiamonds({
+  priority,
+  onChange,
+  size = 7,
+}: {
+  priority: number | null
+  onChange: (p: number | null) => void
+  size?: number
+}) {
+  const cfg = priority ? PRIO[priority] : null
+  const filled = cfg?.filled ?? 0
+  const activeColor = cfg?.color ?? "#F59E0B"
+  const activeStroke = cfg?.stroke ?? "#F59E0B"
+  // cycle: null → 1 → 2 → 3 → 4 → null
+  const next = priority === null ? 1 : priority === 4 ? null : priority + 1
+  const title = cfg ? `${cfg.label} — click to change` : "Set priority"
+
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onChange(next) }}
+      title={title}
+      className="flex items-center gap-0.5 p-1 rounded hover:bg-black/5 transition-colors shrink-0"
+    >
+      {[1, 2, 3, 4].map((i) => (
+        <svg key={i} width={size} height={size} viewBox="0 0 8 8">
+          <polygon
+            points="4,0 8,4 4,8 0,4"
+            fill={i <= filled ? activeColor : "none"}
+            stroke={i <= filled ? activeStroke : "#D1D5DB"}
+            strokeWidth="1.2"
+          />
+        </svg>
+      ))}
+    </button>
+  )
+}
+
+// priority sort key: 1→2→3→null(10)→4(99) so skip goes last
+function prioOrder(p: number | null): number {
+  if (p === 4) return 99
+  if (p === null) return 10
+  return p
+}
+
 // ─── Speaker card (grid view) ─────────────────────────────────────────────────
 
 function SpeakerCard({
   speaker,
   onAddContact,
   adding,
+  onPriorityChange,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
+  onPriorityChange: (id: string, p: number | null) => void
 }) {
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
   const degree = speaker.contact?.linkedinDegree
   const connected = isConnected(speaker)
+  const p1 = speaker.priority === 1
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
+    <div className={cn(
+      "bg-white border rounded-xl p-4 flex flex-col gap-3 hover:shadow-md transition-shadow",
+      p1 ? "border-amber-300 border-t-2" : "border-gray-200",
+      speaker.priority === 4 && "opacity-50"
+    )}>
       {/* Header */}
       <div className="flex items-start gap-3">
         {speaker.photoUrl ? (
@@ -144,8 +206,9 @@ function SpeakerCard({
           )}
         </div>
 
-        {/* LinkedIn status icon — blue=connected, amber=profile found, gray=none */}
+        {/* Right column: priority diamonds + LinkedIn icon */}
         <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <PriorityDiamonds priority={speaker.priority} onChange={(p) => onPriorityChange(speaker.id, p)} />
           {liUrl ? (
             <a
               href={liUrl}
@@ -241,17 +304,19 @@ function SpeakerCard({
 
 // ─── Speaker row (list view) ──────────────────────────────────────────────────
 
-// photo | LI | name+role | company | session | badge | actions
-const ROW_GRID = "2.25rem 1.5rem 1fr 1fr 7rem 5.5rem 7rem"
+// priority | photo | LI | name+role | company | session | badge | actions
+const ROW_GRID = "2rem 2.25rem 1.5rem 1fr 1fr 7rem 5.5rem 7rem"
 
 function SpeakerRow({
   speaker,
   onAddContact,
   adding,
+  onPriorityChange,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
+  onPriorityChange: (id: string, p: number | null) => void
 }) {
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
@@ -261,9 +326,16 @@ function SpeakerRow({
 
   return (
     <div
-      className="group grid items-center gap-2 px-3 py-2 text-xs odd:bg-white even:bg-gray-50/60 hover:bg-gray-100 transition-colors"
+      className={cn(
+        "group grid items-center gap-2 px-3 py-2 text-xs odd:bg-white even:bg-gray-50/60 hover:bg-gray-100 transition-colors",
+        speaker.priority === 4 && "opacity-50"
+      )}
       style={{ gridTemplateColumns: ROW_GRID }}
     >
+      {/* Priority */}
+      <div className="flex items-center">
+        <PriorityDiamonds priority={speaker.priority} onChange={(p) => onPriorityChange(speaker.id, p)} size={6} />
+      </div>
       {/* Photo */}
       <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
         {speaker.photoUrl ? (
@@ -389,10 +461,12 @@ function SpeakerPhoto({
   speaker,
   onAddContact,
   adding,
+  onPriorityChange,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
+  onPriorityChange: (id: string, p: number | null) => void
 }) {
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
@@ -400,7 +474,10 @@ function SpeakerPhoto({
   const degree = speaker.contact?.linkedinDegree
 
   return (
-    <div className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all">
+    <div className={cn(
+      "group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all",
+      speaker.priority === 4 && "opacity-50"
+    )}>
       {/* Square photo */}
       <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
         {speaker.photoUrl ? (
@@ -415,6 +492,11 @@ function SpeakerPhoto({
             {initials(speaker.firstName, speaker.lastName)}
           </div>
         )}
+
+        {/* Priority overlay — top-left */}
+        <div className="absolute top-1 left-1">
+          <PriorityDiamonds priority={speaker.priority} onChange={(p) => onPriorityChange(speaker.id, p)} size={6} />
+        </div>
 
         {/* LinkedIn status icon overlay — always shown when profile known */}
         {(liUrl || inContacts) && (
@@ -638,6 +720,8 @@ export default function EventsPage() {
     if (filterStatus === "notInContacts") list = list.filter((s) => !s.contactId)
     if (filterStatus === "hasLinkedIn")   list = list.filter(hasLinkedIn)
     if (filterStatus === "notConnected")  list = list.filter(isNotConnected)
+    // Sort by priority: 1→2→3→unset→4(skip last)
+    list = [...list].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority))
     return list
   }, [speakers, search, filterTopic, filterStatus])
 
@@ -682,6 +766,17 @@ export default function EventsPage() {
     } finally {
       setBulkAdding(false)
     }
+  }
+
+  // ── Priority update ───────────────────────────────────────────────────────
+  async function handlePriorityChange(id: string, priority: number | null) {
+    // Optimistic update
+    setSpeakers((prev) => prev.map((s) => s.id === id ? { ...s, priority } : s))
+    await fetch(`/api/events/speakers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ priority }),
+    })
   }
 
   // ── CSV export (client-side) ──────────────────────────────────────────────
@@ -988,6 +1083,7 @@ export default function EventsPage() {
                 speaker={speaker}
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
+                onPriorityChange={handlePriorityChange}
               />
             ))}
           </div>
@@ -1001,6 +1097,7 @@ export default function EventsPage() {
               className="hidden sm:grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide"
               style={{ gridTemplateColumns: ROW_GRID }}
             >
+              <div title="Priority" />
               <div />
               <div />
               <div>Name</div>
@@ -1015,6 +1112,7 @@ export default function EventsPage() {
                 speaker={speaker}
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
+                onPriorityChange={handlePriorityChange}
               />
             ))}
           </div>
@@ -1029,6 +1127,7 @@ export default function EventsPage() {
                 speaker={speaker}
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
+                onPriorityChange={handlePriorityChange}
               />
             ))}
           </div>
