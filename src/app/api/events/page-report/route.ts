@@ -23,8 +23,16 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}))
 
-  // Log to server console so it shows up in Vercel function logs
-  console.log("[M2020 page-report]", JSON.stringify({ userId: user.id, ...body }, null, 2))
+  // Log each field separately — Vercel truncates single large log lines
+  console.log("[M2020] url:", body.url)
+  console.log("[M2020] capturedFromApi:", body.capturedFromApi)
+  console.log("[M2020] liLinksFound:", body.liLinksFound)
+  console.log("[M2020] liLinkSamples:", JSON.stringify(body.liLinkSamples ?? []))
+  console.log("[M2020] dominantCards:", JSON.stringify(body.dominantCards ?? []))
+  console.log("[M2020] topClasses:", JSON.stringify((body.topClasses ?? []).slice(0, 30)))
+  console.log("[M2020] sampleHtml_1:", (body.sampleHtml ?? "").slice(0, 500))
+  console.log("[M2020] sampleHtml_2:", (body.sampleHtml ?? "").slice(500, 1000))
+  console.log("[M2020] sampleHtml_3:", (body.sampleHtml ?? "").slice(1000, 1500))
 
   return Response.json({ ok: true }, { headers: CORS })
 }
