@@ -432,6 +432,17 @@
       sampleHtml,
     }
 
+    // Always log to console first — visible immediately in DevTools
+    console.group("6Degrees M2020 page report")
+    console.log("URL:", report.url)
+    console.log("API speakers captured:", report.capturedFromApi)
+    console.log("LinkedIn links found:", report.liLinksFound, report.liLinkSamples)
+    console.log("Top repeated classes:", report.topClasses.slice(0, 20))
+    console.log("Dominant cards:", report.dominantCards)
+    if (report.sampleHtml) console.log("Sample card HTML:", report.sampleHtml)
+    console.log("Full report (copy me):", JSON.stringify(report, null, 2))
+    console.groupEnd()
+
     fetch(apiUrl.replace(/\/$/, "") + "/api/events/page-report", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
@@ -543,7 +554,7 @@
               `<div style="font-weight:700;font-size:14px">Still no speakers found</div>
                <div style="font-size:12px;opacity:0.85">Make sure you are on the speakers list page with cards visible.<br>Send a page report so we can fix the scraper.</div>`,
               [
-                { label: "Send report", style: { background: "#fff", color: "#1e3a8a" }, onClick: async (e2) => { e2.currentTarget.textContent = "Sending…"; await sendDebugReport(); e2.currentTarget.textContent = "Report sent ✓" } },
+                { label: "Send report", style: { background: "#fff", color: "#1e3a8a" }, onClick: async (e2) => { const b = e2.currentTarget; b.textContent = "Sending…"; await sendDebugReport(); b.textContent = "Report sent ✓ (check DevTools console)" } },
                 { label: "Close", style: { background: "rgba(255,255,255,0.15)", color: "#fff" }, onClick: hideBanner },
               ]
             )
@@ -553,9 +564,10 @@
           label: "Send report",
           style: { background: "rgba(255,255,255,0.2)", color: "#fff" },
           onClick: async (e) => {
-            e.currentTarget.textContent = "Sending…"
+            const btn = e.currentTarget
+            btn.textContent = "Sending…"
             await sendDebugReport()
-            e.currentTarget.textContent = "Sent ✓"
+            btn.textContent = "Sent ✓ (check console)"
           },
         },
         { label: "Close", style: { background: "rgba(255,255,255,0.15)", color: "#fff" }, onClick: hideBanner },
