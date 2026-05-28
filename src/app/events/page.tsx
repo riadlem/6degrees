@@ -100,13 +100,18 @@ const LI_PATH = "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.8
 // ─── Priority diamonds ────────────────────────────────────────────────────────
 
 // filled diamonds count + color per priority level
+// Diamond i (1=left, 4=right) → priority (5-i): i=4→p1, i=3→p2, i=2→p3, i=1→p4
 const PRIO: Record<number, { filled: number; color: string; stroke: string; label: string }> = {
   1: { filled: 4, color: "#F59E0B", stroke: "#F59E0B", label: "Must meet" },
   2: { filled: 3, color: "#3B82F6", stroke: "#3B82F6", label: "Important"  },
   3: { filled: 2, color: "#9CA3AF", stroke: "#9CA3AF", label: "Optional"   },
-  4: { filled: 1, color: "#E5E7EB", stroke: "#D1D5DB", label: "Skip"       },
+  4: { filled: 1, color: "#EF4444", stroke: "#EF4444", label: "Skip"       },
 }
 
+// Star-rating style: each diamond is directly clickable.
+// Diamond i (1=leftmost … 4=rightmost) maps to priority (5-i).
+// Clicking sets that priority; clicking the active level clears to null.
+// Hover previews the level that would be set.
 function PriorityDiamonds({
   priority,
   onChange,
@@ -116,31 +121,48 @@ function PriorityDiamonds({
   onChange: (p: number | null) => void
   size?: number
 }) {
-  const cfg = priority ? PRIO[priority] : null
-  const filled = cfg?.filled ?? 0
-  const activeColor = cfg?.color ?? "#F59E0B"
-  const activeStroke = cfg?.stroke ?? "#F59E0B"
-  // cycle: null → 1 → 2 → 3 → 4 → null
-  const next = priority === null ? 1 : priority === 4 ? null : priority + 1
-  const title = cfg ? `${cfg.label} — click to change` : "Set priority"
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  const currentFilled = priority !== null ? PRIO[priority].filled : 0
+  const previewFilled = hovered !== null ? hovered : currentFilled
+  const previewPriority = previewFilled > 0 ? (5 - previewFilled) : null
+  const previewCfg = previewPriority ? PRIO[previewPriority] : null
+  const color  = previewCfg?.color  ?? "#9CA3AF"
+  const stroke = previewCfg?.stroke ?? "#D1D5DB"
+  const titleText = priority ? `${PRIO[priority].label} — click to change` : "Set priority"
 
   return (
-    <button
-      onClick={(e) => { e.stopPropagation(); onChange(next) }}
-      title={title}
+    <div
       className="flex items-center gap-0.5 p-1 rounded hover:bg-black/5 transition-colors shrink-0"
+      title={titleText}
+      onMouseLeave={() => setHovered(null)}
     >
-      {[1, 2, 3, 4].map((i) => (
-        <svg key={i} width={size} height={size} viewBox="0 0 8 8">
-          <polygon
-            points="4,0 8,4 4,8 0,4"
-            fill={i <= filled ? activeColor : "none"}
-            stroke={i <= filled ? activeStroke : "#D1D5DB"}
-            strokeWidth="1.2"
-          />
-        </svg>
-      ))}
-    </button>
+      {[1, 2, 3, 4].map((i) => {
+        const clickPriority = 5 - i  // i=1→p4, i=2→p3, i=3→p2, i=4→p1
+        const isFilled = i <= previewFilled
+        return (
+          <svg
+            key={i}
+            width={size}
+            height={size}
+            viewBox="0 0 8 8"
+            className="cursor-pointer"
+            onMouseEnter={() => setHovered(i)}
+            onClick={(e) => {
+              e.stopPropagation()
+              onChange(priority === clickPriority ? null : clickPriority)
+            }}
+          >
+            <polygon
+              points="4,0 8,4 4,8 0,4"
+              fill={isFilled ? color : "none"}
+              stroke={isFilled ? stroke : "#D1D5DB"}
+              strokeWidth="1.2"
+            />
+          </svg>
+        )
+      })}
+    </div>
   )
 }
 
@@ -680,7 +702,12 @@ export default function EventsPage() {
     if (!session) return
     fetch("/api/events/speakers?eventSlug=money2020-europe-2026")
       .then((r) => r.json())
-      .then((data) => { setSpeakers(Array.isArray(data) ? data : []); setLoading(false) })
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSpeakers([...data].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority)))
+        }
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [session])
 
@@ -720,8 +747,9 @@ export default function EventsPage() {
     if (filterStatus === "notInContacts") list = list.filter((s) => !s.contactId)
     if (filterStatus === "hasLinkedIn")   list = list.filter(hasLinkedIn)
     if (filterStatus === "notConnected")  list = list.filter(isNotConnected)
-    // Sort by priority: 1→2→3→unset→4(skip last)
-    list = [...list].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority))
+    // Order is preserved from initial load (sorted by priority at fetch time).
+    // Changing priority in-session updates in-place without re-sorting to avoid
+    // cards jumping under the cursor mid-interaction.
     return list
   }, [speakers, search, filterTopic, filterStatus])
 
