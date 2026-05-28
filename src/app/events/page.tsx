@@ -686,7 +686,7 @@ export default function EventsPage() {
 
   // ── CSV export (client-side) ──────────────────────────────────────────────
   function handleExportCsv() {
-    const cols = ["First Name", "Last Name", "Role", "Company", "Session Topic", "LinkedIn URL", "Status", "In Contacts"]
+    const cols = ["First Name", "Last Name", "Role", "Company", "LinkedIn URL", "LinkedIn", "In Contacts"]
     const escape = (v: string | null | undefined) => {
       const s = v ?? ""
       return s.includes(",") || s.includes('"') || s.includes("\n")
@@ -695,19 +695,13 @@ export default function EventsPage() {
     }
     const rows = filtered.map((s) => {
       const liUrl = resolvedLinkedinUrl(s)
-      const status = isConnected(s) ? "Connected"
-        : s.contact?.linkedinDegree === "2" ? "2° degree"
-        : s.contact?.linkedinDegree === "3" ? "3° degree"
-        : !!s.contactId ? "Saved"
-        : "To add"
       return [
         escape(s.firstName),
         escape(s.lastName),
         escape(s.role),
         escape(s.company),
-        escape(s.sessionTopic),
         escape(liUrl),
-        escape(status),
+        isConnected(s) ? "Connected" : "",
         s.contactId ? "Yes" : "No",
       ].join(",")
     })
