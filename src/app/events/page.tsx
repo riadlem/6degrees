@@ -65,8 +65,9 @@ function linkedinSearchUrl(first: string, last: string, company: string | null) 
 function resolvedLinkedinUrl(speaker: Speaker): string | null {
   if (speaker.linkedinUrl) return speaker.linkedinUrl
   if (speaker.contact?.profileUrl) return speaker.contact.profileUrl
+  // Exclude synthetic keys created when a speaker is added without a real LinkedIn URL
   const key = speaker.linkedinKey || speaker.contact?.linkedinKey
-  if (key) return `https://www.linkedin.com/in/${key}/`
+  if (key && !key.startsWith("m2020-")) return `https://www.linkedin.com/in/${key}/`
   return null
 }
 
