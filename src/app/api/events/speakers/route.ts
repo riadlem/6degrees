@@ -18,9 +18,51 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url)
   const eventSlug = searchParams.get("eventSlug") || "money2020-europe-2026"
+  const userId = session.user.id
+
+  // Reconcile any speakers missing a contactId against existing contacts.
+  // Two queries regardless of speaker count: one for unlinked speakers,
+  // one for all contacts; then batch-update only the matched rows.
+  const unlinked = await prisma.eventSpeaker.findMany({
+    where: { userId, eventSlug, contactId: null },
+    select: { id: true, firstName: true, lastName: true, linkedinKey: true },
+  })
+
+  if (unlinked.length > 0) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId },
+      select: { id: true, firstName: true, lastName: true, linkedinKey: true, profileUrl: true },
+    })
+
+    const byKey = new Map<string, string>()
+    const byName = new Map<string, string>()
+    for (const c of contacts) {
+      if (c.linkedinKey) byKey.set(c.linkedinKey.toLowerCase(), c.id)
+      if (c.profileUrl) {
+        const m = c.profileUrl.match(/\/in\/([^/?#]+)/)
+        if (m) byKey.set(m[1].toLowerCase(), c.id)
+      }
+      const nk = `${c.firstName.toLowerCase()}|${c.lastName.toLowerCase()}`
+      if (!byName.has(nk)) byName.set(nk, c.id)
+    }
+
+    const updates: Array<{ id: string; contactId: string }> = []
+    for (const spk of unlinked) {
+      let cid = spk.linkedinKey ? byKey.get(spk.linkedinKey.toLowerCase()) : undefined
+      if (!cid) cid = byName.get(`${spk.firstName.toLowerCase()}|${spk.lastName.toLowerCase()}`)
+      if (cid) updates.push({ id: spk.id, contactId: cid })
+    }
+    if (updates.length > 0) {
+      await Promise.all(
+        updates.map(({ id, contactId }) =>
+          prisma.eventSpeaker.update({ where: { id }, data: { contactId } })
+        )
+      )
+    }
+  }
 
   const speakers = await prisma.eventSpeaker.findMany({
-    where: { userId: session.user.id, eventSlug },
+    where: { userId, eventSlug },
     include: {
       contact: {
         select: {
