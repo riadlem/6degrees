@@ -19,8 +19,10 @@ import {
   Link2,
   Link2Off,
   Download,
+  Share2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import EventShareModal from "@/components/EventShareModal"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -688,6 +690,9 @@ export default function EventsPage() {
   const [topicOpen, setTopicOpen] = useState(false)
   const [view, setView] = useState<ViewMode>("grid")
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [shareEnabled, setShareEnabled] = useState(false)
+  const [shareToken, setShareToken] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/")
@@ -700,11 +705,17 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (!session) return
-    fetch("/api/events/speakers?eventSlug=money2020-europe-2026")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setSpeakers([...data].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority)))
+    Promise.all([
+      fetch("/api/events/speakers?eventSlug=money2020-europe-2026").then((r) => r.json()),
+      fetch("/api/events/share?eventSlug=money2020-europe-2026").then((r) => r.ok ? r.json() : null),
+    ])
+      .then(([speakerData, shareData]) => {
+        if (Array.isArray(speakerData)) {
+          setSpeakers([...speakerData].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority)))
+        }
+        if (shareData) {
+          setShareEnabled(shareData.shareEnabled)
+          setShareToken(shareData.shareToken)
         }
         setLoading(false)
       })
@@ -1071,6 +1082,21 @@ export default function EventsPage() {
               PDF
             </button>
 
+            {/* Share */}
+            <button
+              onClick={() => setShareOpen(true)}
+              title="Share this speaker list"
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors",
+                shareEnabled
+                  ? "border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              )}
+            >
+              <Share2 size={13} />
+              {shareEnabled ? "Shared" : "Share"}
+            </button>
+
             {/* View toggle */}
             <ViewToggle view={view} onChange={handleViewChange} />
           </div>
@@ -1167,6 +1193,19 @@ export default function EventsPage() {
           </p>
         )}
       </div>
+
+      {shareOpen && (
+        <EventShareModal
+          eventSlug="money2020-europe-2026"
+          shareEnabled={shareEnabled}
+          shareToken={shareToken}
+          onClose={() => setShareOpen(false)}
+          onToggle={(enabled, token) => {
+            setShareEnabled(enabled)
+            setShareToken(token)
+          }}
+        />
+      )}
     </div>
   )
 }
