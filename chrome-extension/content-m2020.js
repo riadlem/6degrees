@@ -563,15 +563,23 @@
     )
   }
 
-  // SPA navigation support
-  let _lastPath = location.pathname
-  new MutationObserver(() => {
-    if (location.pathname !== _lastPath) {
-      _lastPath = location.pathname
-      hideBanner()
-      run()
-    }
-  }).observe(document.body, { childList: true, subtree: true })
+  // SPA navigation support + initial run — deferred until DOM is ready
+  function startUI() {
+    let _lastPath = location.pathname
+    new MutationObserver(() => {
+      if (location.pathname !== _lastPath) {
+        _lastPath = location.pathname
+        hideBanner()
+        run()
+      }
+    }).observe(document.body, { childList: true, subtree: true })
 
-  run()
+    run()
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startUI)
+  } else {
+    startUI()
+  }
 })()
