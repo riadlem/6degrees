@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff } from "lucide-react"
+import { Users, List, LogOut, ChevronDown, Settings, Puzzle, Building2, LayoutDashboard, RefreshCcw, Eye, EyeOff, CalendarDays } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
@@ -33,6 +33,7 @@ const navLinks = [
   { href: "/companies",   label: "Companies",  icon: Building2 },
   { href: "/lists",       label: "Lists",      icon: List },
   { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
+  { href: "/events",      label: "Events",     icon: CalendarDays },
   { href: "/whatsapp",    label: "Messages",   icon: null, waIcon: true },
 ]
 
