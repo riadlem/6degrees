@@ -142,23 +142,36 @@ function SpeakerCard({
           )}
         </div>
 
-        {/* Status badges */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        {/* LinkedIn status icon — blue=connected, amber=profile found, gray=none */}
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {liUrl ? (
+            <a
+              href={liUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={connected ? "1st-degree LinkedIn connection" : "LinkedIn profile — not yet connected"}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: connected ? "#0A66C2" : "#D97706" }}>
+                <path d={LI_PATH} />
+              </svg>
+            </a>
+          ) : (
+            <a
+              href={linkedinSearchUrl(speaker.firstName, speaker.lastName, speaker.company)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Search on LinkedIn"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: "#D1D5DB" }}>
+                <path d={LI_PATH} />
+              </svg>
+            </a>
+          )}
           {inContacts && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200 rounded-full">
-              <UserCheck size={10} />
-              Saved
-            </span>
-          )}
-          {degree && degree !== "1" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
-              {degree}°
-            </span>
-          )}
-          {connected && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded-full">
-              <Link2 size={9} />
-              Connected
+            <span title="Saved in contacts">
+              <UserCheck size={13} className="text-green-500" />
             </span>
           )}
         </div>
@@ -401,25 +414,23 @@ function SpeakerPhoto({
           </div>
         )}
 
-        {/* Connection badge overlay */}
-        {connected && (
+        {/* LinkedIn status icon overlay — always shown when profile known */}
+        {(liUrl || inContacts) && (
           <div className="absolute top-1.5 right-1.5">
-            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold bg-blue-600 text-white rounded-full shadow">
-              1°
-            </span>
-          </div>
-        )}
-        {!connected && degree && degree !== "1" && (
-          <div className="absolute top-1.5 right-1.5">
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold bg-amber-500 text-white rounded-full shadow">
-              {degree}°
-            </span>
-          </div>
-        )}
-        {inContacts && !connected && !(degree && degree !== "1") && (
-          <div className="absolute top-1.5 right-1.5">
-            <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold bg-green-600 text-white rounded-full shadow">
-              ✓
+            <span
+              className="flex items-center justify-center w-5 h-5 rounded-full shadow-sm"
+              style={{ background: connected ? "#0A66C2" : inContacts ? "#16a34a" : "#D97706" }}
+              title={connected ? "1st-degree connection" : inContacts ? "In contacts" : "Profile found — not connected"}
+            >
+              {inContacts && !liUrl ? (
+                <svg className="text-white" style={{ width: 10, height: 10 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" style={{ width: 11, height: 11, fill: "white" }}>
+                  <path d={LI_PATH} />
+                </svg>
+              )}
             </span>
           </div>
         )}
@@ -803,6 +814,31 @@ export default function EventsPage() {
                   </>
                 )}
               </div>
+            )}
+
+            {/* Not connected quick filter */}
+            {stats.notConnected > 0 && (
+              <button
+                onClick={() => toggleFilter("notConnected")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors",
+                  filterStatus === "notConnected"
+                    ? "border-amber-400 bg-amber-50 text-amber-700 font-medium"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                )}
+                title="Show speakers with a LinkedIn profile but not yet connected"
+              >
+                <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: filterStatus === "notConnected" ? "#D97706" : "#9CA3AF" }}>
+                  <path d={LI_PATH} />
+                </svg>
+                Not connected
+                <span className={cn(
+                  "text-xs font-bold ml-0.5",
+                  filterStatus === "notConnected" ? "text-amber-600" : "text-gray-400"
+                )}>
+                  {stats.notConnected}
+                </span>
+              </button>
             )}
 
             {/* Clear filters */}
