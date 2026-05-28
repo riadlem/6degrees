@@ -76,6 +76,7 @@ model User {
   dismissedEmails    DismissedEmail[]
   phoneContacts  PhoneContact[]
   eventSpeakers  EventSpeaker[]
+  eventShares    EventShare[]
 }
 
 model Contact {
@@ -425,6 +426,22 @@ model LinkedInDMMessage {
   @@unique([userId, conversationId, sentAt, senderName])
   @@index([userId, contactId])
   @@index([contactId, sentAt])
+}
+
+// ─── Event sharing ───────────────────────────────────────────────────────────
+
+model EventShare {
+  id           String   @id @default(cuid())
+  userId       String
+  eventSlug    String
+  shareToken   String   @unique @default(cuid())
+  shareEnabled Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventSlug])
+  @@index([userId])
 }
 
 // ─── Event speakers (e.g. Money 20/20) ───────────────────────────────────────
