@@ -75,6 +75,7 @@ model User {
   userEmailAddresses UserEmailAddress[]
   dismissedEmails    DismissedEmail[]
   phoneContacts  PhoneContact[]
+  eventSpeakers  EventSpeaker[]
 }
 
 model Contact {
@@ -128,6 +129,7 @@ model Contact {
   whatsAppMessages   WhatsAppMessage[]
   linkedInDMMessages     LinkedInDMMessage[]
   linkedInDMConversations LinkedInDMConversation[]
+  eventSpeakerProfiles EventSpeaker[]
 
   @@unique([userId, linkedinKey])
   @@index([userId])
@@ -423,4 +425,33 @@ model LinkedInDMMessage {
   @@unique([userId, conversationId, sentAt, senderName])
   @@index([userId, contactId])
   @@index([contactId, sentAt])
+}
+
+// ─── Event speakers (e.g. Money 20/20) ───────────────────────────────────────
+
+model EventSpeaker {
+  id           String   @id @default(cuid())
+  userId       String
+  eventSlug    String   // e.g. "money2020-europe-2026"
+  eventName    String   // e.g. "Money 20/20 Europe 2026"
+  speakerKey   String   // stable key: eventSlug:firstName:lastName:company
+  firstName    String
+  lastName     String
+  role         String?
+  company      String?
+  description  String?  @db.Text
+  sessionTopic String?
+  linkedinUrl  String?
+  linkedinKey  String?  // LinkedIn profile slug
+  photoUrl     String?
+  contactId    String?  // set once speaker is added to contact base
+  importedAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, speakerKey])
+  @@index([userId, eventSlug])
+  @@index([userId, contactId])
 }

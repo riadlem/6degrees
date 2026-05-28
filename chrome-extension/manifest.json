@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "6Degrees for LinkedIn",
-  "version": "1.4.18",
+  "version": "1.4.19",
   "description": "Capture LinkedIn profiles and enrich your 6Degrees contacts",
   "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://6degrees.aequus.money/*"
+    "https://6degrees.aequus.money/*",
+    "https://europe.money2020.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -25,6 +26,13 @@
         "https://6degrees.aequus.money/*"
       ],
       "js": ["content-app.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://europe.money2020.com/*"
+      ],
+      "js": ["content-m2020.js"],
       "run_at": "document_idle"
     }
   ],
