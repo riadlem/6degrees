@@ -28,7 +28,21 @@ export async function POST(req: Request) {
 
   const speakers = [...raw].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority))
   const filename = `${eventName.replace(/[^a-z0-9]/gi, "_")}_speakers_${layout}.pdf`
-  const buffer = await generateSpeakersPdf({ eventName, subtitle, speakers, ownerName: session.user.name ?? "Unknown", layout })
+
+  let buffer: Buffer
+  try {
+    console.log(`[PDF export] layout=${layout} speakers=${speakers.length}`)
+    buffer = await generateSpeakersPdf({ eventName, subtitle, speakers, ownerName: session.user.name ?? "Unknown", layout })
+    console.log(`[PDF export] OK bytes=${buffer.length}`)
+  } catch (err) {
+    console.error("[PDF export] generateSpeakersPdf threw:", err)
+    return new Response(`PDF generation failed: ${String(err)}`, { status: 500 })
+  }
+
+  if (!buffer.length) {
+    console.error("[PDF export] empty buffer")
+    return new Response("PDF generation produced empty output", { status: 500 })
+  }
 
   return new Response(new Uint8Array(buffer), {
     headers: {

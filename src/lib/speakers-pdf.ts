@@ -41,33 +41,6 @@ function initials(first: string, last: string) {
   return `${(first[0] ?? "").toUpperCase()}${(last[0] ?? "").toUpperCase()}`
 }
 
-export async function fetchImageDataUrl(url: string): Promise<string | null> {
-  // @react-pdf/pdfkit only supports JPEG and PNG (no WebP decoder).
-  // The M2020 CDN (filespin.io) returns 400 for format=jpeg but serves PNG fine.
-  // Replace any format=X param with format=png.
-  const fetchUrl = url.replace(/([?&]format=)\w+/i, "$1png")
-  try {
-    const res = await fetch(fetchUrl, {
-      signal: AbortSignal.timeout(8000),
-      redirect: "follow",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "image/png,image/jpeg,image/*;q=0.5",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Referer": "https://europe.money2020.com/",
-      },
-    })
-    if (!res.ok) return null
-    const buf = await res.arrayBuffer()
-    if (buf.byteLength === 0) return null
-    const ct = res.headers.get("content-type") ?? ""
-    if (!ct.startsWith("image/") || ct.includes("webp")) return null
-    return `data:${ct};base64,${Buffer.from(buf).toString("base64")}`
-  } catch {
-    return null
-  }
-}
-
 // ── Diamond SVG row ───────────────────────────────────────────────────────────
 
 function makeDiamonds(priority: number, sz = 6) {
@@ -396,6 +369,40 @@ function renderGridLayout(
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
+const IMAGE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "image/png,image/jpeg,image/*;q=0.5",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Referer": "https://europe.money2020.com/",
+}
+
+async function prefetchPhoto(url: string): Promise<string | null> {
+  // Force PNG since CDN returns WebP by default and PDFKit has no WebP decoder.
+  const pngUrl = url.replace(/([?&]format=)\w+/i, "$1png")
+  try {
+    const res = await fetch(pngUrl, {
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+      headers: IMAGE_HEADERS,
+    })
+    if (!res.ok) {
+      console.warn(`[PDF photo] ${res.status} for ${pngUrl.slice(0, 80)}`)
+      return null
+    }
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength < 100) return null
+    const ct = res.headers.get("content-type") ?? ""
+    if (!ct.startsWith("image/") || ct.includes("webp")) {
+      console.warn(`[PDF photo] unexpected content-type=${ct}`)
+      return null
+    }
+    return `data:${ct};base64,${Buffer.from(buf).toString("base64")}`
+  } catch (e) {
+    console.warn(`[PDF photo] fetch error: ${e}`)
+    return null
+  }
+}
+
 export async function generateSpeakersPdf({
   eventName,
   subtitle,
@@ -409,12 +416,14 @@ export async function generateSpeakersPdf({
   ownerName: string
   layout?:   PdfLayout
 }): Promise<Buffer> {
-  // Pass PNG URLs directly — @react-pdf/image fetches them internally.
-  // Data URI encoding caused "Base64 image invalid format" warnings in @react-pdf/pdfkit.
-  // The CDN serves PNG when format=png is in the URL regardless of other headers.
-  const photoSrcs = speakers.map((s) =>
-    s.photoUrl ? s.photoUrl.replace(/([?&]format=)\w+/i, "$1png") : null
+  // Pre-fetch all images server-side with browser-like headers so PDFKit
+  // receives properly-typed image bytes and never tries its own CDN fetch.
+  const photoSrcs = await Promise.all(
+    speakers.map((s) => (s.photoUrl ? prefetchPhoto(s.photoUrl) : Promise.resolve(null)))
   )
+
+  const fetched = photoSrcs.filter(Boolean).length
+  console.log(`[PDF] layout=${layout} speakers=${speakers.length} photos=${fetched}`)
 
   let doc: ReturnType<typeof createElement>
   if (layout === "list") {
@@ -425,5 +434,7 @@ export async function generateSpeakersPdf({
     doc = renderCardsLayout(speakers, photoSrcs, eventName, subtitle, ownerName)
   }
 
-  return renderToBuffer(doc as Parameters<typeof renderToBuffer>[0]) as Promise<Buffer>
+  const buffer = await (renderToBuffer(doc as Parameters<typeof renderToBuffer>[0]) as Promise<Buffer>)
+  console.log(`[PDF] renderToBuffer done bytes=${buffer.length}`)
+  return buffer
 }
