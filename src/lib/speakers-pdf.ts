@@ -192,15 +192,15 @@ function renderCardsLayout(
   )
 }
 
-// ── LAYOUT: list (compact table with small circular photo) ────────────────────
+// ── LAYOUT: list (compact table — all info on one line per speaker) ───────────
 
-const PHOTO_SZ = 22
+const PHOTO_SZ = 26
 
 const listStyles = StyleSheet.create({
-  page: { padding: 32, fontFamily: "Helvetica", backgroundColor: "#F9FAFB" },
+  page: { padding: 28, fontFamily: "Helvetica", backgroundColor: "#F9FAFB" },
   row: {
     flexDirection: "row", alignItems: "center",
-    paddingVertical: 4, paddingHorizontal: 8,
+    paddingVertical: 5, paddingHorizontal: 8,
     borderBottomWidth: 0.5, borderBottomColor: "#E5E7EB",
   },
   rowOdd:  { backgroundColor: "#FFFFFF" },
@@ -208,28 +208,30 @@ const listStyles = StyleSheet.create({
   rowSkip: { opacity: 0.5 },
   photoWrap: {
     width: PHOTO_SZ, height: PHOTO_SZ, borderRadius: PHOTO_SZ / 2,
-    overflow: "hidden", marginRight: 8, flexShrink: 0,
+    overflow: "hidden", marginRight: 10, flexShrink: 0,
   },
   photo: { width: PHOTO_SZ, height: PHOTO_SZ },
   photoPlaceholder: {
     width: PHOTO_SZ, height: PHOTO_SZ, borderRadius: PHOTO_SZ / 2,
     backgroundColor: "#4F46E5", alignItems: "center", justifyContent: "center",
-    marginRight: 8, flexShrink: 0,
+    marginRight: 10, flexShrink: 0,
   },
-  photoInitials: { color: "#FFFFFF", fontSize: 7, fontWeight: "bold" },
+  photoInitials: { color: "#FFFFFF", fontSize: 8, fontWeight: "bold" },
   prioWrap: {
     flexDirection: "row", alignItems: "center",
-    width: 50, marginRight: 8, flexShrink: 0,
+    width: 44, marginRight: 10, flexShrink: 0,
   },
-  nameCol:    { flex: 2, marginRight: 6 },
-  name:       { fontSize: 9, fontWeight: "bold", color: "#111827" },
-  role:       { fontSize: 7, color: "#9CA3AF", marginTop: 1 },
-  companyCol: { flex: 2 },
-  company:    { fontSize: 8, color: "#2563EB" },
+  nameCol:    { flex: 5, marginRight: 8 },
+  name:       { fontSize: 11, fontWeight: "bold", color: "#111827" },
+  roleCol:    { flex: 5, marginRight: 8 },
+  role:       { fontSize: 10, color: "#6B7280" },
+  companyCol: { flex: 4 },
+  company:    { fontSize: 10, color: "#2563EB" },
   headerRow: {
     flexDirection: "row", alignItems: "center",
     paddingVertical: 4, paddingHorizontal: 8,
     backgroundColor: "#F3F4F6", borderBottomWidth: 1, borderBottomColor: "#D1D5DB",
+    marginBottom: 0,
   },
   headerText: { fontSize: 7, fontWeight: "bold", color: "#6B7280", textTransform: "uppercase" },
 })
@@ -249,12 +251,15 @@ function renderListLayout(
       // Column headers
       createElement(
         View, { style: listStyles.headerRow },
-        createElement(View, { style: { width: PHOTO_SZ, marginRight: 8 } }),
-        createElement(View, { style: { width: 50, marginRight: 8 } },
+        createElement(View, { style: { width: PHOTO_SZ, marginRight: 10 } }),
+        createElement(View, { style: { width: 44, marginRight: 10 } },
           createElement(Text, { style: listStyles.headerText }, "Priority")
         ),
         createElement(View, { style: listStyles.nameCol },
           createElement(Text, { style: listStyles.headerText }, "Name")
+        ),
+        createElement(View, { style: listStyles.roleCol },
+          createElement(Text, { style: listStyles.headerText }, "Title")
         ),
         createElement(View, { style: listStyles.companyCol },
           createElement(Text, { style: listStyles.headerText }, "Company")
@@ -272,7 +277,7 @@ function renderListLayout(
         )
         return createElement(
           View, { key: idx, style: rowStyle },
-          // Small circular photo
+          // Photo
           photo
             ? createElement(View, { style: listStyles.photoWrap },
                 createElement(Image, { src: photo, style: listStyles.photo })
@@ -285,15 +290,16 @@ function renderListLayout(
             View, { style: listStyles.prioWrap },
             cfg ? createElement(View, { style: { flexDirection: "row" } }, ...makeDiamonds(s.priority!, 5)) : null,
           ),
-          // Name + role
-          createElement(
-            View, { style: listStyles.nameCol },
+          // Name
+          createElement(View, { style: listStyles.nameCol },
             createElement(Text, { style: listStyles.name }, `${s.firstName} ${s.lastName}`),
+          ),
+          // Role / title
+          createElement(View, { style: listStyles.roleCol },
             s.role ? createElement(Text, { style: listStyles.role }, s.role) : null,
           ),
           // Company
-          createElement(
-            View, { style: listStyles.companyCol },
+          createElement(View, { style: listStyles.companyCol },
             s.company ? createElement(Text, { style: listStyles.company }, s.company) : null,
           ),
         )
