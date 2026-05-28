@@ -211,6 +211,25 @@ export async function POST(req: Request) {
     action = "created"
   }
 
+  // Auto-link any EventSpeaker records that match this contact (by LinkedIn key or name)
+  // so that visiting a speaker's LinkedIn profile immediately reflects in the Events page.
+  try {
+    await prisma.eventSpeaker.updateMany({
+      where: {
+        userId: user.id,
+        contactId: null,
+        OR: [
+          { linkedinKey: slug },
+          {
+            firstName: { equals: firstName, mode: "insensitive" },
+            lastName:  { equals: lastName,  mode: "insensitive" },
+          },
+        ],
+      },
+      data: { contactId: contact.id },
+    })
+  } catch { /* non-critical */ }
+
   // Apply labels (e.g. "Followed") — create if needed, then assign
   if (Array.isArray(addLabels) && addLabels.length > 0) {
     for (const name of addLabels as string[]) {
