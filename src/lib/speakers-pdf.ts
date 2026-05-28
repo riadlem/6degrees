@@ -42,40 +42,30 @@ function initials(first: string, last: string) {
 }
 
 export async function fetchImageDataUrl(url: string): Promise<string | null> {
-  // @react-pdf/pdfkit only has JPEG (jay-peg) and PNG decoders — no WebP.
-  // Try format=jpeg first, then format=png, then reject anything still WebP.
-  const variants = [
-    url.replace(/([?&]format=)webp/i, "$1jpeg"),
-    url.replace(/([?&]format=)webp/i, "$1png"),
-    url,
-  ]
-  // Deduplicate while preserving order
-  const queue = [...new Set(variants)]
-
-  for (const fetchUrl of queue) {
-    try {
-      const res = await fetch(fetchUrl, {
-        signal: AbortSignal.timeout(8000),
-        redirect: "follow",
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Accept": "image/jpeg,image/png,image/*;q=0.5",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Referer": "https://europe.money2020.com/",
-        },
-      })
-      if (!res.ok) continue
-      const buf = await res.arrayBuffer()
-      if (buf.byteLength === 0) continue
-      const ct = res.headers.get("content-type") ?? ""
-      if (!ct.startsWith("image/")) continue
-      if (ct.includes("webp")) continue   // no WebP decoder in @react-pdf/pdfkit
-      return `data:${ct};base64,${Buffer.from(buf).toString("base64")}`
-    } catch {
-      continue
-    }
+  // @react-pdf/pdfkit only supports JPEG and PNG (no WebP decoder).
+  // The M2020 CDN (filespin.io) returns 400 for format=jpeg but serves PNG fine.
+  // Replace any format=X param with format=png.
+  const fetchUrl = url.replace(/([?&]format=)\w+/i, "$1png")
+  try {
+    const res = await fetch(fetchUrl, {
+      signal: AbortSignal.timeout(8000),
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "image/png,image/jpeg,image/*;q=0.5",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://europe.money2020.com/",
+      },
+    })
+    if (!res.ok) return null
+    const buf = await res.arrayBuffer()
+    if (buf.byteLength === 0) return null
+    const ct = res.headers.get("content-type") ?? ""
+    if (!ct.startsWith("image/") || ct.includes("webp")) return null
+    return `data:${ct};base64,${Buffer.from(buf).toString("base64")}`
+  } catch {
+    return null
   }
-  return null
 }
 
 // ── Diamond SVG row ───────────────────────────────────────────────────────────
