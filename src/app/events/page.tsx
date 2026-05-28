@@ -689,7 +689,8 @@ export default function EventsPage() {
   const [bulkAdding, setBulkAdding] = useState(false)
   const [topicOpen, setTopicOpen] = useState(false)
   const [view, setView] = useState<ViewMode>("grid")
-  const [exportingPdf, setExportingPdf] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState<"cards" | "list" | "grid" | null>(null)
+  const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
   const [shareEnabled, setShareEnabled] = useState(false)
   const [shareToken, setShareToken] = useState<string | null>(null)
@@ -850,8 +851,9 @@ export default function EventsPage() {
   }
 
   // ── PDF export (server-side) ──────────────────────────────────────────────
-  async function handleExportPdf() {
-    setExportingPdf(true)
+  async function handleExportPdf(layout: "cards" | "list" | "grid") {
+    setPdfDropdownOpen(false)
+    setExportingPdf(layout)
     try {
       const subtitle = filtered.length === speakers.length
         ? "All speakers"
@@ -863,6 +865,7 @@ export default function EventsPage() {
           eventSlug: "money2020-europe-2026",
           eventName: "Money 20/20 Europe 2026",
           subtitle,
+          layout,
           speakerIds: filtered.map((s) => s.id),
         }),
       })
@@ -871,11 +874,11 @@ export default function EventsPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url
-      a.download = `m2020_speakers_${new Date().toISOString().slice(0, 10)}.pdf`
+      a.download = `m2020_speakers_${layout}_${new Date().toISOString().slice(0, 10)}.pdf`
       a.click()
       URL.revokeObjectURL(url)
     } finally {
-      setExportingPdf(false)
+      setExportingPdf(null)
     }
   }
 
@@ -1072,15 +1075,40 @@ export default function EventsPage() {
               <Download size={13} />
               CSV
             </button>
-            <button
-              onClick={handleExportPdf}
-              disabled={exportingPdf}
-              title="Export current view to PDF"
-              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              {exportingPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-              PDF
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setPdfDropdownOpen(!pdfDropdownOpen)}
+                disabled={!!exportingPdf}
+                title="Export current view to PDF"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {exportingPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                PDF
+                <ChevronDown size={11} className="text-gray-400" />
+              </button>
+              {pdfDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setPdfDropdownOpen(false)} />
+                  <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
+                    <div className="px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">PDF layout</div>
+                    {([
+                      { key: "cards", label: "Cards with photos", icon: "⊞" },
+                      { key: "grid",  label: "Photo grid",        icon: "⊟" },
+                      { key: "list",  label: "Compact list",      icon: "≡" },
+                    ] as const).map(({ key, label, icon }) => (
+                      <button
+                        key={key}
+                        onClick={() => handleExportPdf(key)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="text-base leading-none text-gray-400">{icon}</span>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Share */}
             <button
