@@ -58,6 +58,30 @@ export async function GET(req: Request) {
           prisma.eventSpeaker.update({ where: { id }, data: { contactId } })
         )
       )
+
+      // Apply event labels to every newly-linked contact so that contacts
+      // auto-matched by reconciliation (never touched the "Add" button) get
+      // the same tags as contacts saved manually via add-contact / bulk-add.
+      const EVENT_LABELS = ["Money20/20", "M2020 Speakers"]
+      const uniqueContactIds = [...new Set(updates.map((u) => u.contactId))]
+      await Promise.all(
+        uniqueContactIds.flatMap((contactId) =>
+          EVENT_LABELS.map(async (name) => {
+            try {
+              const label = await prisma.label.upsert({
+                where: { userId_name: { userId, name } },
+                update: {},
+                create: { userId, name, color: "purple" },
+              })
+              await prisma.contactLabel.upsert({
+                where: { contactId_labelId: { contactId, labelId: label.id } },
+                update: {},
+                create: { contactId, labelId: label.id },
+              })
+            } catch { /* ignore duplicate / constraint errors */ }
+          })
+        )
+      )
     }
   }
 
