@@ -48,6 +48,7 @@ interface Speaker {
 }
 
 type StatusFilter = "all" | "inContacts" | "notInContacts" | "hasLinkedIn" | "notConnected"
+type ViewMode = "grid" | "list" | "photos"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,7 +85,16 @@ function isNotConnected(speaker: Speaker): boolean {
   return hasLinkedIn(speaker) && !isConnected(speaker)
 }
 
-// ─── Speaker card ─────────────────────────────────────────────────────────────
+// LinkedIn icon fill color based on connection state
+function liColor(speaker: Speaker): string {
+  if (!hasLinkedIn(speaker)) return "#9CA3AF"
+  if (isConnected(speaker)) return "#0A66C2"
+  return "#D97706"
+}
+
+const LI_PATH = "M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"
+
+// ─── Speaker card (grid view) ─────────────────────────────────────────────────
 
 function SpeakerCard({
   speaker,
@@ -132,23 +142,36 @@ function SpeakerCard({
           )}
         </div>
 
-        {/* Status badges */}
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        {/* LinkedIn status icon — blue=connected, amber=profile found, gray=none */}
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {liUrl ? (
+            <a
+              href={liUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={connected ? "1st-degree LinkedIn connection" : "LinkedIn profile — not yet connected"}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: connected ? "#0A66C2" : "#D97706" }}>
+                <path d={LI_PATH} />
+              </svg>
+            </a>
+          ) : (
+            <a
+              href={linkedinSearchUrl(speaker.firstName, speaker.lastName, speaker.company)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Search on LinkedIn"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, fill: "#D1D5DB" }}>
+                <path d={LI_PATH} />
+              </svg>
+            </a>
+          )}
           {inContacts && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200 rounded-full">
-              <UserCheck size={10} />
-              Saved
-            </span>
-          )}
-          {degree && degree !== "1" && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
-              {degree}°
-            </span>
-          )}
-          {connected && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded-full">
-              <Link2 size={9} />
-              Connected
+            <span title="Saved in contacts">
+              <UserCheck size={13} className="text-green-500" />
             </span>
           )}
         </div>
@@ -214,6 +237,260 @@ function SpeakerCard({
   )
 }
 
+// ─── Speaker row (list view) ──────────────────────────────────────────────────
+
+// photo | LI | name+role | company | session | badge | actions
+const ROW_GRID = "2.25rem 1.5rem 1fr 1fr 7rem 5.5rem 7rem"
+
+function SpeakerRow({
+  speaker,
+  onAddContact,
+  adding,
+}: {
+  speaker: Speaker
+  onAddContact: (id: string) => void
+  adding: boolean
+}) {
+  const inContacts = !!speaker.contactId
+  const liUrl = resolvedLinkedinUrl(speaker)
+  const degree = speaker.contact?.linkedinDegree
+  const connected = isConnected(speaker)
+  const color = liColor(speaker)
+
+  return (
+    <div
+      className="group grid items-center gap-2 px-3 py-2 text-xs odd:bg-white even:bg-gray-50/60 hover:bg-gray-100 transition-colors"
+      style={{ gridTemplateColumns: ROW_GRID }}
+    >
+      {/* Photo */}
+      <div className="w-8 h-8 rounded-full overflow-hidden shrink-0">
+        {speaker.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={speaker.photoUrl}
+            alt={`${speaker.firstName} ${speaker.lastName}`}
+            className="w-8 h-8 rounded-full object-cover"
+          />
+        ) : (
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
+            {initials(speaker.firstName, speaker.lastName)}
+          </div>
+        )}
+      </div>
+
+      {/* LinkedIn icon */}
+      <div className="flex items-center justify-center">
+        {liUrl ? (
+          <a
+            href={liUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={connected ? "1st-degree connection" : "LinkedIn profile"}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: color }}>
+              <path d={LI_PATH} />
+            </svg>
+          </a>
+        ) : (
+          <a
+            href={linkedinSearchUrl(speaker.firstName, speaker.lastName, speaker.company)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Search on LinkedIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: color }}>
+              <path d={LI_PATH} />
+            </svg>
+          </a>
+        )}
+      </div>
+
+      {/* Name + role */}
+      <div className="min-w-0">
+        <p className="font-semibold text-gray-900 text-sm truncate leading-tight">
+          {speaker.firstName} {speaker.lastName}
+        </p>
+        {speaker.role && (
+          <p className="text-xs text-gray-400 truncate leading-tight">{speaker.role}</p>
+        )}
+      </div>
+
+      {/* Company */}
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 truncate">{speaker.company ?? ""}</p>
+      </div>
+
+      {/* Session topic */}
+      <div className="min-w-0">
+        {speaker.sessionTopic && (
+          <span className="inline-block max-w-full truncate text-[10px] font-medium px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md">
+            {speaker.sessionTopic}
+          </span>
+        )}
+      </div>
+
+      {/* Connection badge */}
+      <div className="flex items-center gap-1 shrink-0">
+        {inContacts && (
+          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold bg-green-50 text-green-700 border border-green-200 rounded-full">
+            <UserCheck size={9} />
+            Saved
+          </span>
+        )}
+        {degree && degree !== "1" && (
+          <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
+            {degree}°
+          </span>
+        )}
+        {connected && (
+          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded-full">
+            <Link2 size={8} />
+            1st
+          </span>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1.5 justify-end shrink-0">
+        <button
+          onClick={() => !inContacts && onAddContact(speaker.id)}
+          disabled={inContacts || adding}
+          title={inContacts ? "In contacts" : "Add to contacts"}
+          className={cn(
+            "flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-lg transition-colors",
+            inContacts
+              ? "text-green-700 bg-green-50 border border-green-200 cursor-default"
+              : adding
+              ? "text-gray-400 bg-gray-50 border border-gray-200 cursor-wait"
+              : "text-white bg-blue-600 hover:bg-blue-700 border border-blue-600"
+          )}
+        >
+          {adding ? (
+            <Loader2 size={10} className="animate-spin" />
+          ) : inContacts ? (
+            <UserCheck size={10} />
+          ) : (
+            <UserPlus size={10} />
+          )}
+          {inContacts ? "Saved" : adding ? "…" : "Add"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Speaker photo tile (photos view) ────────────────────────────────────────
+
+function SpeakerPhoto({
+  speaker,
+  onAddContact,
+  adding,
+}: {
+  speaker: Speaker
+  onAddContact: (id: string) => void
+  adding: boolean
+}) {
+  const inContacts = !!speaker.contactId
+  const liUrl = resolvedLinkedinUrl(speaker)
+  const connected = isConnected(speaker)
+  const degree = speaker.contact?.linkedinDegree
+
+  return (
+    <div className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all">
+      {/* Square photo */}
+      <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+        {speaker.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={speaker.photoUrl}
+            alt={`${speaker.firstName} ${speaker.lastName}`}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-2xl">
+            {initials(speaker.firstName, speaker.lastName)}
+          </div>
+        )}
+
+        {/* LinkedIn status icon overlay — always shown when profile known */}
+        {(liUrl || inContacts) && (
+          <div className="absolute top-1.5 right-1.5">
+            <span
+              className="flex items-center justify-center w-5 h-5 rounded-full shadow-sm"
+              style={{ background: connected ? "#0A66C2" : inContacts ? "#16a34a" : "#D97706" }}
+              title={connected ? "1st-degree connection" : inContacts ? "In contacts" : "Profile found — not connected"}
+            >
+              {inContacts && !liUrl ? (
+                <svg className="text-white" style={{ width: 10, height: 10 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" style={{ width: 11, height: 11, fill: "white" }}>
+                  <path d={LI_PATH} />
+                </svg>
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Name + company */}
+      <div className="px-2 py-1.5 flex-1">
+        <p className="text-xs font-semibold text-gray-900 truncate leading-tight">
+          {speaker.firstName} {speaker.lastName}
+        </p>
+        {speaker.company && (
+          <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{speaker.company}</p>
+        )}
+      </div>
+
+      {/* Action row — visible on hover */}
+      <div className="px-2 pb-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {liUrl ? (
+          <a
+            href={liUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-50 hover:bg-blue-100 transition-colors"
+            title="LinkedIn profile"
+          >
+            <svg viewBox="0 0 24 24" style={{ width: 12, height: 12, fill: "#0A66C2" }}>
+              <path d={LI_PATH} />
+            </svg>
+          </a>
+        ) : (
+          <a
+            href={linkedinSearchUrl(speaker.firstName, speaker.lastName, speaker.company)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center w-6 h-6 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors"
+            title="Search on LinkedIn"
+          >
+            <Search size={11} className="text-gray-400" />
+          </a>
+        )}
+        <button
+          onClick={() => !inContacts && onAddContact(speaker.id)}
+          disabled={inContacts || adding}
+          className={cn(
+            "ml-auto flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md transition-colors",
+            inContacts
+              ? "text-green-700 bg-green-50 cursor-default"
+              : adding
+              ? "text-gray-400 bg-gray-50 cursor-wait"
+              : "text-white bg-blue-600 hover:bg-blue-700"
+          )}
+        >
+          {adding ? <Loader2 size={9} className="animate-spin" /> : inContacts ? <UserCheck size={9} /> : <UserPlus size={9} />}
+          {inContacts ? "Saved" : adding ? "…" : "Add"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ─── Stat chip ────────────────────────────────────────────────────────────────
 
 function StatChip({
@@ -245,6 +522,50 @@ function StatChip({
   )
 }
 
+// ─── View toggle ──────────────────────────────────────────────────────────────
+
+function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode) => void }) {
+  return (
+    <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden shrink-0">
+      <button
+        onClick={() => onChange("grid")}
+        title="Grid"
+        className={cn("px-2.5 py-1.5 transition-colors", view === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+          <rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor"/>
+          <rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+          <rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+      <button
+        onClick={() => onChange("list")}
+        title="List"
+        className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="2" width="12" height="2" rx="1" fill="currentColor"/>
+          <rect x="1" y="6" width="12" height="2" rx="1" fill="currentColor"/>
+          <rect x="1" y="10" width="12" height="2" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+      <button
+        onClick={() => onChange("photos")}
+        title="Photos"
+        className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", view === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="3.5" cy="4" r="2.5" fill="currentColor"/>
+          <circle cx="10.5" cy="4" r="2.5" fill="currentColor"/>
+          <circle cx="3.5" cy="10" r="2.5" fill="currentColor"/>
+          <circle cx="10.5" cy="10" r="2.5" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function EventsPage() {
@@ -259,10 +580,16 @@ export default function EventsPage() {
   const [addingIds, setAddingIds] = useState<Set<string>>(new Set())
   const [bulkAdding, setBulkAdding] = useState(false)
   const [topicOpen, setTopicOpen] = useState(false)
+  const [view, setView] = useState<ViewMode>("grid")
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/")
   }, [status, router])
+
+  useEffect(() => {
+    const saved = localStorage.getItem("eventsView") as ViewMode | null
+    if (saved && ["grid", "list", "photos"].includes(saved)) setView(saved)
+  }, [])
 
   useEffect(() => {
     if (!session) return
@@ -271,6 +598,11 @@ export default function EventsPage() {
       .then((data) => { setSpeakers(Array.isArray(data) ? data : []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [session])
+
+  function handleViewChange(v: ViewMode) {
+    setView(v)
+    localStorage.setItem("eventsView", v)
+  }
 
   const topics = useMemo(() => {
     const set = new Set<string>()
@@ -484,6 +816,31 @@ export default function EventsPage() {
               </div>
             )}
 
+            {/* Not connected quick filter */}
+            {stats.notConnected > 0 && (
+              <button
+                onClick={() => toggleFilter("notConnected")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-2 text-sm border rounded-lg transition-colors",
+                  filterStatus === "notConnected"
+                    ? "border-amber-400 bg-amber-50 text-amber-700 font-medium"
+                    : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                )}
+                title="Show speakers with a LinkedIn profile but not yet connected"
+              >
+                <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: filterStatus === "notConnected" ? "#D97706" : "#9CA3AF" }}>
+                  <path d={LI_PATH} />
+                </svg>
+                Not connected
+                <span className={cn(
+                  "text-xs font-bold ml-0.5",
+                  filterStatus === "notConnected" ? "text-amber-600" : "text-gray-400"
+                )}>
+                  {stats.notConnected}
+                </span>
+              </button>
+            )}
+
             {/* Clear filters */}
             {(filterTopic || filterStatus !== "all" || search) && (
               <button
@@ -507,6 +864,9 @@ export default function EventsPage() {
                 {bulkAdding ? "Adding…" : `Add ${unimportedInView} to contacts`}
               </button>
             )}
+
+            {/* View toggle */}
+            <ViewToggle view={view} onChange={handleViewChange} />
           </div>
         )}
 
@@ -536,11 +896,52 @@ export default function EventsPage() {
           </div>
         )}
 
-        {/* Speaker grid */}
-        {!loading && filtered.length > 0 && (
+        {/* ── Grid view ── */}
+        {!loading && filtered.length > 0 && view === "grid" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filtered.map((speaker) => (
               <SpeakerCard
+                key={speaker.id}
+                speaker={speaker}
+                onAddContact={handleAddContact}
+                adding={addingIds.has(speaker.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── List view ── */}
+        {!loading && filtered.length > 0 && view === "list" && (
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">
+            {/* Column headers */}
+            <div
+              className="hidden sm:grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50/70 text-xs font-medium text-gray-400 uppercase tracking-wide"
+              style={{ gridTemplateColumns: ROW_GRID }}
+            >
+              <div />
+              <div />
+              <div>Name</div>
+              <div>Company</div>
+              <div>Session</div>
+              <div>Status</div>
+              <div />
+            </div>
+            {filtered.map((speaker) => (
+              <SpeakerRow
+                key={speaker.id}
+                speaker={speaker}
+                onAddContact={handleAddContact}
+                adding={addingIds.has(speaker.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Photos view ── */}
+        {!loading && filtered.length > 0 && view === "photos" && (
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-2">
+            {filtered.map((speaker) => (
+              <SpeakerPhoto
                 key={speaker.id}
                 speaker={speaker}
                 onAddContact={handleAddContact}
