@@ -1071,9 +1071,12 @@
   function scrapeCurrentTitle() {
     const PRESENT_RE = /\b(present|aujourd'hui|heute|heden|ahora|attuale|maintenant|현재|現在|сейчас|جاري)\b/i
 
-    // Secondary/advisory role keywords — these titles are deprioritized when a
-    // concurrent operational role exists.
-    const SECONDARY_RE = /\b(advisor|adviser|advisory|non-?executive|independent\s+director|board\s+(?:member|director|observer)|trustee|patron|mentor|ambassador|council|committee|bénévole|volunteer)\b/i
+    // Secondary/advisory/academic role keywords — deprioritized when a concurrent
+    // operational role exists (e.g. "Lecturer at CBS" loses to "CTO at Monerium").
+    const SECONDARY_RE = /\b(advisor|adviser|advisory|non-?executive|independent\s+director|board\s+(?:member|director|observer)|trustee|patron|mentor|ambassador|council|committee|bénévole|volunteer|professor|assoc(?:iate)?\s+professor|adjunct|lecturer|instructor|faculty|visiting\s+(?:scholar|professor|fellow|researcher)|research\s+fellow|academic|guest\s+(?:speaker|lecturer))\b/i
+
+    // Employment type indicating a secondary engagement regardless of title.
+    const PART_TIME_RE = /\bpart[\s-]?time\b/i
 
     // Helper: extract a clean title string from an experience item element.
     // LinkedIn renders experience items as <li> or pvs-entity blocks; the title is
@@ -1152,7 +1155,9 @@
       if (!title || title.length < 2 || title.length >= 80) continue
       const company   = companyFromItem(item)
       const startYear = startYearFromItem(item)
-      const secondary = SECONDARY_RE.test(title)
+      // Mark as secondary if the title is advisory/academic OR if LinkedIn shows
+      // the employment type as "Part-time" anywhere in the item's text.
+      const secondary = SECONDARY_RE.test(title) || PART_TIME_RE.test(item.textContent)
       candidates.push({ title, company, startYear, secondary })
     }
 
