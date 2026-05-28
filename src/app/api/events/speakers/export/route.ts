@@ -26,17 +26,15 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     alignItems: "flex-start",
   },
-  // Column widths — A4 portrait 5-column layout
-  cName:    { width: "24%", fontSize: 8, color: "#111827", fontWeight: "bold" },
-  cRole:    { width: "22%", fontSize: 8, color: "#374151" },
-  cCompany: { width: "22%", fontSize: 8, color: "#374151" },
-  cSession: { width: "18%", fontSize: 8, color: "#6B7280" },
-  cStatus:  { width: "14%", fontSize: 8, color: "#374151" },
-  hName:    { width: "24%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
-  hRole:    { width: "22%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
-  hCompany: { width: "22%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
-  hSession: { width: "18%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
-  hStatus:  { width: "14%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
+  // Column widths — A4 portrait 4-column layout
+  cName:    { width: "30%", fontSize: 8, color: "#111827", fontWeight: "bold" },
+  cRole:    { width: "25%", fontSize: 8, color: "#374151" },
+  cCompany: { width: "25%", fontSize: 8, color: "#374151" },
+  cLi:      { width: "20%", fontSize: 8, color: "#2563EB" },
+  hName:    { width: "30%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
+  hRole:    { width: "25%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
+  hCompany: { width: "25%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
+  hLi:      { width: "20%", fontSize: 7, color: "#9CA3AF", fontWeight: "bold" },
   footer: {
     position: "absolute", bottom: 28, left: 36, right: 36,
     fontSize: 8, color: "#9CA3AF", textAlign: "center",
@@ -46,12 +44,10 @@ const styles = StyleSheet.create({
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type SpeakerRow = {
-  firstName:    string
-  lastName:     string
-  role:         string | null
-  company:      string | null
-  sessionTopic: string | null
-  contactId:    string | null
+  firstName: string
+  lastName:  string
+  role:      string | null
+  company:   string | null
   contact: {
     connectedOn:    string | null
     linkedinDegree: string | null
@@ -60,14 +56,11 @@ type SpeakerRow = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function connectionStatus(s: SpeakerRow): string {
-  if (!s.contactId) return "To add"
+function liStatus(s: SpeakerRow): string {
   const c = s.contact
-  if (!c) return "Saved"
+  if (!c) return ""
   if (c.connectedOn || c.linkedinDegree === "1") return "Connected"
-  if (c.linkedinDegree === "2") return "2° degree"
-  if (c.linkedinDegree === "3") return "3° degree"
-  return "Saved"
+  return ""
 }
 
 // ── PDF component ─────────────────────────────────────────────────────────────
@@ -75,10 +68,10 @@ function connectionStatus(s: SpeakerRow): string {
 function SpeakersPdf({
   eventName, subtitle, speakers, ownerName,
 }: {
-  eventName:  string
-  subtitle:   string
-  speakers:   SpeakerRow[]
-  ownerName:  string
+  eventName: string
+  subtitle:  string
+  speakers:  SpeakerRow[]
+  ownerName: string
 }) {
   return createElement(
     Document,
@@ -100,8 +93,7 @@ function SpeakersPdf({
         createElement(Text, { style: styles.hName    }, "NAME"),
         createElement(Text, { style: styles.hRole    }, "ROLE"),
         createElement(Text, { style: styles.hCompany }, "COMPANY"),
-        createElement(Text, { style: styles.hSession }, "SESSION"),
-        createElement(Text, { style: styles.hStatus  }, "STATUS"),
+        createElement(Text, { style: styles.hLi      }, "LINKEDIN"),
       ),
       // Rows
       createElement(
@@ -112,8 +104,7 @@ function SpeakersPdf({
             createElement(Text, { style: styles.cName    }, `${s.firstName} ${s.lastName}`),
             createElement(Text, { style: styles.cRole    }, s.role    ?? "—"),
             createElement(Text, { style: styles.cCompany }, s.company ?? "—"),
-            createElement(Text, { style: styles.cSession }, s.sessionTopic ?? "—"),
-            createElement(Text, { style: styles.cStatus  }, connectionStatus(s)),
+            createElement(Text, { style: styles.cLi      }, liStatus(s)),
           )
         )
       ),
@@ -145,17 +136,15 @@ export async function POST(req: Request) {
       ...(ids ? { id: { in: ids } } : {}),
     },
     select: {
-      firstName:    true,
-      lastName:     true,
-      role:         true,
-      company:      true,
-      sessionTopic: true,
-      contactId:    true,
+      firstName: true,
+      lastName:  true,
+      role:      true,
+      company:   true,
       contact: {
         select: { connectedOn: true, linkedinDegree: true },
       },
     },
-    orderBy: [{ sessionTopic: "asc" }, { lastName: "asc" }, { firstName: "asc" }],
+    orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   })
 
   const filename = `${eventName.replace(/[^a-z0-9]/gi, "_")}_speakers.pdf`
