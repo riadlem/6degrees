@@ -23,7 +23,15 @@ export async function GET(req: Request) {
     where: { userId: session.user.id, eventSlug },
     include: {
       contact: {
-        select: { id: true, firstName: true, lastName: true, profileUrl: true },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          profileUrl: true,
+          linkedinKey: true,
+          linkedinDegree: true,
+          connectedOn: true,
+        },
       },
     },
     orderBy: [{ sessionTopic: "asc" }, { lastName: "asc" }, { firstName: "asc" }],
