@@ -18,6 +18,7 @@ import {
   X,
   Link2,
   Link2Off,
+  Download,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -581,6 +582,7 @@ export default function EventsPage() {
   const [bulkAdding, setBulkAdding] = useState(false)
   const [topicOpen, setTopicOpen] = useState(false)
   const [view, setView] = useState<ViewMode>("grid")
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/")
@@ -678,6 +680,73 @@ export default function EventsPage() {
       }
     } finally {
       setBulkAdding(false)
+    }
+  }
+
+  // ── CSV export (client-side) ──────────────────────────────────────────────
+  function handleExportCsv() {
+    const cols = ["First Name", "Last Name", "Role", "Company", "Session Topic", "LinkedIn URL", "Status", "In Contacts"]
+    const escape = (v: string | null | undefined) => {
+      const s = v ?? ""
+      return s.includes(",") || s.includes('"') || s.includes("\n")
+        ? `"${s.replace(/"/g, '""')}"`
+        : s
+    }
+    const rows = filtered.map((s) => {
+      const liUrl = resolvedLinkedinUrl(s)
+      const status = isConnected(s) ? "Connected"
+        : s.contact?.linkedinDegree === "2" ? "2° degree"
+        : s.contact?.linkedinDegree === "3" ? "3° degree"
+        : !!s.contactId ? "Saved"
+        : "To add"
+      return [
+        escape(s.firstName),
+        escape(s.lastName),
+        escape(s.role),
+        escape(s.company),
+        escape(s.sessionTopic),
+        escape(liUrl),
+        escape(status),
+        s.contactId ? "Yes" : "No",
+      ].join(",")
+    })
+    const csv = [cols.join(","), ...rows].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `m2020_speakers_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ── PDF export (server-side) ──────────────────────────────────────────────
+  async function handleExportPdf() {
+    setExportingPdf(true)
+    try {
+      const subtitle = filtered.length === speakers.length
+        ? "All speakers"
+        : `${filtered.length} of ${speakers.length} speakers (filtered)`
+      const res = await fetch("/api/events/speakers/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventSlug: "money2020-europe-2026",
+          eventName: "Money 20/20 Europe 2026",
+          subtitle,
+          speakerIds: filtered.map((s) => s.id),
+        }),
+      })
+      if (!res.ok) return
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `m2020_speakers_${new Date().toISOString().slice(0, 10)}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExportingPdf(false)
     }
   }
 
@@ -864,6 +933,25 @@ export default function EventsPage() {
                 {bulkAdding ? "Adding…" : `Add ${unimportedInView} to contacts`}
               </button>
             )}
+
+            {/* Export */}
+            <button
+              onClick={handleExportCsv}
+              title="Export current view to CSV"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Download size={13} />
+              CSV
+            </button>
+            <button
+              onClick={handleExportPdf}
+              disabled={exportingPdf}
+              title="Export current view to PDF"
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {exportingPdf ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+              PDF
+            </button>
 
             {/* View toggle */}
             <ViewToggle view={view} onChange={handleViewChange} />
