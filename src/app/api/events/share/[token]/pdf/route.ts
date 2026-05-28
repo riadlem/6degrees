@@ -30,13 +30,19 @@ export async function GET(
   const subtitle  = `Shared by ${share.user.name ?? "Unknown"} · ${speakers.length} speakers`
   const filename  = `m2020_speakers_${share.user.name?.replace(/[^a-z0-9]/gi, "_") ?? "shared"}_${layout}.pdf`
 
-  const buffer = await generateSpeakersPdf({
-    eventName,
-    subtitle,
-    speakers,
-    ownerName: share.user.name ?? "Unknown",
-    layout,
-  })
+  let buffer: Buffer
+  try {
+    buffer = await generateSpeakersPdf({
+      eventName,
+      subtitle,
+      speakers,
+      ownerName: share.user.name ?? "Unknown",
+      layout,
+    })
+  } catch (err) {
+    console.error("[PDF share] generateSpeakersPdf threw:", err)
+    return new Response(`PDF generation failed: ${String(err)}`, { status: 500 })
+  }
 
   return new Response(new Uint8Array(buffer), {
     headers: {
