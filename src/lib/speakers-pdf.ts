@@ -42,8 +42,11 @@ function initials(first: string, last: string) {
 }
 
 export async function fetchImageDataUrl(url: string): Promise<string | null> {
+  // PDFKit (used by @react-pdf/renderer) only supports JPEG and PNG.
+  // The M2020 CDN (filespin.io) exposes a format= param — swap webp → jpeg.
+  const fetchUrl = url.replace(/([?&]format=)webp/i, "$1jpeg")
   try {
-    const res = await fetch(url, {
+    const res = await fetch(fetchUrl, {
       signal: AbortSignal.timeout(8000),
       redirect: "follow",
       headers: {
