@@ -20,6 +20,8 @@ import {
   Link2Off,
   Download,
   Share2,
+  Pencil,
+  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import EventShareModal from "@/components/EventShareModal"
@@ -182,17 +184,33 @@ function SpeakerCard({
   onAddContact,
   adding,
   onPriorityChange,
+  onEdit,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
   onPriorityChange: (id: string, p: number | null) => void
+  onEdit: (id: string, company: string | null, role: string | null) => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [editCompany, setEditCompany] = useState("")
+  const [editRole, setEditRole] = useState("")
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
   const degree = speaker.contact?.linkedinDegree
   const connected = isConnected(speaker)
   const p1 = speaker.priority === 1
+
+  function startEdit() {
+    setEditCompany(speaker.company ?? "")
+    setEditRole(speaker.role ?? "")
+    setEditing(true)
+  }
+
+  function saveEdit() {
+    onEdit(speaker.id, editCompany.trim() || null, editRole.trim() || null)
+    setEditing(false)
+  }
 
   return (
     <div className={cn(
@@ -216,17 +234,53 @@ function SpeakerCard({
         )}
 
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-gray-900 text-sm truncate">
-            {speaker.firstName} {speaker.lastName}
-          </p>
-          {speaker.role && (
-            <p className="text-xs text-gray-500 truncate">{speaker.role}</p>
-          )}
-          {speaker.company && (
-            <p className="text-xs text-blue-600 font-medium flex items-center gap-1 truncate">
-              <Building2 size={10} className="shrink-0" />
-              {speaker.company}
+          <div className="flex items-center gap-1">
+            <p className="font-semibold text-gray-900 text-sm truncate flex-1">
+              {speaker.firstName} {speaker.lastName}
             </p>
+            <button
+              onClick={editing ? saveEdit : startEdit}
+              title={editing ? "Save" : "Edit company / role"}
+              className="shrink-0 p-0.5 rounded text-gray-300 hover:text-gray-600 transition-colors"
+            >
+              {editing ? <Check size={12} className="text-green-600" /> : <Pencil size={11} />}
+            </button>
+            {editing && (
+              <button onClick={() => setEditing(false)} className="shrink-0 p-0.5 rounded text-gray-300 hover:text-gray-600">
+                <X size={11} />
+              </button>
+            )}
+          </div>
+          {editing ? (
+            <div className="flex flex-col gap-1 mt-1">
+              <input
+                autoFocus
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+                placeholder="Role / title"
+                className="w-full text-xs border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-400"
+              />
+              <input
+                value={editCompany}
+                onChange={(e) => setEditCompany(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+                placeholder="Company"
+                className="w-full text-xs border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-400"
+              />
+            </div>
+          ) : (
+            <>
+              {speaker.role && (
+                <p className="text-xs text-gray-500 truncate">{speaker.role}</p>
+              )}
+              {speaker.company && (
+                <p className="text-xs text-blue-600 font-medium flex items-center gap-1 truncate">
+                  <Building2 size={10} className="shrink-0" />
+                  {speaker.company}
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -336,17 +390,33 @@ function SpeakerRow({
   onAddContact,
   adding,
   onPriorityChange,
+  onEdit,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
   onPriorityChange: (id: string, p: number | null) => void
+  onEdit: (id: string, company: string | null, role: string | null) => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [editCompany, setEditCompany] = useState("")
+  const [editRole, setEditRole] = useState("")
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
   const degree = speaker.contact?.linkedinDegree
   const connected = isConnected(speaker)
   const color = liColor(speaker)
+
+  function startEdit() {
+    setEditCompany(speaker.company ?? "")
+    setEditRole(speaker.role ?? "")
+    setEditing(true)
+  }
+
+  function saveEdit() {
+    onEdit(speaker.id, editCompany.trim() || null, editRole.trim() || null)
+    setEditing(false)
+  }
 
   return (
     <div
@@ -410,14 +480,33 @@ function SpeakerRow({
         <p className="font-semibold text-gray-900 text-sm truncate leading-tight">
           {speaker.firstName} {speaker.lastName}
         </p>
-        {speaker.role && (
+        {editing ? (
+          <input
+            autoFocus
+            value={editRole}
+            onChange={(e) => setEditRole(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+            placeholder="Role / title"
+            className="w-full text-xs border border-gray-300 rounded px-1 py-0 focus:outline-none focus:border-blue-400 mt-0.5"
+          />
+        ) : speaker.role ? (
           <p className="text-xs text-gray-400 truncate leading-tight">{speaker.role}</p>
-        )}
+        ) : null}
       </div>
 
       {/* Company */}
       <div className="min-w-0">
-        <p className="text-xs text-gray-500 truncate">{speaker.company ?? ""}</p>
+        {editing ? (
+          <input
+            value={editCompany}
+            onChange={(e) => setEditCompany(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+            placeholder="Company"
+            className="w-full text-xs border border-gray-300 rounded px-1 py-0 focus:outline-none focus:border-blue-400"
+          />
+        ) : (
+          <p className="text-xs text-gray-500 truncate">{speaker.company ?? ""}</p>
+        )}
       </div>
 
       {/* Session topic */}
@@ -452,6 +541,20 @@ function SpeakerRow({
 
       {/* Actions */}
       <div className="flex items-center gap-1.5 justify-end shrink-0">
+        {editing ? (
+          <>
+            <button onClick={saveEdit} title="Save" className="p-1 rounded text-green-600 hover:bg-green-50 transition-colors">
+              <Check size={12} />
+            </button>
+            <button onClick={() => setEditing(false)} title="Cancel" className="p-1 rounded text-gray-400 hover:bg-gray-100 transition-colors">
+              <X size={12} />
+            </button>
+          </>
+        ) : (
+          <button onClick={startEdit} title="Edit company / role" className="p-1 rounded text-gray-300 hover:text-gray-600 transition-colors opacity-0 group-hover:opacity-100">
+            <Pencil size={11} />
+          </button>
+        )}
         <button
           onClick={() => !inContacts && onAddContact(speaker.id)}
           disabled={inContacts || adding}
@@ -486,16 +589,32 @@ function SpeakerPhoto({
   onAddContact,
   adding,
   onPriorityChange,
+  onEdit,
 }: {
   speaker: Speaker
   onAddContact: (id: string) => void
   adding: boolean
   onPriorityChange: (id: string, p: number | null) => void
+  onEdit: (id: string, company: string | null, role: string | null) => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [editCompany, setEditCompany] = useState("")
+  const [editRole, setEditRole] = useState("")
   const inContacts = !!speaker.contactId
   const liUrl = resolvedLinkedinUrl(speaker)
   const connected = isConnected(speaker)
   const degree = speaker.contact?.linkedinDegree
+
+  function startEdit() {
+    setEditCompany(speaker.company ?? "")
+    setEditRole(speaker.role ?? "")
+    setEditing(true)
+  }
+
+  function saveEdit() {
+    onEdit(speaker.id, editCompany.trim() || null, editRole.trim() || null)
+    setEditing(false)
+  }
 
   return (
     <div className={cn(
@@ -549,13 +668,45 @@ function SpeakerPhoto({
         <p className="text-xs font-semibold text-gray-900 truncate leading-tight">
           {speaker.firstName} {speaker.lastName}
         </p>
-        {speaker.company && (
+        {editing ? (
+          <div className="flex flex-col gap-0.5 mt-1">
+            <input
+              autoFocus
+              value={editRole}
+              onChange={(e) => setEditRole(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+              placeholder="Role / title"
+              className="w-full text-[10px] border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-400"
+            />
+            <input
+              value={editCompany}
+              onChange={(e) => setEditCompany(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(false) }}
+              placeholder="Company"
+              className="w-full text-[10px] border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:border-blue-400"
+            />
+          </div>
+        ) : speaker.company ? (
           <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{speaker.company}</p>
-        )}
+        ) : null}
       </div>
 
       {/* Action row — visible on hover */}
       <div className="px-2 pb-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {editing ? (
+          <>
+            <button onClick={saveEdit} title="Save" className="flex items-center justify-center w-6 h-6 rounded-md bg-green-50 hover:bg-green-100 transition-colors">
+              <Check size={11} className="text-green-600" />
+            </button>
+            <button onClick={() => setEditing(false)} title="Cancel" className="flex items-center justify-center w-6 h-6 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
+              <X size={11} className="text-gray-400" />
+            </button>
+          </>
+        ) : (
+          <button onClick={startEdit} title="Edit company / role" className="flex items-center justify-center w-6 h-6 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors">
+            <Pencil size={11} className="text-gray-400" />
+          </button>
+        )}
         {liUrl ? (
           <a
             href={liUrl}
@@ -810,12 +961,21 @@ export default function EventsPage() {
 
   // ── Priority update ───────────────────────────────────────────────────────
   async function handlePriorityChange(id: string, priority: number | null) {
-    // Optimistic update
     setSpeakers((prev) => prev.map((s) => s.id === id ? { ...s, priority } : s))
     await fetch(`/api/events/speakers/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ priority }),
+    })
+  }
+
+  // ── Speaker field edit ────────────────────────────────────────────────────
+  async function handleSpeakerEdit(id: string, company: string | null, role: string | null) {
+    setSpeakers((prev) => prev.map((s) => s.id === id ? { ...s, company, role } : s))
+    await fetch(`/api/events/speakers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ company, role }),
     })
   }
 
@@ -1166,6 +1326,7 @@ export default function EventsPage() {
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
                 onPriorityChange={handlePriorityChange}
+                onEdit={handleSpeakerEdit}
               />
             ))}
           </div>
@@ -1195,6 +1356,7 @@ export default function EventsPage() {
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
                 onPriorityChange={handlePriorityChange}
+                onEdit={handleSpeakerEdit}
               />
             ))}
           </div>
@@ -1210,6 +1372,7 @@ export default function EventsPage() {
                 onAddContact={handleAddContact}
                 adding={addingIds.has(speaker.id)}
                 onPriorityChange={handlePriorityChange}
+                onEdit={handleSpeakerEdit}
               />
             ))}
           </div>
