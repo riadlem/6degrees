@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Search, Download } from "lucide-react"
+import { Building2, Search, Download, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -322,6 +322,7 @@ export default function SpeakersContent({
   token: string
 }) {
   const [view, setView] = useState<ViewMode>("grid")
+  const [pdfDropdownOpen, setPdfDropdownOpen] = useState(false)
 
   return (
     <div>
@@ -332,16 +333,41 @@ export default function SpeakersContent({
         </p>
 
         <div className="flex items-center gap-2">
-          {/* PDF download */}
-          <a
-            href={`/api/events/share/${token}/pdf`}
-            download
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-            title="Download PDF"
-          >
-            <Download size={13} />
-            PDF
-          </a>
+          {/* PDF download dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setPdfDropdownOpen(!pdfDropdownOpen)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Download size={13} />
+              PDF
+              <ChevronDown size={11} className="text-gray-400" />
+            </button>
+            {pdfDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPdfDropdownOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-xl shadow-lg z-20 overflow-hidden">
+                  <div className="px-3 py-2 text-[10px] font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">PDF layout</div>
+                  {([
+                    { key: "cards", label: "Cards with photos", icon: "⊞" },
+                    { key: "grid",  label: "Photo grid",        icon: "⊟" },
+                    { key: "list",  label: "Compact list",      icon: "≡" },
+                  ] as const).map(({ key, label, icon }) => (
+                    <a
+                      key={key}
+                      href={`/api/events/share/${token}/pdf?layout=${key}`}
+                      download
+                      onClick={() => setPdfDropdownOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <span className="text-base leading-none text-gray-400">{icon}</span>
+                      {label}
+                    </a>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
 
           <ViewToggle view={view} onChange={setView} />
         </div>
@@ -384,14 +410,6 @@ export default function SpeakersContent({
       <p className="text-center text-xs text-gray-400 mt-8">
         Shared via{" "}
         <a href="/" className="text-blue-500 hover:underline">6Degrees</a>
-        {" · "}
-        <a
-          href={`/api/events/share/${token}/pdf`}
-          download
-          className="text-blue-500 hover:underline"
-        >
-          Download PDF
-        </a>
       </p>
     </div>
   )
