@@ -574,9 +574,10 @@
         // If right has a role keyword and left doesn't → left is company (default)
         // If left has a role keyword and right doesn't → right is company
         if (ROLE_RE.test(left) && !ROLE_RE.test(right)) {
-          return { position: left, company: asCompany(right) }
+          // "Role | Company | Tagline…" — strip anything after the first secondary pipe
+          return { position: left, company: asCompany(right.split(/\s*[|·]\s*/)[0].trim()) }
         }
-        return { position: right, company: asCompany(left) }
+        return { position: right, company: asCompany(left.split(/\s*[|·]\s*/)[0].trim()) }
       }
     }
 
