@@ -166,6 +166,7 @@ const rescrapeBtn    = document.getElementById("rescrape-btn")
 let lastDebugLines = []
 let lastProfile = null
 let activeTabId = null
+let pageKind = null   // "profile" | "messaging"
 
 toggleLogBtn?.addEventListener("click", () => {
   const visible = dbgLogEl.style.display !== "none"
@@ -256,15 +257,37 @@ function runScrape(tabId) {
   })
 }
 
-// Auto-run when popup opens on a LinkedIn /in/ page
+// Auto-run when popup opens on a LinkedIn /in/ profile or /messaging page
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   const tab = tabs[0]
   if (!tab || !tab.url) return
-  if (!tab.url.includes("linkedin.com/in/")) return
 
-  activeTabId = tab.id
-  profilePanel.style.display = "block"
-  runScrape(tab.id)
+  if (tab.url.includes("linkedin.com/in/")) {
+    activeTabId = tab.id
+    pageKind = "profile"
+    profilePanel.style.display = "block"
+    runScrape(tab.id)
+  } else if (tab.url.includes("linkedin.com/messaging")) {
+    activeTabId = tab.id
+    pageKind = "messaging"
+    profilePanel.style.display = "block"
+    // Repurpose the panel for messaging: hide the profile-only debug rows and
+    // relabel the fixture button so one click captures the messaging DOM.
+    const title = document.querySelector("#profilePanel .panel-title")
+    if (title) title.innerHTML = "💬 Messaging page debug"
+    if (scrapeStatusEl) scrapeStatusEl.textContent = ""
+    for (const row of document.querySelectorAll("#profilePanel .dbg-row")) {
+      row.style.display = "none"
+    }
+    const logWrap = document.querySelector("#profilePanel .dbg-log-wrap")
+    if (logWrap) logWrap.style.display = "none"
+    const firstCopyRow = document.querySelector("#profilePanel .copy-row")
+    if (firstCopyRow) firstCopyRow.style.display = "none"
+    if (copyFixtureBtn) {
+      copyFixtureBtn.textContent = "📋 Copy messaging debug"
+      copyFixtureBtn.title = "Capture the messaging-page DOM structure for debugging"
+    }
+  }
 })
 
 rescrapeBtn?.addEventListener("click", () => {
@@ -316,10 +339,32 @@ copyAllBtn?.addEventListener("click", () => {
 const copyFixtureBtn = document.getElementById("copy-fixture")
 copyFixtureBtn?.addEventListener("click", () => {
   if (!activeTabId) {
-    copyFixtureBtn.textContent = "Not on a LinkedIn profile"
+    copyFixtureBtn.textContent = "Not on a LinkedIn page"
     setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy test fixture" }, 2000)
     return
   }
+
+  // Messaging page: capture DOM diagnostics instead of a profile fixture.
+  if (pageKind === "messaging") {
+    copyFixtureBtn.textContent = "Capturing…"
+    chrome.tabs.sendMessage(activeTabId, { type: "CAPTURE_MSG_FIXTURE" }, (response) => {
+      if (chrome.runtime.lastError || !response) {
+        copyFixtureBtn.textContent = "Error — reload page"
+        setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy messaging debug" }, 2000)
+        return
+      }
+      const json = JSON.stringify(response, null, 2)
+      navigator.clipboard.writeText(json).then(() => {
+        copyFixtureBtn.textContent = "✓ Messaging debug copied!"
+        setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy messaging debug" }, 2500)
+      }).catch(() => {
+        copyFixtureBtn.textContent = "Error — check console"
+        setTimeout(() => { copyFixtureBtn.textContent = "📋 Copy messaging debug" }, 2500)
+      })
+    })
+    return
+  }
+
   copyFixtureBtn.textContent = "Capturing…"
   chrome.tabs.sendMessage(activeTabId, { type: "CAPTURE_FIXTURE" }, (response) => {
     if (chrome.runtime.lastError || !response) {
