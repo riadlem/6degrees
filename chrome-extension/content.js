@@ -1639,138 +1639,42 @@
 })()
 
 // ─── Messaging full-width layout ─────────────────────────────────────────────
-// Hides LinkedIn's right rail AND the conversation thread panel on /messaging
-// so the inbox list fills the full page width.
+// On /messaging LinkedIn lays the page out as a CSS grid:
+//   div.scaffold-layout__content--list-detail-aside  { display:grid;
+//        grid-template-columns: <main>px <aside>px }   e.g. "782px 322px"
+//     ├─ main.scaffold-layout__list-detail   (conversation list + open thread)
+//     └─ aside.scaffold-layout__aside        (promo / ads right rail)
+// We hide the aside and collapse the grid to a single column so the freed
+// right-rail space widens the message content area (list + thread).
+//
+// IMPORTANT: this is pure, narrowly-scoped CSS — no JS DOM tagging.  The old
+// detectAndTagSplit() heuristic wrongly matched the search/filter top bar
+// (msg-cross-pillar-*) and hid its children, which broke the messaging header.
 function applyMessagingFullWidth() {
-  if (!document.getElementById("sd-msg-fullwidth")) {
-    const style = document.createElement("style")
-    style.id = "sd-msg-fullwidth"
-    style.textContent = `
-      /* ── 1. Hide right rail ──────────────────────────────────────────────── */
-      .scaffold-layout__aside,
-      aside.scaffold-layout__aside { display: none !important; }
+  if (document.getElementById("sd-msg-fullwidth")) return
+  const style = document.createElement("style")
+  style.id = "sd-msg-fullwidth"
+  style.textContent = `
+    /* Hide the promotional right rail on the messaging page. */
+    .scaffold-layout__aside,
+    aside.scaffold-layout__aside { display: none !important; }
 
-      /* ── 2. Reclaim freed column space ──────────────────────────────────── */
-      /* display:none on the aside hides it but the grid column slot it occupied
-         still has its defined width.  grid-column:1/-1 on the main element
-         forces it to span every column, claiming all available horizontal space. */
-      .scaffold-layout__main {
-        grid-column: 1 / -1 !important;
-        max-width: 100% !important;
-        width: 100% !important;
-        padding-right: 0 !important;
-        box-sizing: border-box !important;
-      }
-      /* Also override the grid template itself in case min-width prevents collapse */
-      .scaffold-layout-container,
-      .scaffold-layout-container--reflow,
-      [class*="scaffold-layout-container"] {
-        grid-template-columns: 1fr !important;
-        grid-template-areas: unset !important;
-        max-width: 100% !important;
-      }
-
-      /* ── 3. Inner messaging split pane ───────────────────────────────────── */
-      /* CSS-named fallback for LinkedIn's stable .msg-* classes */
-      .msg-global-container {
-        max-width: 100% !important;
-        width: 100% !important;
-      }
-      .msg-columns, [class*="msg-columns"] {
-        max-width: 100% !important;
-        width: 100% !important;
-      }
-      /* JS-detected split container (tagged by detectAndTagSplit) */
-      .sd-msg-split  { display: block !important; width: 100% !important; max-width: 100% !important; }
-      .sd-msg-inbox  { max-width: 100% !important; width: 100% !important; display: block !important; }
-      .sd-msg-thread { display: none !important; }
-    `
-    document.head.appendChild(style)
-  }
-
-  detectAndTagSplit()
-  setTimeout(detectAndTagSplit, 600)
-  setTimeout(detectAndTagSplit, 2000)
-  setTimeout(detectAndTagSplit, 4000)
-}
-
-// Finds the horizontal split pane inside the messaging page and tags it so
-// the CSS above can hide the thread panel and expand the inbox list.
-// Uses three strategies in order: thread-link anchor walk-up, msg-* class scan,
-// direct structure scan — so it works even when LinkedIn has no thread-link hrefs.
-function tagSplitContainer(splitEl, inboxEl) {
-  splitEl.classList.add("sd-msg-split")
-  for (const c of splitEl.children) {
-    const isInbox = c === inboxEl || c.contains(inboxEl)
-    if (isInbox) {
-      c.classList.add("sd-msg-inbox")
-      c.classList.remove("sd-msg-thread")
-    } else {
-      c.classList.add("sd-msg-thread")
+    /* Collapse the 2-column list-detail grid (main + aside) to one column so
+       the space freed by hiding the aside widens the message content. */
+    .scaffold-layout__content--list-detail-aside {
+      grid-template-columns: 1fr !important;
     }
-  }
-}
 
-function isHorizontalSplit(el) {
-  if (!el || el.children.length < 2) return false
-  const cs = getComputedStyle(el)
-  const cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean)
-  return (
-    (cs.display === "flex" && cs.flexDirection !== "column") ||
-    (cs.display === "grid" && cols.length >= 2)
-  )
-}
-
-function detectAndTagSplit() {
-  const main =
-    document.querySelector(".scaffold-layout__main") ||
-    document.querySelector("main")
-  if (!main) return
-
-  // ── Strategy A: walk up from a thread-link anchor ──────────────────────────
-  const threadLinks = [
-    ...main.querySelectorAll('a[href*="/messaging/thread/"]'),
-    ...main.querySelectorAll('[href*="/messaging/thread/"]'),
-  ]
-  if (threadLinks.length) {
-    let node = threadLinks[0]
-    for (let depth = 0; depth < 20 && node && node !== main && node !== document.body; depth++) {
-      const par = node.parentElement
-      if (!par || par === main || par === document.body) break
-      if (isHorizontalSplit(par)) {
-        tagSplitContainer(par, node)
-        return
-      }
-      node = par
+    /* Let the messaging container use the full page width (LinkedIn caps the
+       reflow container near ~1128px). Scoped to #messaging so nothing outside
+       the messaging page — notably the global header — is affected. */
+    #messaging .scaffold-layout-container,
+    #messaging .scaffold-layout-container--reflow,
+    #messaging .scaffold-layout__inner {
+      max-width: 100% !important;
     }
-  }
-
-  // ── Strategy B: scan elements with "msg-" in their class name ─────────────
-  for (const el of main.querySelectorAll('[class*="msg-"]')) {
-    if (isHorizontalSplit(el)) {
-      tagSplitContainer(el, el.children[0])
-      return
-    }
-  }
-
-  // ── Strategy C: check main and its direct children ────────────────────────
-  if (isHorizontalSplit(main)) {
-    tagSplitContainer(main, main.children[0])
-    return
-  }
-  for (const child of main.children) {
-    if (isHorizontalSplit(child)) {
-      tagSplitContainer(child, child.children[0])
-      return
-    }
-    // One level deeper
-    for (const grandchild of child.children) {
-      if (isHorizontalSplit(grandchild)) {
-        tagSplitContainer(grandchild, grandchild.children[0])
-        return
-      }
-    }
-  }
+  `
+  document.head.appendChild(style)
 }
 
 // ─── Messaging-page diagnostics capture ──────────────────────────────────────
