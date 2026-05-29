@@ -94,6 +94,28 @@ function waDeepLink(chatName: string): string | null {
   return null
 }
 
+const MESSAGES_CACHE_KEY = "6d:messages:v1"
+const TWO_MONTHS_MS = 60 * 24 * 60 * 60 * 1000
+
+function loadCachedMessages(): UnifiedChat[] {
+  try {
+    const raw = localStorage.getItem(MESSAGES_CACHE_KEY)
+    if (!raw) return []
+    const { chats } = JSON.parse(raw)
+    return Array.isArray(chats) ? chats : []
+  } catch { return [] }
+}
+
+function saveCachedMessages(chats: UnifiedChat[]) {
+  try {
+    const cutoff = Date.now() - TWO_MONTHS_MS
+    const toStore = chats
+      .filter((c) => !c.lastAt || new Date(c.lastAt).getTime() > cutoff)
+      .slice(0, 200)
+    localStorage.setItem(MESSAGES_CACHE_KEY, JSON.stringify({ chats: toStore, ts: Date.now() }))
+  } catch {}
+}
+
 export default function MessagesPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -107,9 +129,21 @@ export default function MessagesPage() {
   useEffect(() => {
     if (status === "unauthenticated") { router.push("/auth/signin"); return }
     if (status !== "authenticated") return
+
+    // Show cached data instantly while fetching fresh in background
+    const cached = loadCachedMessages()
+    if (cached.length) {
+      setChats(cached)
+      setLoading(false)
+    }
+
     fetch("/api/messages/unified")
       .then((r) => r.json())
-      .then((d) => setChats(d.chats ?? []))
+      .then((d) => {
+        const fresh: UnifiedChat[] = d.chats ?? []
+        setChats(fresh)
+        saveCachedMessages(fresh)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [status, router])
@@ -242,14 +276,14 @@ export default function MessagesPage() {
                   className={cn("flex-1 min-w-0", chat.contact && "cursor-pointer")}
                   onClick={() => chat.contact && setActiveContactId(chat.contact.id)}
                 >
-                  <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm")}>
+                  <p className={cn("text-sm font-semibold text-gray-900 truncate", blurred && "blur-sm")}>
                     {displayName}
+                    {secondaryLine && (
+                      <span className={cn("ml-1.5 text-xs font-normal text-gray-400", blurred && "blur-sm")}>
+                        · {secondaryLine}
+                      </span>
+                    )}
                   </p>
-                  {secondaryLine && (
-                    <p className={cn("text-xs text-gray-400 truncate", blurred && "blur-sm")}>
-                      {secondaryLine}
-                    </p>
-                  )}
                 </div>
 
                 {/* Direction + time */}
