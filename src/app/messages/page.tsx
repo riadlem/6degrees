@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Search, ArrowUp, ArrowDown, Loader2, Settings } from "lucide-react"
+import { Search, ArrowUp, ArrowDown, Loader2, Settings, ExternalLink } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import MessagesTabBar from "@/components/MessagesTabBar"
+import ContactDetail from "@/components/ContactDetail"
 import Link from "next/link"
 
 function relTime(dateStr: string): string {
@@ -53,12 +54,14 @@ type UnifiedChat = {
   lastAt: string | null
   lastIsOutbound: boolean | null
   subject?: string | null
+  profileUrl: string | null
   contact: {
     id: string
     firstName: string
     lastName: string
     company: string | null
     photoUrl: string | null
+    profileUrl: string | null
   } | null
 }
 
@@ -72,7 +75,7 @@ function SourceBadge({ source }: { source: UnifiedChat["source"] }) {
   }
   if (source === "linkedin") {
     return (
-      <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-blue-600 text-white">
+      <div className="w-5 h-5 rounded flex items-center justify-center shrink-0 bg-blue-600 text-white">
         <LiIcon size={11} />
       </div>
     )
@@ -84,6 +87,13 @@ function SourceBadge({ source }: { source: UnifiedChat["source"] }) {
   )
 }
 
+// Returns a WhatsApp deep-link if chatName looks like a phone number, else null.
+function waDeepLink(chatName: string): string | null {
+  const digits = chatName.replace(/[\s\-().+]/g, "")
+  if (/^\d{7,15}$/.test(digits)) return `https://wa.me/${digits}`
+  return null
+}
+
 export default function MessagesPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -92,6 +102,7 @@ export default function MessagesPage() {
   const [chats, setChats] = useState<UnifiedChat[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
+  const [activeContactId, setActiveContactId] = useState<string | null>(null)
 
   useEffect(() => {
     if (status === "unauthenticated") { router.push("/auth/signin"); return }
@@ -120,36 +131,24 @@ export default function MessagesPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <MessagesTabBar />
 
-      {/* Channel import CTAs — always visible, matching WA / LI DM pages */}
+      {/* Channel import CTAs */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
-        <Link
-          href="/settings#whatsapp"
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-700 transition-colors"
-        >
+        <Link href="/settings#whatsapp" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-700 transition-colors">
           <WAIcon size={13} />
           <span>WhatsApp import</span>
         </Link>
         <span className="text-gray-200">·</span>
-        <Link
-          href="/settings#linkedin-dm"
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-700 transition-colors"
-        >
+        <Link href="/settings#linkedin-dm" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-700 transition-colors">
           <LiIcon size={13} />
           <span>LinkedIn DM import</span>
         </Link>
         <span className="text-gray-200">·</span>
-        <Link
-          href="/settings#gmail"
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-700 transition-colors"
-        >
+        <Link href="/settings#gmail" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-700 transition-colors">
           <MailIcon size={13} />
           <span>Gmail connect</span>
         </Link>
         <div className="flex-1" />
-        <Link
-          href="/settings"
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-        >
+        <Link href="/settings" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors">
           <Settings size={13} />
           <span>Import / reset</span>
         </Link>
@@ -201,17 +200,27 @@ export default function MessagesPage() {
             const photo = chat.contact?.photoUrl ?? null
             const nameParts = displayName.split(/\s+/)
             const ini = initials(nameParts[0] ?? "", nameParts[1] ?? "")
-            // For email: show subject as secondary line; for others: show company
             const secondaryLine = chat.source === "email"
               ? (chat.subject ?? company)
               : company
 
+            // LinkedIn profile URL: prefer conversation-level, fall back to contact's stored URL
+            const liProfileUrl = chat.profileUrl ?? chat.contact?.profileUrl ?? null
+            // WhatsApp deep-link (only for WA source with a phone-number chatName)
+            const waLink = chat.source === "wa" ? waDeepLink(chat.chatName) : null
+
             return (
-              <div key={chat.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+              <div key={chat.id} className="group flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
                 <SourceBadge source={chat.source} />
 
-                {/* Avatar */}
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                {/* Avatar — click to open contact panel */}
+                <div
+                  className={cn(
+                    "w-9 h-9 rounded-full overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center",
+                    chat.contact && "cursor-pointer"
+                  )}
+                  onClick={() => chat.contact && setActiveContactId(chat.contact.id)}
+                >
                   {photo ? (
                     <img
                       src={photoSrc(photo) ?? photo}
@@ -223,8 +232,11 @@ export default function MessagesPage() {
                   )}
                 </div>
 
-                {/* Name + secondary line */}
-                <div className="flex-1 min-w-0">
+                {/* Name + secondary line — click name to open contact panel */}
+                <div
+                  className={cn("flex-1 min-w-0", chat.contact && "cursor-pointer")}
+                  onClick={() => chat.contact && setActiveContactId(chat.contact.id)}
+                >
                   <p className={cn("text-sm font-medium text-gray-900 truncate", blurred && "blur-sm")}>
                     {displayName}
                   </p>
@@ -246,10 +258,70 @@ export default function MessagesPage() {
                     <span className="text-xs text-gray-400">{relTime(chat.lastAt)}</span>
                   )}
                 </div>
+
+                {/* Action icons — visible on hover */}
+                <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* LinkedIn profile link */}
+                  {liProfileUrl && (
+                    <a
+                      href={liProfileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="View LinkedIn profile"
+                      className="text-blue-400 hover:text-blue-600 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <LiIcon size={13} />
+                    </a>
+                  )}
+                  {/* WhatsApp conversation link */}
+                  {chat.source === "wa" && (
+                    waLink ? (
+                      <a
+                        href={waLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open in WhatsApp"
+                        className="text-green-500 hover:text-green-700 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <WAIcon size={13} />
+                      </a>
+                    ) : (
+                      <Link
+                        href="/whatsapp"
+                        title="Go to WhatsApp"
+                        className="text-green-500 hover:text-green-700 transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <WAIcon size={13} />
+                      </Link>
+                    )
+                  )}
+                  {/* Open contact page */}
+                  {chat.contact && (
+                    <Link
+                      href={`/contacts?contact=${chat.contact.id}`}
+                      title="Open contact"
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink size={12} />
+                    </Link>
+                  )}
+                </div>
               </div>
             )
           })}
         </div>
+      )}
+
+      {/* Contact detail slide-in panel */}
+      {activeContactId && (
+        <ContactDetail
+          contactId={activeContactId}
+          onClose={() => setActiveContactId(null)}
+        />
       )}
     </div>
   )

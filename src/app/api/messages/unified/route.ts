@@ -10,20 +10,22 @@ type UnifiedChat = {
   lastAt: string | null
   lastIsOutbound: boolean | null
   subject?: string | null
+  profileUrl: string | null
   contact: {
     id: string
     firstName: string
     lastName: string
     company: string | null
     photoUrl: string | null
+    profileUrl: string | null
   } | null
 }
 
 type WaRow = { chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }
 type LiMsgRow = { conversationId: string; chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }
-type LiInboxRow = { conversationId: string; chatName: string; contactId: string | null; lastInboxAt: Date | null; lastInboxOutbound: boolean | null }
+type LiInboxRow = { conversationId: string; chatName: string; contactId: string | null; lastInboxAt: Date | null; lastInboxOutbound: boolean | null; profileUrl: string | null }
 type EmailRow = { key: string; chatName: string; contactId: string | null; lastAt: Date; lastIsOutbound: boolean; subject: string | null }
-type ContactRow = { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null }
+type ContactRow = { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null; profileUrl: string | null }
 
 async function ensureInboxColumns() {
   await prisma.$executeRaw`
@@ -90,7 +92,7 @@ export async function GET(req: Request) {
   const liInboxRows: LiInboxRow[] = sourceFilter && sourceFilter !== "linkedin"
     ? []
     : await prisma.$queryRaw<LiInboxRow[]>`
-        SELECT "conversationId", "chatName", "contactId", "lastInboxAt", "lastInboxOutbound"
+        SELECT "conversationId", "chatName", "contactId", "lastInboxAt", "lastInboxOutbound", "profileUrl"
         FROM "LinkedInDMConversation"
         WHERE "userId" = ${userId}
           AND "lastInboxAt" IS NOT NULL
@@ -146,6 +148,7 @@ export async function GET(req: Request) {
       contactId: r.contactId ?? null,
       lastAt: r.lastAt?.toISOString() ?? null,
       lastIsOutbound: r.lastIsOutbound ?? null,
+      profileUrl: null as string | null,
     })),
     ...liInboxRows
       .filter((r) => !liMsgConvIds.has(r.conversationId) && !isSystemChat(r.chatName))
@@ -156,6 +159,7 @@ export async function GET(req: Request) {
         contactId: r.contactId ?? null,
         lastAt: r.lastInboxAt?.toISOString() ?? null,
         lastIsOutbound: r.lastInboxOutbound ?? null,
+        profileUrl: r.profileUrl ?? null,
       })),
   ]
 
@@ -166,6 +170,7 @@ export async function GET(req: Request) {
     contactId: r.contactId ?? null,
     lastAt: r.lastAt?.toISOString() ?? null,
     lastIsOutbound: r.lastIsOutbound ?? null,
+    profileUrl: null,
     contact: null,
   }))
 
@@ -177,6 +182,7 @@ export async function GET(req: Request) {
     lastAt: r.lastAt ? new Date(r.lastAt).toISOString() : null,
     lastIsOutbound: r.lastIsOutbound ?? null,
     subject: r.subject ?? null,
+    profileUrl: null,
     contact: null,
   }))
 
@@ -191,7 +197,7 @@ export async function GET(req: Request) {
   const contacts: ContactRow[] = contactIds.length
     ? await prisma.contact.findMany({
         where: { id: { in: contactIds } },
-        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true },
+        select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true, profileUrl: true },
       })
     : []
   const contactMap = new Map(contacts.map((c) => [c.id, c]))
