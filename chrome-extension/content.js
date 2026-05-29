@@ -9,6 +9,12 @@
     return
   }
 
+  // ─── LinkedIn inbox scraper ───────────────────────────────────────────────────
+  // On the messaging page, scrape the conversation list and POST to inbox-scan.
+  if (path.startsWith("/messaging")) {
+    setTimeout(initInboxScraper, 2500)
+  }
+
   // ─── Shadow DOM host ──────────────────────────────────────────────────────────
   // NOTE: This script now loads on all LinkedIn pages (manifest matches /*).
   // All profile-specific code below is only *invoked* when path is /in/*.
@@ -1579,12 +1585,140 @@
       fabEl?.remove()
       fabEl = null
       if (location.pathname.startsWith("/in/")) init()
+      if (location.pathname.startsWith("/messaging")) setTimeout(initInboxScraper, 2500)
     }
   }).observe(document.body, { childList: true, subtree: true })
 
   // Only run profile-page logic when we're actually on a profile.
   if (path.startsWith("/in/")) init()
 })()
+
+// ─── LinkedIn inbox scraper (runs when initInboxScraper() is called) ─────────
+// Scrapes the conversation list on linkedin.com/messaging and POSTs to
+// /api/linkedin-dm/inbox-scan so the unified messages tab stays current.
+async function initInboxScraper() {
+  "use strict"
+
+  let apiUrl, apiToken
+  try {
+    const cfg = await new Promise((r) => chrome.storage.local.get(["apiUrl", "apiToken"], r))
+    apiUrl = cfg.apiUrl
+    apiToken = cfg.apiToken
+  } catch { return }
+  if (!apiUrl || !apiToken) return
+
+  const conversations = []
+  const seen = new Set()
+
+  // Thread links are the most stable anchor — LinkedIn always uses this URL pattern.
+  // We iterate each link, find its closest <li>, then extract name / profile info.
+  const threadLinks = document.querySelectorAll('a[href*="/messaging/thread/"]')
+
+  for (const link of threadLinks) {
+    const li = link.closest("li")
+    if (!li) continue
+
+    // ── Name extraction ──────────────────────────────────────────────────────
+    let chatName = null
+
+    // 1. aria-label on the thread link: "Conversation with John Doe" or just "John Doe"
+    const ariaLabel = (link.getAttribute("aria-label") ?? "").trim()
+    if (ariaLabel.length > 0 && ariaLabel.length < 100) {
+      chatName = ariaLabel.replace(/^(conversation\s+with|chat\s+with)\s*/i, "").trim()
+    }
+
+    // 2. h3 / h4 / participant-name element
+    if (!chatName) {
+      const h = li.querySelector("h3, h4, [class*='participant-name'], [class*='conversation-name']")
+      if (h) {
+        const inner = h.querySelector("span[aria-hidden='true']") || h
+        const t = (inner.textContent ?? "").trim()
+        if (t.length > 0 && t.length < 100) chatName = t
+      }
+    }
+
+    // 3. First visible span that looks like a name (not a timestamp / snippet)
+    if (!chatName) {
+      for (const span of li.querySelectorAll("span[aria-hidden='true']")) {
+        const t = (span.textContent ?? "").trim()
+        if (t.length < 2 || t.length > 80) continue
+        if (/^\d/.test(t)) continue  // timestamps like "2h" or "Jan 15"
+        if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t)) continue
+        chatName = t
+        break
+      }
+    }
+
+    if (!chatName) continue
+
+    const key = chatName.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    // ── Profile URL extraction ────────────────────────────────────────────────
+    let profileSlug = null
+    let profileUrl = null
+    for (const a of li.querySelectorAll('a[href*="/in/"]')) {
+      const m = (a.href || "").match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/)
+      if (m) {
+        profileSlug = decodeURIComponent(m[1]).toLowerCase().replace(/[/?#].*/, "")
+        profileUrl = `https://www.linkedin.com/in/${profileSlug}/`
+        break
+      }
+    }
+
+    // ── Last message direction ────────────────────────────────────────────────
+    // Outbound messages start with "You: " / "Vous : " in the preview snippet.
+    let lastInboxOutbound = null
+    const spans = li.querySelectorAll("span[aria-hidden='true'], p")
+    for (const el of spans) {
+      const t = (el.textContent ?? "").trim()
+      if (!t || t === chatName || t.length < 3 || t.length > 250) continue
+      if (/^\d/.test(t)) continue
+      if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(t)) continue
+      lastInboxOutbound = /^(you|vous)\s*:/i.test(t)
+      break
+    }
+
+    const conversationId = profileSlug
+      ? `inbox:${profileSlug}`
+      : `inbox:name:${chatName.toLowerCase().replace(/\s+/g, "-")}`
+
+    conversations.push({
+      conversationId,
+      chatName,
+      profileUrl,
+      lastInboxAt: new Date().toISOString(),
+      lastInboxOutbound,
+    })
+  }
+
+  if (!conversations.length) {
+    console.debug("[6Degrees] inbox scraper: no conversations found")
+    return
+  }
+
+  console.debug("[6Degrees] inbox scraper: found", conversations.length, "conversations")
+
+  try {
+    const res = await fetch(`${apiUrl}/api/linkedin-dm/inbox-scan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify({ conversations }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      console.debug("[6Degrees] inbox scan saved:", data.upserted, "conversations")
+    } else {
+      console.debug("[6Degrees] inbox scan error:", res.status)
+    }
+  } catch (e) {
+    console.debug("[6Degrees] inbox scan network error:", e)
+  }
+}
 
 // ─── Following-page importer (runs when initFollowsImporter() is called) ──────
 // Defined outside the main IIFE because the main IIFE returns early for
