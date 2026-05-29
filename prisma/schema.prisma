@@ -111,6 +111,7 @@ model Contact {
   emailAddress      String?
   phoneNumber       String?
   phones            String[]  // additional phone numbers (TEXT[] in Postgres)
+  lockedFields      String[]  @default([]) // field names pinned by the user — enrichment sync won't overwrite (TEXT[] in Postgres)
   lastInteractionAt DateTime?
   interactionScore  Float?
   outreachStatus    String?
@@ -390,6 +391,9 @@ model LinkedInDMConversation {
   messageCount   Int       @default(0)
   importedAt     DateTime  @default(now())
   ignored        Boolean   @default(false)
+  // Inbox-scan metadata (extension scrapes the conversation list on /messaging)
+  lastInboxAt       DateTime?
+  lastInboxOutbound Boolean?
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
