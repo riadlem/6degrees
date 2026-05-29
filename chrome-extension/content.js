@@ -1,6 +1,15 @@
 ;(function () {
   "use strict"
 
+  // Guard: returns false if the extension has been reloaded/updated and this
+  // old content script no longer has a valid runtime context.  Any chrome.*
+  // call made after context invalidation throws synchronously, so we check
+  // once and bail out early rather than letting individual calls crash.
+  function isContextValid() {
+    try { return !!chrome.runtime.id } catch { return false }
+  }
+  if (!isContextValid()) return  // stale script — do nothing
+
   const path = window.location.pathname
 
   // ─── Following-page importer ─────────────────────────────────────────────────
@@ -41,7 +50,7 @@
     // Load styles from extension origin — bypasses the page's CSP entirely.
     const link = document.createElement("link")
     link.rel = "stylesheet"
-    link.href = chrome.runtime.getURL("content.css")
+    try { link.href = chrome.runtime.getURL("content.css") } catch { return _shadow }
     _shadow.appendChild(link)
 
     return _shadow
@@ -1414,6 +1423,7 @@
 
       result = await Promise.race([
         new Promise((resolve, reject) => {
+          if (!isContextValid()) { reject(new Error("Extension context invalidated")); return }
           chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: payload }, (response) => {
             if (chrome.runtime.lastError) {
               reject(new Error(chrome.runtime.lastError.message || "Extension messaging error"))
@@ -1523,6 +1533,7 @@
   // ─── SCRAPE_DEBUG message handler ───────────────────────────────────────────
   // The popup sends this to get a real-time profile scrape with captured debug
   // output, without the user needing to open DevTools.
+  if (!isContextValid()) return
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== "SCRAPE_DEBUG") return false
 
@@ -1559,6 +1570,7 @@
   // ─── Test fixture capture ─────────────────────────────────────────────────
   // Responds to CAPTURE_FIXTURE with the main element's HTML + current scrape
   // result so the popup can write a test fixture file.
+  if (!isContextValid()) return
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== "CAPTURE_FIXTURE") return false
     let profile = null, error = null
@@ -1581,6 +1593,8 @@
   // The guard on location.pathname change prevents spurious re-inits.
   let lastPath = location.pathname
   new MutationObserver(() => {
+    // Stop reacting to DOM changes if the extension has been reloaded/updated.
+    if (!isContextValid()) return
     if (location.pathname !== lastPath) {
       lastPath = location.pathname
       closePanel()
