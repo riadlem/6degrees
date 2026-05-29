@@ -128,10 +128,18 @@ export async function GET(req: Request) {
         ) unmatched
       `.catch(() => [] as EmailRow[])
 
+  // ── Filter out LinkedIn system/notification conversations ────────────────
+  // LinkedIn exports include InMail system entries, profile-update notifications,
+  // and other non-DM rows whose chatName is "LinkedIn" or a company/system name.
+  function isSystemChat(chatName: string) {
+    const n = chatName.trim().toLowerCase()
+    return n === "linkedin" || n === "" || n.startsWith("linkedin ")
+  }
+
   // ── Merge LI DM: message-based data wins over inbox-only ─────────────────
   const liMsgConvIds = new Set(liMsgRows.map((r) => r.conversationId))
   const liChats = [
-    ...liMsgRows.map((r) => ({
+    ...liMsgRows.filter((r) => !isSystemChat(r.chatName)).map((r) => ({
       id: `li:${r.conversationId}`,
       source: "linkedin" as const,
       chatName: r.chatName,
@@ -140,7 +148,7 @@ export async function GET(req: Request) {
       lastIsOutbound: r.lastIsOutbound ?? null,
     })),
     ...liInboxRows
-      .filter((r) => !liMsgConvIds.has(r.conversationId))
+      .filter((r) => !liMsgConvIds.has(r.conversationId) && !isSystemChat(r.chatName))
       .map((r) => ({
         id: `li:${r.conversationId}`,
         source: "linkedin" as const,

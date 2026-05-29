@@ -1825,12 +1825,17 @@ async function initInboxScraper() {
   console.debug("[6Degrees] inbox scraper: found", conversationPairs.length, "conversation pairs")
 
   for (const { link, item: li } of conversationPairs) {
+    // Only process real DM conversations — LinkedIn puts profile update
+    // notifications, InMail system entries, and "Profile view" items in the
+    // same conversation list but they don't have a msg-conversation-card.
+    // The DOM capture confirmed: 20 listitem rows, only 10 with conversation-card.
+    if (!li.querySelector(".msg-conversation-card")) continue
 
     // ── Name extraction ──────────────────────────────────────────────────────
     let chatName = null
 
     // 1. aria-label on the thread link: "Conversation with John Doe" or just "John Doe"
-    const ariaLabel = (link.getAttribute("aria-label") ?? "").trim()
+    const ariaLabel = link ? (link.getAttribute("aria-label") ?? "").trim() : ""
     if (ariaLabel.length > 0 && ariaLabel.length < 100) {
       chatName = ariaLabel.replace(/^(conversation\s+with|chat\s+with)\s*/i, "").trim()
     }
