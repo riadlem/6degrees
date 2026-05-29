@@ -24,7 +24,7 @@ type UnifiedChat = {
 type WaRow = { chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }
 type LiMsgRow = { conversationId: string; chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }
 type LiInboxRow = { conversationId: string; chatName: string; contactId: string | null; lastInboxAt: Date | null; lastInboxOutbound: boolean | null; profileUrl: string | null }
-type EmailRow = { key: string; chatName: string; contactId: string | null; lastAt: Date; lastIsOutbound: boolean; subject: string | null }
+type EmailRow = { key: string; chatName: string; contactId: string | null; lastAt: Date; lastIsOutbound: boolean; subject: string | null; fromEmail: string }
 type ContactRow = { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null; profileUrl: string | null }
 
 async function ensureInboxColumns() {
@@ -110,7 +110,8 @@ export async function GET(req: Request) {
             "contactId",
             "sentAt" AS "lastAt",
             "isOutbound" AS "lastIsOutbound",
-            "subject"
+            "subject",
+            "fromEmail"
           FROM "EmailMessage"
           WHERE "userId" = ${userId} AND "contactId" IS NOT NULL
           ORDER BY "contactId", "sentAt" DESC
@@ -123,12 +124,30 @@ export async function GET(req: Request) {
             NULL AS "contactId",
             "sentAt" AS "lastAt",
             "isOutbound" AS "lastIsOutbound",
-            "subject"
+            "subject",
+            "fromEmail"
           FROM "EmailMessage"
           WHERE "userId" = ${userId} AND "contactId" IS NULL
           ORDER BY "fromEmail", "sentAt" DESC
         ) unmatched
       `.catch(() => [] as EmailRow[])
+
+  // ── Filter out automated / transactional emails ──────────────────────────
+  // Outbound emails (sent by the user) are never filtered.
+  // Inbound emails are dropped when the sender address or subject matches
+  // well-known patterns for newsletters, no-reply, invoices, alerts, etc.
+  const NOISE_LOCAL_RE = /^(no[-._]?reply|noreply|do[-._]?not[-._]?reply|donotreply|bounce|mailer[-._]?daemon|postmaster|unsubscribe|newsletter|notifications?|marketing|billing|invoices?|receipts?|automated?|alerts?|contact|admin|digest|system|orders?|promo|promotions?)$/i
+  const NOISE_ADDR_RE  = /no[-._]?reply|noreply|do[-._]?not[-._]?reply|unsubscribe/i
+  const NOISE_SUBJ_RE  = /\bunsubscri|\bnewsletter\b|\bmeeting[\s-]reminder\b|\bno[\s-]?reply\b|\breceipt\b|\border[\s-]?confirm|\bautomat(ed|ic)\b|\binvoice\b|\bshipping[\s-]confirm|\byour\s+order\b|\bdo[\s-]not[\s-]reply\b|\btrack\s+your\b/i
+
+  function isNoiseEmail(r: EmailRow): boolean {
+    if (r.lastIsOutbound) return false
+    const local = (r.fromEmail.split("@")[0] ?? "").toLowerCase()
+    if (NOISE_LOCAL_RE.test(local)) return true
+    if (NOISE_ADDR_RE.test(r.fromEmail)) return true
+    if (r.subject && NOISE_SUBJ_RE.test(r.subject)) return true
+    return false
+  }
 
   // ── Filter out LinkedIn system/notification conversations ────────────────
   // LinkedIn exports include InMail system entries, profile-update notifications,
@@ -174,7 +193,7 @@ export async function GET(req: Request) {
     contact: null,
   }))
 
-  const emailChats: UnifiedChat[] = emailRows.map((r) => ({
+  const emailChats: UnifiedChat[] = emailRows.filter((r) => !isNoiseEmail(r)).map((r) => ({
     id: `email:${r.key}`,
     source: "email",
     chatName: r.chatName,
