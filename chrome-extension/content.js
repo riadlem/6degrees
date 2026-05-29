@@ -1772,6 +1772,97 @@ function captureMessagingFixture() {
 // ─── LinkedIn inbox scraper (runs when initInboxScraper() is called) ─────────
 // Scrapes the conversation list on linkedin.com/messaging and POSTs to
 // /api/linkedin-dm/inbox-scan so the unified messages tab stays current.
+
+// Parses the timestamp shown on a conversation list item and returns a UTC Date.
+// LinkedIn shows today's conversations as "HH:MM" (Paris local time), yesterday
+// as "hier" / "yesterday", earlier this week as a day abbreviation ("lun."),
+// and older as a short date ("15 janv." / "Jan 15").
+// All text-based times are resolved relative to Europe/Paris.
+function parseConvTimestamp(li) {
+  const timeEl = li.querySelector("time")
+  if (!timeEl) return null
+
+  // datetime attribute (ISO string) — most reliable, check first
+  const dtAttr = timeEl.getAttribute("datetime")
+  if (dtAttr) { const d = new Date(dtAttr); if (!isNaN(d)) return d }
+
+  const raw = (timeEl.textContent || "").trim()
+  if (!raw) return null
+
+  const now = new Date()
+  // Today's date string in Paris ("YYYY-MM-DD") for constructing datetimes
+  const todayParis = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Paris" }).format(now)
+
+  // ── "HH:MM" → today at that time in Europe/Paris ────────────────────────
+  // Algorithm: treat HH:MM as UTC to make a Date, then measure the difference
+  // between what that UTC time displays as in Paris vs the target, and correct.
+  // This handles CET (UTC+1) and CEST (UTC+2) correctly without hard-coding.
+  const hmm = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (hmm) {
+    const h = +hmm[1], m = +hmm[2]
+    const guess = new Date(`${todayParis}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:00Z`)
+    const disp = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit"
+    }).format(guess)
+    const [dh, dm] = disp.split(":").map(Number)
+    return new Date(guess.getTime() + (h * 60 + m - dh * 60 - dm) * 60000)
+  }
+
+  // ── "hier" / "yesterday" → yesterday at noon Paris ──────────────────────
+  if (/^(hier|yesterday)$/i.test(raw)) {
+    return new Date(new Date(`${todayParis}T12:00:00Z`).getTime() - 86400000)
+  }
+
+  // ── French day abbreviations → that weekday (looking back up to 6 days) ──
+  const FR_DAYS = { lun:1, mar:2, mer:3, jeu:4, ven:5, sam:6, dim:0 }
+  const EN_DAYS = { mon:1, tue:2, wed:3, thu:4, fri:5, sat:6, sun:0 }
+  const dayM = raw.match(/^(lun|mar|mer|jeu|ven|sam|dim|mon|tue|wed|thu|fri|sat|sun)\.?$/i)
+  if (dayM) {
+    const key = dayM[1].toLowerCase()
+    const target = (FR_DAYS[key] ?? EN_DAYS[key]) ?? null
+    if (target !== null) {
+      const base = new Date(`${todayParis}T12:00:00Z`)
+      const todayDOW = new Date(base.toLocaleString("en-US", { timeZone: "Europe/Paris" })).getDay()
+      const daysBack = ((todayDOW - target + 7) % 7) || 7
+      return new Date(base.getTime() - daysBack * 86400000)
+    }
+  }
+
+  // ── Short date: "15 janv." / "Jan 15" / "3 mars" ────────────────────────
+  const FR_MONTHS = {
+    janv:0, jan:0, "févr":1, "fév":1, mars:2, avr:3, mai:4,
+    juin:5, juil:6, "août":7, sept:8, oct:9, nov:10, "déc":11, dec:11
+  }
+  const EN_MONTHS = {
+    jan:0, feb:1, mar:2, apr:3, may:4, jun:5,
+    jul:6, aug:7, sep:8, oct:9, nov:10, dec:11
+  }
+  const frM = raw.match(/^(\d{1,2})\s+([\wÀ-ž]+)\.?$/i)
+  if (frM) {
+    const day = +frM[1]
+    const mon = frM[2].toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+    const month = FR_MONTHS[frM[2].toLowerCase()] ?? FR_MONTHS[mon]
+    if (month !== undefined) {
+      const yr = now.getFullYear()
+      const iso = `${yr}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}T12:00:00Z`
+      const d = new Date(iso)
+      return d > now ? new Date(`${yr-1}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}T12:00:00Z`) : d
+    }
+  }
+  const enM = raw.match(/^([a-z]{3})\s+(\d{1,2})$/i)
+  if (enM) {
+    const month = EN_MONTHS[enM[1].toLowerCase()]
+    if (month !== undefined) {
+      const day = +enM[2], yr = now.getFullYear()
+      const iso = `${yr}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}T12:00:00Z`
+      const d = new Date(iso)
+      return d > now ? new Date(`${yr-1}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}T12:00:00Z`) : d
+    }
+  }
+
+  return null
+}
+
 async function initInboxScraper() {
   "use strict"
 
@@ -1914,11 +2005,12 @@ async function initInboxScraper() {
       ? `inbox:${profileSlug}`
       : `inbox:name:${chatName.toLowerCase().replace(/\s+/g, "-")}`
 
+    const ts = parseConvTimestamp(li) || new Date()
     conversations.push({
       conversationId,
       chatName,
       profileUrl,
-      lastInboxAt: new Date().toISOString(),
+      lastInboxAt: ts.toISOString(),
       lastInboxOutbound,
     })
   }
