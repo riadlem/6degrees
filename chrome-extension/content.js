@@ -205,10 +205,16 @@
       // Scope to the top-card section (first <section> inside <main>).
       // Fall back to all of <main> if no section found.
       const topCardEl = mainEl.querySelector("section") ?? mainEl
+      // Match BOTH profile-displayphoto (normal) and profile-framedphoto.
+      // 'framedphoto' is LinkedIn's URL marker for a photo wearing a badge frame
+      // (#OPENTOWORK / #HIRING). It's specific to the profile owner — feed
+      // thumbnails and "people also viewed" use plain displayphoto. Excluding
+      // framedphoto (the old behaviour) made badged profiles fall through to
+      // grabbing a random displayphoto thumbnail from elsewhere on the page.
       const pdImgs = [...topCardEl.querySelectorAll("img")].filter((img) => {
         if (img.closest("aside")) return false  // exclude sidebar
         const s = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
-        return /profile-displayphoto/i.test(s) &&
+        return /profile-(?:display|framed)photo/i.test(s) &&
                !/displaybackgroundimage/i.test(s) &&
                isSquarishImage(img)
       })
@@ -227,10 +233,19 @@
           const ss = bestSrcset(img)
           const combined = (img.currentSrc || img.src || "") + " " + (img.srcset || "")
           const isCrop = /-cr[-/]/.test(combined)
+          // The profile owner's top-card photo carries the strongest signals:
+          //   • fetchpriority="high"  — LinkedIn eager-loads only the main photo;
+          //     feed / people-list thumbnails are fetchpriority="low".
+          //   • profile-framedphoto   — owner-specific badge-framed photo.
+          // These disambiguate the owner's photo from the many displayphoto
+          // thumbnails that share the same (obfuscated) CSS class.
+          const isHighPri = img.getAttribute("fetchpriority") === "high"
+          const isFramed = /profile-framedphoto/i.test(combined)
           // getBoundingClientRect().width is reliable for visible elements (popup opens
           // on an already-loaded page). Off-screen elements return 0, which is fine.
           const renderedW = Math.round(img.getBoundingClientRect().width) || img.naturalWidth || 0
-          const score = (isCrop ? 200 : 0) + (ss ? ss.width : 0) + renderedW
+          const score = (isHighPri ? 400 : 0) + (isFramed ? 300 : 0) +
+                        (isCrop ? 200 : 0) + (ss ? ss.width : 0) + renderedW
           const url = (ss && ss.width >= 100) ? ss.url : (img.currentSrc || img.src || "")
           return { url, score, domIdx }
         }).filter(({ url }) => isValidPhoto(url))
