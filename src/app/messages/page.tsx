@@ -204,8 +204,13 @@ export default function MessagesPage() {
               ? (chat.subject ?? company)
               : company
 
-            // LinkedIn profile URL: prefer conversation-level, fall back to contact's stored URL
-            const liProfileUrl = chat.profileUrl ?? chat.contact?.profileUrl ?? null
+            // LinkedIn profile URL: prefer conversation-level, fall back to contact's stored URL,
+            // and for LinkedIn-source chats always show at least a name-search link
+            const liProfileUrl = chat.profileUrl
+              ?? chat.contact?.profileUrl
+              ?? (chat.source === "linkedin"
+                  ? `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(displayName)}`
+                  : null)
             // WhatsApp deep-link (only for WA source with a phone-number chatName)
             const waLink = chat.source === "wa" ? waDeepLink(chat.chatName) : null
 

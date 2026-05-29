@@ -76,6 +76,22 @@ export async function POST(req: Request) {
       }
     }
 
+    // Fallback: match by first + last name when no profileUrl match
+    if (!contactId && chatName) {
+      const parts = chatName.trim().split(/\s+/)
+      if (parts.length >= 2) {
+        const c = await prisma.contact.findFirst({
+          where: {
+            userId,
+            firstName: { equals: parts[0], mode: "insensitive" },
+            lastName: { equals: parts.slice(1).join(" "), mode: "insensitive" },
+          },
+          select: { id: true },
+        })
+        if (c) contactId = c.id
+      }
+    }
+
     try {
       const id = randomUUID()
       await prisma.$executeRaw`

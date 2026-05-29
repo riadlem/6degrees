@@ -23,6 +23,7 @@
   if (path.startsWith("/messaging")) {
     applyMessagingFullWidth()
     setTimeout(initInboxScraper, 2500)
+    setTimeout(initDetailProfileCapture, 3500)
   }
 
   // ─── Shadow DOM host ──────────────────────────────────────────────────────────
@@ -2040,6 +2041,91 @@ async function initInboxScraper() {
   } catch (e) {
     console.debug("[6Degrees] inbox scan network error:", e)
   }
+}
+
+// ─── Conversation detail profile capturer ────────────────────────────────────
+// When a conversation is open, LinkedIn shows the participant's profile link
+// in the detail panel (right side). The list items themselves have no /in/ links,
+// but the detail topbar always does. We watch for DOM changes so every time the
+// user opens a conversation we capture and persist the profile URL.
+async function initDetailProfileCapture() {
+  if (!isContextValid()) return
+  let apiUrl, apiToken
+  try {
+    const cfg = await new Promise((r) => chrome.storage.local.get(["apiUrl", "apiToken"], r))
+    apiUrl = cfg.apiUrl
+    apiToken = cfg.apiToken
+  } catch { return }
+  if (!apiUrl || !apiToken) return
+
+  let lastHandledSlug = null
+
+  async function captureCurrentConversationProfile() {
+    if (!isContextValid()) return
+    // The conversation list lives on the left — skip any /in/ links inside it
+    const listEl = document.querySelector(
+      '.msg-conversations-container, [class*="msg-conversations-container"], [class*="msg-list-container"]'
+    )
+
+    for (const a of document.querySelectorAll('a[href*="/in/"]')) {
+      if (listEl && listEl.contains(a)) continue
+      const href = a.href || a.getAttribute("href") || ""
+      const m = href.match(/\/in\/([A-Za-z0-9_%-]+)/)
+      if (!m) continue
+      const slug = decodeURIComponent(m[1]).replace(/[/?#].*/, "").toLowerCase()
+      if (!slug || slug === lastHandledSlug) continue
+
+      // Extract the name from the conversation detail topbar
+      const NAME_SELS = [
+        '.msg-thread-topbar h2', '.msg-thread-topbar h3',
+        '.msg-conversation-topbar h2', '.msg-conversation-topbar h3',
+        '[class*="thread-topbar"] h2', '[class*="topbar"] h2',
+        '.msg-entity-lockup__title',
+      ]
+      let chatName = null
+      for (const sel of NAME_SELS) {
+        try {
+          const el = document.querySelector(sel)
+          if (!el) continue
+          const inner = el.querySelector("span[aria-hidden='true']") || el
+          const t = (inner.textContent ?? "").trim()
+          if (t.length > 1 && t.length < 100) { chatName = t; break }
+        } catch {}
+      }
+      if (!chatName) {
+        // Fallback: aria-label on the link itself ("Diana Chiruk's profile")
+        const label = (a.getAttribute("aria-label") || "").trim()
+        if (label) chatName = label.replace(/'s\s+(linkedin\s+)?profile\s*$/i, "").trim()
+      }
+      if (!chatName) chatName = slug  // last resort — still lets us store the profileUrl
+
+      lastHandledSlug = slug
+      const profileUrl = `https://www.linkedin.com/in/${slug}/`
+      const conversationId = `inbox:${slug}`
+
+      await fetch(`${apiUrl}/api/linkedin-dm/inbox-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiToken}` },
+        body: JSON.stringify({
+          conversations: [{ conversationId, chatName, profileUrl, lastInboxAt: new Date().toISOString() }]
+        }),
+      }).catch(() => {})
+      console.debug("[6Degrees] detail profile captured:", chatName, "→", profileUrl)
+      return
+    }
+  }
+
+  // Debounced MutationObserver — fires whenever the detail panel (re-)loads
+  let debounce = null
+  const observer = new MutationObserver(() => {
+    if (debounce) clearTimeout(debounce)
+    debounce = setTimeout(captureCurrentConversationProfile, 600)
+  })
+  const target = document.querySelector("#messaging") || document.body
+  observer.observe(target, { childList: true, subtree: true })
+
+  // Also run immediately in case a conversation is already open
+  setTimeout(captureCurrentConversationProfile, 800)
 }
 
 // ─── Following-page importer (runs when initFollowsImporter() is called) ──────
