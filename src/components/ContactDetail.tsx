@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { STALE } from "@/lib/query-client"
 import {
   X, Building2, MapPin, Calendar, Globe, Users, Sparkles,
-  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera
+  StickyNote, Send, Trash2, ExternalLink, Edit2, Check, Tag, Plus, GraduationCap, Briefcase, Mail, Phone, ArrowUpRight, ArrowDownLeft, Link2Off, Bookmark, Link2, Search, Loader2, Camera, Lock, Unlock
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import { labelColors, LABEL_COLOR_KEYS } from "@/lib/label-colors"
@@ -130,6 +130,7 @@ type Contact = {
   emailAddresses: { email: string; isPrimary: boolean }[]
   phoneNumber: string | null
   phones: string[]
+  lockedFields: string[]
   whatsappLastAt: string | null
   whatsappMessageCount: number
   whatsappChatName: string | null
@@ -360,6 +361,17 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
       body: JSON.stringify({ [field]: editValue }),
     })
     setEditingField(null)
+    refetchContact()
+  }
+
+  async function toggleLock(field: string) {
+    if (!contact) return
+    const isLocked = contact.lockedFields.includes(field)
+    await fetch(`/api/contacts/${contact.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(isLocked ? { unlockField: field } : { lockField: field }),
+    })
     refetchContact()
   }
 
@@ -752,7 +764,9 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
               {[
                 { field: "company",  icon: Building2, value: contact.company,  label: "Company" },
                 { field: "industry", icon: Globe,     value: contact.industry, label: "Industry" },
-              ].map(({ field, icon: Icon, value, label }) => (
+              ].map(({ field, icon: Icon, value, label }) => {
+                const isLocked = contact.lockedFields.includes(field)
+                return (
                 <div key={field} className="flex items-center gap-3">
                   <Icon size={14} className="text-gray-400 shrink-0" />
                   {editingField === field ? (
@@ -779,13 +793,25 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                       <button
                         onClick={() => { setEditingField(field); setEditValue(value ?? "") }}
                         className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
+                        title={`Edit ${label.toLowerCase()}`}
                       >
                         <Edit2 size={12} />
+                      </button>
+                      <button
+                        onClick={() => toggleLock(field)}
+                        className={cn(
+                          "md:opacity-0 md:group-hover/field:opacity-100 transition-opacity",
+                          isLocked ? "text-amber-500 opacity-100" : "text-gray-300 hover:text-amber-500"
+                        )}
+                        title={isLocked ? `Unlock ${label.toLowerCase()} (syncs may update it)` : `Lock ${label.toLowerCase()} (prevent sync overwrites)`}
+                      >
+                        {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
                       </button>
                     </div>
                   )}
                 </div>
-              ))}
+                )
+              })}
 
               {/* City row */}
               {(contact.city || contact.location) && (

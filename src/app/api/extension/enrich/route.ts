@@ -182,6 +182,18 @@ export async function POST(req: Request) {
     select: { id: true },
   })
 
+  // Fetch lockedFields for existing contacts and remove them from enrichData
+  // so that manually-pinned values are never overwritten by a sync.
+  if (existing) {
+    try {
+      const rows = await prisma.$queryRaw<{ lockedFields: string[] | null }[]>`
+        SELECT "lockedFields" FROM "Contact" WHERE id = ${existing.id} LIMIT 1
+      `
+      const locked = rows[0]?.lockedFields ?? []
+      for (const f of locked) delete (enrichData as Record<string, unknown>)[f]
+    } catch { /* non-critical */ }
+  }
+
   let contact
   let action: "updated" | "created"
 
