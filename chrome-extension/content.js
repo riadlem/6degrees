@@ -1,6 +1,15 @@
 ;(function () {
   "use strict"
 
+  // Guard: returns false if the extension has been reloaded/updated and this
+  // old content script no longer has a valid runtime context.  Any chrome.*
+  // call made after context invalidation throws synchronously, so we check
+  // once and bail out early rather than letting individual calls crash.
+  function isContextValid() {
+    try { return !!chrome.runtime.id } catch { return false }
+  }
+  if (!isContextValid()) return  // stale script — do nothing
+
   const path = window.location.pathname
 
   // ─── Following-page importer ─────────────────────────────────────────────────
@@ -41,7 +50,7 @@
     // Load styles from extension origin — bypasses the page's CSP entirely.
     const link = document.createElement("link")
     link.rel = "stylesheet"
-    link.href = chrome.runtime.getURL("content.css")
+    try { link.href = chrome.runtime.getURL("content.css") } catch { return _shadow }
     _shadow.appendChild(link)
 
     return _shadow
@@ -1414,6 +1423,7 @@
 
       result = await Promise.race([
         new Promise((resolve, reject) => {
+          if (!isContextValid()) { reject(new Error("Extension context invalidated")); return }
           chrome.runtime.sendMessage({ type: "ENRICH_CONTACT", data: payload }, (response) => {
             if (chrome.runtime.lastError) {
               reject(new Error(chrome.runtime.lastError.message || "Extension messaging error"))
@@ -1523,6 +1533,7 @@
   // ─── SCRAPE_DEBUG message handler ───────────────────────────────────────────
   // The popup sends this to get a real-time profile scrape with captured debug
   // output, without the user needing to open DevTools.
+  if (!isContextValid()) return
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== "SCRAPE_DEBUG") return false
 
@@ -1559,6 +1570,7 @@
   // ─── Test fixture capture ─────────────────────────────────────────────────
   // Responds to CAPTURE_FIXTURE with the main element's HTML + current scrape
   // result so the popup can write a test fixture file.
+  if (!isContextValid()) return
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== "CAPTURE_FIXTURE") return false
     let profile = null, error = null
@@ -1581,6 +1593,8 @@
   // The guard on location.pathname change prevents spurious re-inits.
   let lastPath = location.pathname
   new MutationObserver(() => {
+    // Stop reacting to DOM changes if the extension has been reloaded/updated.
+    if (!isContextValid()) return
     if (location.pathname !== lastPath) {
       lastPath = location.pathname
       closePanel()
@@ -1606,11 +1620,11 @@ function applyMessagingFullWidth() {
     const style = document.createElement("style")
     style.id = "sd-msg-fullwidth"
     style.textContent = `
-      /* ── Scaffold: hide LinkedIn's outer right-rail aside ────── */
+      /* ── Scaffold outer chrome: hide right rail ─────────────── */
       .scaffold-layout__aside,
       aside.scaffold-layout__aside { display: none !important; }
-      .scaffold-layout--main-two-sidebars,
-      .scaffold-layout--main-one-sidebar {
+      /* Collapse any scaffold grid that has sidebar columns */
+      [class*="scaffold-layout--main-"] {
         grid-template-columns: 1fr !important;
       }
       .scaffold-layout__main {
@@ -1623,62 +1637,67 @@ function applyMessagingFullWidth() {
         max-width: 100% !important;
         padding-right: 0 !important;
       }
-      /* ── Messaging split pane: collapse to inbox-list only ────── */
-      /* msg-global-container is LinkedIn's stable wrapper class    */
+      /* ── CSS-name fallback (LinkedIn stable class, if present) ── */
       .msg-global-container {
         display: block !important;
-      }
-      /* Hide the thread viewer (second panel) — first child is the inbox list */
-      .msg-global-container > *:not(:first-child) {
-        display: none !important;
-      }
-      /* Expand the inbox list panel to full width */
-      .msg-global-container > *:first-child {
-        max-width: 100% !important;
         width: 100% !important;
       }
+      .msg-global-container > *:not(:first-child) { display: none !important; }
+      .msg-global-container > *:first-child { max-width: 100% !important; width: 100% !important; }
+      /* ── JS-detected split container (tagged by detectAndTagSplit) */
+      .sd-msg-split  { display: block !important; width: 100% !important; max-width: 100% !important; }
+      .sd-msg-inbox  { max-width: 100% !important; width: 100% !important; }
+      .sd-msg-thread { display: none !important; }
     `
     document.head.appendChild(style)
   }
 
-  // JS fallback: if the class-based CSS above doesn't cover LinkedIn's current
-  // layout variant, walk the DOM to find and hide the thread-viewer sibling.
-  // Detection: the inbox list contains a[href*="/messaging/thread/"] links;
-  // the thread-viewer sibling does not (it shows the actual messages).
-  function hideThreadViewer() {
-    const links = document.querySelectorAll('a[href*="/messaging/thread/"]')
-    if (!links.length) return
+  detectAndTagSplit()
+  setTimeout(detectAndTagSplit, 600)
+  setTimeout(detectAndTagSplit, 2000)
+  setTimeout(detectAndTagSplit, 4000)
+}
 
-    // Climb from a thread link until we find a node whose parent has a sibling
-    // that contains no thread links — that sibling is the thread viewer.
-    let listPanel = links[0]
-    while (listPanel.parentElement && listPanel.parentElement !== document.body) {
-      const par = listPanel.parentElement
-      const hasThreadViewerSibling = [...par.children].some(
-        (c) => c !== listPanel && c.children.length > 0 && !c.querySelector('a[href*="/messaging/thread/"]')
+// Walks the DOM from a known thread link upward, using getComputedStyle to
+// find the real horizontal flex/grid split container, then tags the container
+// and its children with our stable CSS classes.  Safe to call multiple times.
+function detectAndTagSplit() {
+  const main = document.querySelector(".scaffold-layout__main")
+  if (!main) return
+
+  const links = main.querySelectorAll('a[href*="/messaging/thread/"]')
+  if (!links.length) return
+
+  let node = links[0]
+  for (let depth = 0; depth < 16 && node && node !== main; depth++) {
+    const par = node.parentElement
+    if (!par || par === main) break
+
+    const cs = getComputedStyle(par)
+    // A horizontal split is a flex-row or a multi-column grid
+    const cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean)
+    const isHorizSplit =
+      (cs.display === "flex" && cs.flexDirection !== "column" && par.children.length >= 2) ||
+      (cs.display === "grid" && cols.length >= 2)
+
+    if (isHorizSplit) {
+      // Confirm: our node (inbox side) has thread links; at least one sibling doesn't
+      const hasInboxSide = !!node.querySelector('a[href*="/messaging/thread/"]')
+      const hasThreadSide = [...par.children].some(
+        (c) => c !== node && !c.querySelector('a[href*="/messaging/thread/"]')
       )
-      if (hasThreadViewerSibling) {
-        let seenList = false
+      if (hasInboxSide && hasThreadSide) {
+        par.classList.add("sd-msg-split")
+        node.classList.add("sd-msg-inbox")
         for (const c of par.children) {
-          if (c === listPanel) {
-            seenList = true
-            c.style.setProperty("max-width", "100%", "important")
-            c.style.setProperty("width", "100%", "important")
-          } else if (seenList && c.children.length > 0) {
-            // Only hide panels that come AFTER the inbox list (thread viewer is to the right)
-            c.style.setProperty("display", "none", "important")
-          }
+          if (c !== node) c.classList.add("sd-msg-thread")
+          else c.classList.remove("sd-msg-thread")
         }
-        par.style.setProperty("display", "block", "important")
         return
       }
-      listPanel = par
     }
+    node = par
   }
-
-  hideThreadViewer()
-  setTimeout(hideThreadViewer, 1000)
-  setTimeout(hideThreadViewer, 3000)
 }
 
 // ─── LinkedIn inbox scraper (runs when initInboxScraper() is called) ─────────
