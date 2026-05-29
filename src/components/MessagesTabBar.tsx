@@ -20,11 +20,21 @@ function LiIcon({ size = 16 }: { size?: number }) {
   )
 }
 
+function MailIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2"/>
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+    </svg>
+  )
+}
+
 export default function MessagesTabBar() {
   const pathname = usePathname()
-  const onAll = pathname === "/messages"
-  const onWA  = pathname.startsWith("/whatsapp")
-  const onLI  = pathname.startsWith("/linkedin-dm")
+  const onAll   = pathname === "/messages"
+  const onEmail = pathname.startsWith("/email")
+  const onWA    = pathname.startsWith("/whatsapp")
+  const onLI    = pathname.startsWith("/linkedin-dm")
 
   return (
     <div className="flex gap-1 mb-6 border-b border-gray-200">
@@ -38,6 +48,18 @@ export default function MessagesTabBar() {
         )}
       >
         All
+      </Link>
+      <Link
+        href="/email"
+        className={cn(
+          "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+          onEmail
+            ? "border-indigo-600 text-indigo-700"
+            : "border-transparent text-gray-500 hover:text-gray-700"
+        )}
+      >
+        <MailIcon size={14} />
+        Email
       </Link>
       <Link
         href="/whatsapp"
