@@ -539,7 +539,7 @@
     if (!headline) return { position: null, company: null }
 
     // Role-keyword heuristic — used to detect which side of a separator is the title
-    const ROLE_RE = /\b(director|directeur|manager|head|lead|chief|officer|president|ceo|cto|coo|cfo|ciso|cmo|vp|vice|founder|co-founder|partner|associate|analyst|engineer|architect|consultant|specialist|advisor|advisor|intern|stagiaire|responsable|chargé|student|researcher|professor|lecturer|designer|developer|scientist|strategist|entrepreneur|executive|chairman|trustee)\b/i
+    const ROLE_RE = /\b(director|directeur|manager|head|lead|chief|officer|president|ceo|cto|coo|cfo|ciso|cmo|vp|vice|founder|co-founder|partner|associate|analyst|engineer|architect|consultant|specialist|advisor|intern|stagiaire|responsable|chargé|student|researcher|professor|lecturer|designer|developer|scientist|strategist|entrepreneur|executive|chairman|trustee|expert)\b/i
 
     // Rejects strings that look like geographic locations rather than company names.
     function looksLikeLocation(s) {
@@ -582,11 +582,15 @@
       if (right.length > 1 && !/^\d/.test(right) && !/connection|follower|relation/i.test(right)) {
         const leftIsRole = ROLE_RE.test(left)
         const rightIsRole = ROLE_RE.test(right)
+        if (leftIsRole && rightIsRole) {
+          // Both sides are role descriptors — treat whole headline as position
+          return { position: headline, company: null }
+        }
         if (rightIsRole && !leftIsRole) {
           // "Company · Role" — reversed order
           return { position: right, company: asCompany(left.split(/\s*[|·]\s*/)[0].trim()) }
         }
-        // Default (leftIsRole, both, or neither): "Role · Company"
+        // Default (leftIsRole or neither): "Role · Company"
         return { position: left, company: asCompany(right.split(/\s*[|·]\s*/)[0].trim()) }
       }
     }
@@ -596,10 +600,10 @@
     if (pipeM) {
       const [left, right] = [pipeM[1].trim(), pipeM[2].trim()]
       if (left.length > 1 && right.length > 1) {
-        // If right has a role keyword and left doesn't → left is company (default)
-        // If left has a role keyword and right doesn't → right is company
+        if (ROLE_RE.test(left) && ROLE_RE.test(right)) {
+          return { position: headline, company: null }
+        }
         if (ROLE_RE.test(left) && !ROLE_RE.test(right)) {
-          // "Role | Company | Tagline…" — strip anything after the first secondary pipe
           return { position: left, company: asCompany(right.split(/\s*[|·]\s*/)[0].trim()) }
         }
         return { position: right, company: asCompany(left.split(/\s*[|·]\s*/)[0].trim()) }
@@ -615,6 +619,10 @@
     if (dashM) {
       const [left, right] = [dashM[1].trim(), dashM[2].trim()]
       if (left.length > 1 && right.length > 1 && left.length < 60) {
+        if (ROLE_RE.test(left) && ROLE_RE.test(right)) {
+          // Both sides are role descriptors — treat whole headline as position, no company
+          return { position: headline, company: null }
+        }
         if (ROLE_RE.test(right) && !ROLE_RE.test(left)) {
           return { position: right, company: asCompany(left) }
         }
