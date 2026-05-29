@@ -3,10 +3,11 @@
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
-import { Search, ArrowUp, ArrowDown, Loader2 } from "lucide-react"
+import { Search, ArrowUp, ArrowDown, Loader2, Settings } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import MessagesTabBar from "@/components/MessagesTabBar"
+import Link from "next/link"
 
 function relTime(dateStr: string): string {
   const ms = Date.now() - new Date(dateStr).getTime()
@@ -119,6 +120,41 @@ export default function MessagesPage() {
     <div className="max-w-4xl mx-auto px-4 py-8">
       <MessagesTabBar />
 
+      {/* Channel import CTAs — always visible, matching WA / LI DM pages */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <Link
+          href="/settings#whatsapp"
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-green-700 transition-colors"
+        >
+          <WAIcon size={13} />
+          <span>WhatsApp import</span>
+        </Link>
+        <span className="text-gray-200">·</span>
+        <Link
+          href="/settings#linkedin-dm"
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-blue-700 transition-colors"
+        >
+          <LiIcon size={13} />
+          <span>LinkedIn DM import</span>
+        </Link>
+        <span className="text-gray-200">·</span>
+        <Link
+          href="/settings#gmail"
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-indigo-700 transition-colors"
+        >
+          <MailIcon size={13} />
+          <span>Gmail connect</span>
+        </Link>
+        <div className="flex-1" />
+        <Link
+          href="/settings"
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <Settings size={13} />
+          <span>Import / reset</span>
+        </Link>
+      </div>
+
       <div className="flex items-center justify-between mb-4 gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -140,8 +176,20 @@ export default function MessagesPage() {
           Loading…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 text-sm">
-          {q ? "No conversations match your search." : "No messages yet. Import WhatsApp, sync LinkedIn DMs, or connect Gmail."}
+        <div className="text-center py-16 text-gray-400 text-sm space-y-3">
+          {q ? (
+            <p>No conversations match your search.</p>
+          ) : (
+            <>
+              <p className="font-medium text-gray-500">No messages yet</p>
+              <p>Import your conversations to get started:</p>
+              <div className="flex flex-col items-center gap-2 mt-2">
+                <Link href="/settings#whatsapp" className="flex items-center gap-2 text-green-600 hover:text-green-700 font-medium"><WAIcon size={14} /> Import WhatsApp chats</Link>
+                <Link href="/settings#linkedin-dm" className="flex items-center gap-2 text-blue-600 hover:text-blue-700 font-medium"><LiIcon size={14} /> Import LinkedIn DMs</Link>
+                <Link href="/settings#gmail" className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium"><MailIcon size={14} /> Connect Gmail</Link>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100">

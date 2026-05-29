@@ -34,7 +34,7 @@ const navLinks = [
   { href: "/lists",       label: "Lists",      icon: List },
   { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
   { href: "/events",      label: "Events",     icon: CalendarDays },
-  { href: "/whatsapp",    label: "Messages",   icon: null, waIcon: true },
+  { href: "/messages",    label: "Messages",   icon: null, waIcon: true },
 ]
 
 // Subset shown on mobile bottom tab bar (most-used pages)
@@ -43,7 +43,7 @@ const mobileNavLinks = [
   { href: "/companies",   label: "Companies",  icon: Building2 },
   { href: "/lists",       label: "Lists",      icon: List },
   { href: "/reconnect",   label: "Reconnect",  icon: RefreshCcw },
-  { href: "/whatsapp",    label: "Messages",   icon: null, waIcon: true },
+  { href: "/messages",    label: "Messages",   icon: null, waIcon: true },
 ]
 
 function formatParis(date: Date): string {
@@ -104,9 +104,9 @@ export default function Navbar() {
         {/* Nav links — desktop only */}
         <div className="hidden sm:flex items-center gap-1">
           {navLinks.map(({ href, label, icon: Icon, waIcon }) => {
-            const isMessages = href === "/whatsapp"
+            const isMessages = href === "/messages"
             const active = isMessages
-              ? pathname.startsWith("/whatsapp") || pathname.startsWith("/linkedin-dm")
+              ? pathname.startsWith("/messages") || pathname.startsWith("/whatsapp") || pathname.startsWith("/linkedin-dm") || pathname.startsWith("/email")
               : pathname.startsWith(href)
             return (
               <Link
