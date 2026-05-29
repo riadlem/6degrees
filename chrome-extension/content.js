@@ -12,6 +12,7 @@
   // ─── LinkedIn inbox scraper ───────────────────────────────────────────────────
   // On the messaging page, scrape the conversation list and POST to inbox-scan.
   if (path.startsWith("/messaging")) {
+    applyMessagingFullWidth()
     setTimeout(initInboxScraper, 2500)
   }
 
@@ -1585,13 +1586,47 @@
       fabEl?.remove()
       fabEl = null
       if (location.pathname.startsWith("/in/")) init()
-      if (location.pathname.startsWith("/messaging")) setTimeout(initInboxScraper, 2500)
+      if (location.pathname.startsWith("/messaging")) {
+        applyMessagingFullWidth()
+        setTimeout(initInboxScraper, 2500)
+      }
     }
   }).observe(document.body, { childList: true, subtree: true })
 
   // Only run profile-page logic when we're actually on a profile.
   if (path.startsWith("/in/")) init()
 })()
+
+// ─── Messaging full-width layout ─────────────────────────────────────────────
+// Hides LinkedIn's right rail on /messaging so the inbox list gets full width.
+function applyMessagingFullWidth() {
+  if (document.getElementById("sd-msg-fullwidth")) return
+  const style = document.createElement("style")
+  style.id = "sd-msg-fullwidth"
+  style.textContent = `
+    /* Hide the right-rail aside */
+    .scaffold-layout__aside,
+    aside.scaffold-layout__aside { display: none !important; }
+    /* Collapse any sidebar grid column */
+    .scaffold-layout--main-two-sidebars,
+    .scaffold-layout--main-one-sidebar {
+      grid-template-columns: 1fr !important;
+    }
+    /* Expand the main messaging pane */
+    .scaffold-layout__main {
+      max-width: 100% !important;
+      width: 100% !important;
+      padding-right: 0 !important;
+    }
+    /* Remove the outer container's max-width cap */
+    .scaffold-layout-container,
+    .scaffold-layout-container--reflow {
+      max-width: 100% !important;
+      padding-right: 0 !important;
+    }
+  `
+  document.head.appendChild(style)
+}
 
 // ─── LinkedIn inbox scraper (runs when initInboxScraper() is called) ─────────
 // Scrapes the conversation list on linkedin.com/messaging and POSTs to
