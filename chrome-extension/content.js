@@ -1587,6 +1587,17 @@
     return false
   })
 
+  // ─── Messaging diagnostics capture ──────────────────────────────────────────
+  // Popup sends CAPTURE_MSG_FIXTURE on the /messaging page to snapshot the real
+  // DOM structure (conversation-item classes + split-pane layout).
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type !== "CAPTURE_MSG_FIXTURE") return false
+    let data = null, error = null
+    try { data = captureMessagingFixture() } catch (e) { error = e.message }
+    sendResponse({ ...(data ?? {}), error })
+    return false
+  })
+
   // ─── SPA navigation detection ─────────────────────────────────────────────
   // Uses subtree:true so any DOM mutation (not just direct body children) is
   // detected — required because LinkedIn's SPA sometimes mutates nested nodes.
@@ -1697,6 +1708,98 @@ function detectAndTagSplit() {
       }
     }
     node = par
+  }
+}
+
+// ─── Messaging-page diagnostics capture ──────────────────────────────────────
+// Snapshots the real DOM structure of the messaging page so the layout +
+// inbox-scraper code can be fixed against ground truth instead of guesses.
+// Triggered by the popup's "Copy messaging debug" button (CAPTURE_MSG_FIXTURE).
+// Privacy: captures ONE sample conversation item's HTML + structural ancestry
+// (class names + computed layout), not the full message text of every thread.
+function captureMessagingFixture() {
+  const main =
+    document.querySelector(".scaffold-layout__main") ||
+    document.querySelector("main") ||
+    document.body
+
+  // Count how many elements each candidate selector matches — tells us which
+  // anchors/classes LinkedIn currently uses for conversation list items.
+  const itemSelectors = [
+    'a[href*="/messaging/thread/"]',
+    '[href*="/messaging/thread/"]',
+    '[class*="conversation-listitem"]',
+    '.msg-conversation-listitem',
+    '.msg-conversation-card',
+    'li[class*="conversation"]',
+    '[data-view-name*="conversation"]',
+    '[data-view-name*="message"]',
+    'ul[class*="conversation"] > li',
+    '[role="listitem"]',
+  ]
+  const selectorCounts = {}
+  for (const sel of itemSelectors) {
+    try { selectorCounts[sel] = document.querySelectorAll(sel).length }
+    catch { selectorCounts[sel] = "invalid-selector" }
+  }
+
+  // Pick a representative conversation list item.
+  const threadAnchor = document.querySelector('a[href*="/messaging/thread/"]')
+  let sampleItem =
+    threadAnchor?.closest('li, [class*="conversation"], [role="listitem"]') ||
+    document.querySelector(
+      '[class*="conversation-listitem"], .msg-conversation-listitem, li[class*="conversation"], [data-view-name*="conversation"], [role="listitem"]'
+    ) ||
+    threadAnchor
+
+  // Structural ancestry with computed layout — used to locate the split pane.
+  function ancestry(node, depth = 16) {
+    const chain = []
+    let n = node
+    for (let i = 0; n && i < depth && n !== document.documentElement; i++) {
+      const cs = getComputedStyle(n)
+      chain.push({
+        tag: n.tagName.toLowerCase(),
+        cls: (n.className || "").toString().slice(0, 120),
+        id: n.id || undefined,
+        display: cs.display,
+        flexDir: cs.flexDirection,
+        gridCols: (cs.gridTemplateColumns || "").slice(0, 70),
+        width: Math.round(n.getBoundingClientRect().width),
+        childCount: n.children.length,
+      })
+      n = n.parentElement
+    }
+    return chain
+  }
+
+  function trimHtml(el, max) {
+    if (!el) return null
+    const h = el.outerHTML || ""
+    return h.length > max ? h.slice(0, max) + "…[truncated]" : h
+  }
+
+  // Containers whose class includes "msg-" — LinkedIn's messaging wrappers.
+  const msgContainers = [...document.querySelectorAll('[class*="msg-"]')]
+    .slice(0, 14)
+    .map((e) => ({
+      tag: e.tagName.toLowerCase(),
+      cls: (e.className || "").toString().slice(0, 120),
+      childCount: e.children.length,
+    }))
+
+  return {
+    kind: "messaging",
+    url: location.href,
+    title: document.title,
+    threadAnchorCount: document.querySelectorAll('a[href*="/messaging/thread/"]').length,
+    selectorCounts,
+    sampleItemTag: sampleItem?.tagName?.toLowerCase() ?? null,
+    sampleItemClass: sampleItem ? (sampleItem.className || "").toString() : null,
+    // Full HTML of ONE item so scraper selectors (name / profile link / snippet) can be fixed
+    sampleItemHtml: trimHtml(sampleItem, 9000),
+    splitAncestry: ancestry(sampleItem || main),
+    msgContainers,
   }
 }
 
