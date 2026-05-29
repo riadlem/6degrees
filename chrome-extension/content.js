@@ -1646,33 +1646,43 @@ function applyMessagingFullWidth() {
     const style = document.createElement("style")
     style.id = "sd-msg-fullwidth"
     style.textContent = `
-      /* ── Scaffold outer chrome: hide right rail ─────────────── */
+      /* ── 1. Hide right rail ──────────────────────────────────────────────── */
       .scaffold-layout__aside,
       aside.scaffold-layout__aside { display: none !important; }
-      /* Collapse any scaffold grid that has sidebar columns */
-      [class*="scaffold-layout--main-"] {
-        grid-template-columns: 1fr !important;
-      }
+
+      /* ── 2. Reclaim freed column space ──────────────────────────────────── */
+      /* display:none on the aside hides it but the grid column slot it occupied
+         still has its defined width.  grid-column:1/-1 on the main element
+         forces it to span every column, claiming all available horizontal space. */
       .scaffold-layout__main {
+        grid-column: 1 / -1 !important;
         max-width: 100% !important;
         width: 100% !important;
         padding-right: 0 !important;
+        box-sizing: border-box !important;
       }
+      /* Also override the grid template itself in case min-width prevents collapse */
       .scaffold-layout-container,
-      .scaffold-layout-container--reflow {
+      .scaffold-layout-container--reflow,
+      [class*="scaffold-layout-container"] {
+        grid-template-columns: 1fr !important;
+        grid-template-areas: unset !important;
         max-width: 100% !important;
-        padding-right: 0 !important;
       }
-      /* ── CSS-name fallback (LinkedIn stable class, if present) ── */
+
+      /* ── 3. Inner messaging split pane ───────────────────────────────────── */
+      /* CSS-named fallback for LinkedIn's stable .msg-* classes */
       .msg-global-container {
-        display: block !important;
+        max-width: 100% !important;
         width: 100% !important;
       }
-      .msg-global-container > *:not(:first-child) { display: none !important; }
-      .msg-global-container > *:first-child { max-width: 100% !important; width: 100% !important; }
-      /* ── JS-detected split container (tagged by detectAndTagSplit) */
+      .msg-columns, [class*="msg-columns"] {
+        max-width: 100% !important;
+        width: 100% !important;
+      }
+      /* JS-detected split container (tagged by detectAndTagSplit) */
       .sd-msg-split  { display: block !important; width: 100% !important; max-width: 100% !important; }
-      .sd-msg-inbox  { max-width: 100% !important; width: 100% !important; }
+      .sd-msg-inbox  { max-width: 100% !important; width: 100% !important; display: block !important; }
       .sd-msg-thread { display: none !important; }
     `
     document.head.appendChild(style)
@@ -1684,45 +1694,82 @@ function applyMessagingFullWidth() {
   setTimeout(detectAndTagSplit, 4000)
 }
 
-// Walks the DOM from a known thread link upward, using getComputedStyle to
-// find the real horizontal flex/grid split container, then tags the container
-// and its children with our stable CSS classes.  Safe to call multiple times.
+// Finds the horizontal split pane inside the messaging page and tags it so
+// the CSS above can hide the thread panel and expand the inbox list.
+// Uses three strategies in order: thread-link anchor walk-up, msg-* class scan,
+// direct structure scan — so it works even when LinkedIn has no thread-link hrefs.
+function tagSplitContainer(splitEl, inboxEl) {
+  splitEl.classList.add("sd-msg-split")
+  for (const c of splitEl.children) {
+    const isInbox = c === inboxEl || c.contains(inboxEl)
+    if (isInbox) {
+      c.classList.add("sd-msg-inbox")
+      c.classList.remove("sd-msg-thread")
+    } else {
+      c.classList.add("sd-msg-thread")
+    }
+  }
+}
+
+function isHorizontalSplit(el) {
+  if (!el || el.children.length < 2) return false
+  const cs = getComputedStyle(el)
+  const cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean)
+  return (
+    (cs.display === "flex" && cs.flexDirection !== "column") ||
+    (cs.display === "grid" && cols.length >= 2)
+  )
+}
+
 function detectAndTagSplit() {
-  const main = document.querySelector(".scaffold-layout__main")
+  const main =
+    document.querySelector(".scaffold-layout__main") ||
+    document.querySelector("main")
   if (!main) return
 
-  const links = main.querySelectorAll('a[href*="/messaging/thread/"]')
-  if (!links.length) return
+  // ── Strategy A: walk up from a thread-link anchor ──────────────────────────
+  const threadLinks = [
+    ...main.querySelectorAll('a[href*="/messaging/thread/"]'),
+    ...main.querySelectorAll('[href*="/messaging/thread/"]'),
+  ]
+  if (threadLinks.length) {
+    let node = threadLinks[0]
+    for (let depth = 0; depth < 20 && node && node !== main && node !== document.body; depth++) {
+      const par = node.parentElement
+      if (!par || par === main || par === document.body) break
+      if (isHorizontalSplit(par)) {
+        tagSplitContainer(par, node)
+        return
+      }
+      node = par
+    }
+  }
 
-  let node = links[0]
-  for (let depth = 0; depth < 16 && node && node !== main; depth++) {
-    const par = node.parentElement
-    if (!par || par === main) break
+  // ── Strategy B: scan elements with "msg-" in their class name ─────────────
+  for (const el of main.querySelectorAll('[class*="msg-"]')) {
+    if (isHorizontalSplit(el)) {
+      tagSplitContainer(el, el.children[0])
+      return
+    }
+  }
 
-    const cs = getComputedStyle(par)
-    // A horizontal split is a flex-row or a multi-column grid
-    const cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean)
-    const isHorizSplit =
-      (cs.display === "flex" && cs.flexDirection !== "column" && par.children.length >= 2) ||
-      (cs.display === "grid" && cols.length >= 2)
-
-    if (isHorizSplit) {
-      // Confirm: our node (inbox side) has thread links; at least one sibling doesn't
-      const hasInboxSide = !!node.querySelector('a[href*="/messaging/thread/"]')
-      const hasThreadSide = [...par.children].some(
-        (c) => c !== node && !c.querySelector('a[href*="/messaging/thread/"]')
-      )
-      if (hasInboxSide && hasThreadSide) {
-        par.classList.add("sd-msg-split")
-        node.classList.add("sd-msg-inbox")
-        for (const c of par.children) {
-          if (c !== node) c.classList.add("sd-msg-thread")
-          else c.classList.remove("sd-msg-thread")
-        }
+  // ── Strategy C: check main and its direct children ────────────────────────
+  if (isHorizontalSplit(main)) {
+    tagSplitContainer(main, main.children[0])
+    return
+  }
+  for (const child of main.children) {
+    if (isHorizontalSplit(child)) {
+      tagSplitContainer(child, child.children[0])
+      return
+    }
+    // One level deeper
+    for (const grandchild of child.children) {
+      if (isHorizontalSplit(grandchild)) {
+        tagSplitContainer(grandchild, grandchild.children[0])
         return
       }
     }
-    node = par
   }
 }
 
@@ -1835,13 +1882,45 @@ async function initInboxScraper() {
   const conversations = []
   const seen = new Set()
 
-  // Thread links are the most stable anchor — LinkedIn always uses this URL pattern.
-  // We iterate each link, find its closest <li>, then extract name / profile info.
-  const threadLinks = document.querySelectorAll('a[href*="/messaging/thread/"]')
+  // Build a list of { link, item } pairs — one per visible conversation row.
+  // LinkedIn's current messaging DOM may not use traditional <a href> anchors for
+  // thread navigation (it uses onClick / virtual routing). We try multiple approaches.
+  const conversationPairs = []
 
-  for (const link of threadLinks) {
-    const li = link.closest("li")
-    if (!li) continue
+  // Approach 1: <a href="/messaging/thread/…"> links (classic / still present on some layouts)
+  for (const link of document.querySelectorAll('a[href*="/messaging/thread/"], [href*="/messaging/thread/"]')) {
+    const item =
+      link.closest("li") ||
+      link.closest('[class*="conversation"]') ||
+      link.closest('[role="listitem"]') ||
+      link.parentElement
+    if (item) conversationPairs.push({ link, item })
+  }
+
+  // Approach 2: conversation list items without thread-link hrefs
+  if (!conversationPairs.length) {
+    const itemSels = [
+      '.msg-conversation-listitem',
+      '[class*="conversation-listitem"]',
+      'li[class*="conversation"]',
+      '[data-view-name*="conversation"]',
+      '[role="listitem"]',
+    ]
+    for (const sel of itemSels) {
+      const els = document.querySelectorAll(sel)
+      if (els.length) {
+        for (const item of els) {
+          const link = item.querySelector("a") || null
+          conversationPairs.push({ link, item })
+        }
+        break
+      }
+    }
+  }
+
+  console.debug("[6Degrees] inbox scraper: found", conversationPairs.length, "conversation pairs")
+
+  for (const { link, item: li } of conversationPairs) {
 
     // ── Name extraction ──────────────────────────────────────────────────────
     let chatName = null
@@ -1883,12 +1962,29 @@ async function initInboxScraper() {
     // ── Profile URL extraction ────────────────────────────────────────────────
     let profileSlug = null
     let profileUrl = null
-    for (const a of li.querySelectorAll('a[href*="/in/"]')) {
-      const m = (a.href || "").match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/)
+    const profileLinkSources = [
+      ...li.querySelectorAll('a[href*="/in/"]'),
+      ...(link ? [link] : []),
+    ]
+    for (const a of profileLinkSources) {
+      const href = a.href || a.getAttribute("href") || ""
+      const m = href.match(/linkedin\.com\/in\/([A-Za-z0-9\-_%]+)/)
       if (m) {
         profileSlug = decodeURIComponent(m[1]).toLowerCase().replace(/[/?#].*/, "")
         profileUrl = `https://www.linkedin.com/in/${profileSlug}/`
         break
+      }
+    }
+    // Also check data-href / aria attributes used by LinkedIn's virtual routing
+    if (!profileSlug) {
+      for (const el of li.querySelectorAll("[data-href*='/in/'], [data-entity-hovercard-id*='/in/']")) {
+        const href = el.getAttribute("data-href") || el.getAttribute("data-entity-hovercard-id") || ""
+        const m = href.match(/\/in\/([A-Za-z0-9\-_%]+)/)
+        if (m) {
+          profileSlug = decodeURIComponent(m[1]).toLowerCase().replace(/[/?#].*/, "")
+          profileUrl = `https://www.linkedin.com/in/${profileSlug}/`
+          break
+        }
       }
     }
 
