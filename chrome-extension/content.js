@@ -1653,7 +1653,9 @@ function applyMessagingFullWidth() {
       /* ── 2. Reclaim freed column space ──────────────────────────────────── */
       /* display:none on the aside hides it but the grid column slot it occupied
          still has its defined width.  grid-column:1/-1 on the main element
-         forces it to span every column, claiming all available horizontal space. */
+         forces it to span every column, claiming all available horizontal space.
+         NOTE: we deliberately do NOT touch grid-template-columns/areas on the
+         container — that broke the global header (it shares scaffold classes). */
       .scaffold-layout__main {
         grid-column: 1 / -1 !important;
         max-width: 100% !important;
@@ -1661,25 +1663,8 @@ function applyMessagingFullWidth() {
         padding-right: 0 !important;
         box-sizing: border-box !important;
       }
-      /* Also override the grid template itself in case min-width prevents collapse */
-      .scaffold-layout-container,
-      .scaffold-layout-container--reflow,
-      [class*="scaffold-layout-container"] {
-        grid-template-columns: 1fr !important;
-        grid-template-areas: unset !important;
-        max-width: 100% !important;
-      }
 
       /* ── 3. Inner messaging split pane ───────────────────────────────────── */
-      /* CSS-named fallback for LinkedIn's stable .msg-* classes */
-      .msg-global-container {
-        max-width: 100% !important;
-        width: 100% !important;
-      }
-      .msg-columns, [class*="msg-columns"] {
-        max-width: 100% !important;
-        width: 100% !important;
-      }
       /* JS-detected split container (tagged by detectAndTagSplit) */
       .sd-msg-split  { display: block !important; width: 100% !important; max-width: 100% !important; }
       .sd-msg-inbox  { max-width: 100% !important; width: 100% !important; display: block !important; }
