@@ -4,11 +4,12 @@ import prisma from "@/lib/prisma"
 
 type UnifiedChat = {
   id: string
-  source: "wa" | "linkedin"
+  source: "wa" | "linkedin" | "email"
   chatName: string
   contactId: string | null
   lastAt: string | null
   lastIsOutbound: boolean | null
+  subject?: string | null
   contact: {
     id: string
     firstName: string
@@ -26,15 +27,18 @@ async function ensureInboxColumns() {
   `.catch(() => {})
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
   await ensureInboxColumns()
 
+  const { searchParams } = new URL(req.url)
+  const sourceFilter = searchParams.get("source") // "wa" | "linkedin" | "email" | null (all)
+
   // ── WA chats ──────────────────────────────────────────────────────────────
-  const waRows = await prisma.$queryRaw<
+  const waRows = sourceFilter && sourceFilter !== "wa" ? [] : await prisma.$queryRaw<
     { chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }[]
   >`
     WITH last_msg AS (
@@ -55,7 +59,7 @@ export async function GET() {
   `
 
   // ── LI DM chats from imported messages ────────────────────────────────────
-  const liMsgRows = await prisma.$queryRaw<
+  const liMsgRows = sourceFilter && sourceFilter !== "linkedin" ? [] : await prisma.$queryRaw<
     {
       conversationId: string
       chatName: string
@@ -83,7 +87,7 @@ export async function GET() {
   `.catch(() => [] as typeof liMsgRows)
 
   // ── LI DM inbox-scanned conversations (no messages imported) ─────────────
-  const liInboxRows = await prisma.$queryRaw<
+  const liInboxRows = sourceFilter && sourceFilter !== "linkedin" ? [] : await prisma.$queryRaw<
     {
       conversationId: string
       chatName: string
@@ -98,6 +102,36 @@ export async function GET() {
       AND "lastInboxAt" IS NOT NULL
       AND "ignored" = false
   `.catch(() => [] as typeof liInboxRows)
+
+  // ── Email threads: most recent email per contact (matched) or per sender (unmatched) ──
+  type EmailRow = { key: string; chatName: string; contactId: string | null; lastAt: Date; lastIsOutbound: boolean; subject: string | null }
+  const emailRows = sourceFilter && sourceFilter !== "email" ? [] : await prisma.$queryRaw<EmailRow[]>`
+    SELECT * FROM (
+      SELECT DISTINCT ON ("contactId")
+        "contactId"::text AS "key",
+        COALESCE("fromName", "fromEmail") AS "chatName",
+        "contactId",
+        "sentAt" AS "lastAt",
+        "isOutbound" AS "lastIsOutbound",
+        "subject"
+      FROM "EmailMessage"
+      WHERE "userId" = ${userId} AND "contactId" IS NOT NULL
+      ORDER BY "contactId", "sentAt" DESC
+    ) matched
+    UNION ALL
+    SELECT * FROM (
+      SELECT DISTINCT ON ("fromEmail")
+        'unmatched:' || "fromEmail" AS "key",
+        COALESCE("fromName", "fromEmail") AS "chatName",
+        NULL AS "contactId",
+        "sentAt" AS "lastAt",
+        "isOutbound" AS "lastIsOutbound",
+        "subject"
+      FROM "EmailMessage"
+      WHERE "userId" = ${userId} AND "contactId" IS NULL
+      ORDER BY "fromEmail", "sentAt" DESC
+    ) unmatched
+  `.catch(() => [] as EmailRow[])
 
   // ── Merge LI DM: message-based data wins over inbox-only ─────────────────
   const liMsgConvIds = new Set(liMsgRows.map((r: { conversationId: string }) => r.conversationId))
@@ -122,7 +156,7 @@ export async function GET() {
       })),
   ]
 
-  const waChats: UnifiedChat[] = waRows.map((r: { chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }) => ({
+  const waChats: UnifiedChat[] = (waRows as { chatName: string; contactId: string | null; lastAt: Date | null; lastIsOutbound: boolean | null }[]).map((r) => ({
     id: `wa:${r.chatName}`,
     source: "wa",
     chatName: r.chatName,
@@ -132,7 +166,22 @@ export async function GET() {
     contact: null,
   }))
 
-  const allChats: UnifiedChat[] = [...waChats, ...liChats.map((c) => ({ ...c, contact: null }))]
+  const emailChats: UnifiedChat[] = (emailRows as EmailRow[]).map((r) => ({
+    id: `email:${r.key}`,
+    source: "email",
+    chatName: r.chatName,
+    contactId: r.contactId ?? null,
+    lastAt: r.lastAt ? new Date(r.lastAt).toISOString() : null,
+    lastIsOutbound: r.lastIsOutbound ?? null,
+    subject: r.subject ?? null,
+    contact: null,
+  }))
+
+  const allChats: UnifiedChat[] = [
+    ...waChats,
+    ...liChats.map((c) => ({ ...c, contact: null as UnifiedChat["contact"] })),
+    ...emailChats,
+  ]
 
   // ── Attach contact details ────────────────────────────────────────────────
   const contactIds = [...new Set(allChats.map((c) => c.contactId).filter(Boolean))] as string[]
@@ -142,7 +191,9 @@ export async function GET() {
         select: { id: true, firstName: true, lastName: true, company: true, photoUrl: true },
       })
     : []
-  const contactMap = new Map(contacts.map((c: { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null }) => [c.id, c]))
+  const contactMap = new Map(
+    (contacts as { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null }[]).map((c) => [c.id, c])
+  )
 
   const result = allChats.map((c) => ({
     ...c,
