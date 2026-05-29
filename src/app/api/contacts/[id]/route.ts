@@ -17,12 +17,32 @@ async function fetchPhones(contactId: string): Promise<string[]> {
   }
 }
 
+// lockedFields TEXT[] — fields that must not be overwritten by enrichment syncs.
+async function ensureLockedFieldsCol() {
+  await prisma.$executeRaw`
+    ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "lockedFields" TEXT[] DEFAULT '{}'
+  `.catch(() => {})
+}
+
+async function fetchLockedFields(contactId: string): Promise<string[]> {
+  try {
+    const rows = await prisma.$queryRaw<{ lockedFields: string[] | null }[]>`
+      SELECT "lockedFields" FROM "Contact" WHERE id = ${contactId} LIMIT 1
+    `
+    return rows[0]?.lockedFields ?? []
+  } catch {
+    return []
+  }
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
 ) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+
+  await ensureLockedFieldsCol()
 
   const [contact, waAgg, waChatRow, liDMAgg, liDMConv] = await Promise.all([
     prisma.contact.findFirst({
@@ -57,11 +77,15 @@ export async function GET(
 
   if (!contact) return new Response("Not found", { status: 404 })
 
-  const phones = await fetchPhones(contact.id)
+  const [phones, lockedFields] = await Promise.all([
+    fetchPhones(contact.id),
+    fetchLockedFields(contact.id),
+  ])
 
   return Response.json({
     ...contact,
     phones,
+    lockedFields,
     whatsappLastAt: waAgg?._max.sentAt?.toISOString() ?? null,
     whatsappMessageCount: waAgg?._count._all ?? 0,
     whatsappChatName: waChatRow?.chatName ?? null,
@@ -100,6 +124,28 @@ export async function PATCH(
     if (matchAffecting.some((k) => k in data)) {
       invalidateMatchCache(session.user.id)
     }
+  }
+
+  // lockedFields TEXT[] — add or remove a field name from the locked set
+  if ("lockField" in body && typeof body.lockField === "string") {
+    await ensureLockedFieldsCol()
+    await prisma.$executeRaw`
+      UPDATE "Contact"
+      SET "lockedFields" = array_append(
+        COALESCE("lockedFields", '{}'),
+        ${body.lockField as string}
+      )
+      WHERE id = ${params.id} AND "userId" = ${session.user.id}
+        AND NOT (COALESCE("lockedFields", '{}') @> ARRAY[${body.lockField as string}])
+    `
+  }
+  if ("unlockField" in body && typeof body.unlockField === "string") {
+    await ensureLockedFieldsCol()
+    await prisma.$executeRaw`
+      UPDATE "Contact"
+      SET "lockedFields" = array_remove(COALESCE("lockedFields", '{}'), ${body.unlockField as string})
+      WHERE id = ${params.id} AND "userId" = ${session.user.id}
+    `
   }
 
   // phones TEXT[] lives outside the Prisma schema — update via raw SQL

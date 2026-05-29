@@ -574,9 +574,10 @@
         // If right has a role keyword and left doesn't → left is company (default)
         // If left has a role keyword and right doesn't → right is company
         if (ROLE_RE.test(left) && !ROLE_RE.test(right)) {
-          return { position: left, company: asCompany(right) }
+          // "Role | Company | Tagline…" — strip anything after the first secondary pipe
+          return { position: left, company: asCompany(right.split(/\s*[|·]\s*/)[0].trim()) }
         }
-        return { position: right, company: asCompany(left) }
+        return { position: right, company: asCompany(left.split(/\s*[|·]\s*/)[0].trim()) }
       }
     }
 
@@ -1598,34 +1599,86 @@
 })()
 
 // ─── Messaging full-width layout ─────────────────────────────────────────────
-// Hides LinkedIn's right rail on /messaging so the inbox list gets full width.
+// Hides LinkedIn's right rail AND the conversation thread panel on /messaging
+// so the inbox list fills the full page width.
 function applyMessagingFullWidth() {
-  if (document.getElementById("sd-msg-fullwidth")) return
-  const style = document.createElement("style")
-  style.id = "sd-msg-fullwidth"
-  style.textContent = `
-    /* Hide the right-rail aside */
-    .scaffold-layout__aside,
-    aside.scaffold-layout__aside { display: none !important; }
-    /* Collapse any sidebar grid column */
-    .scaffold-layout--main-two-sidebars,
-    .scaffold-layout--main-one-sidebar {
-      grid-template-columns: 1fr !important;
+  if (!document.getElementById("sd-msg-fullwidth")) {
+    const style = document.createElement("style")
+    style.id = "sd-msg-fullwidth"
+    style.textContent = `
+      /* ── Scaffold: hide LinkedIn's outer right-rail aside ────── */
+      .scaffold-layout__aside,
+      aside.scaffold-layout__aside { display: none !important; }
+      .scaffold-layout--main-two-sidebars,
+      .scaffold-layout--main-one-sidebar {
+        grid-template-columns: 1fr !important;
+      }
+      .scaffold-layout__main {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding-right: 0 !important;
+      }
+      .scaffold-layout-container,
+      .scaffold-layout-container--reflow {
+        max-width: 100% !important;
+        padding-right: 0 !important;
+      }
+      /* ── Messaging split pane: collapse to inbox-list only ────── */
+      /* msg-global-container is LinkedIn's stable wrapper class    */
+      .msg-global-container {
+        display: block !important;
+      }
+      /* Hide the thread viewer (second panel) — first child is the inbox list */
+      .msg-global-container > *:not(:first-child) {
+        display: none !important;
+      }
+      /* Expand the inbox list panel to full width */
+      .msg-global-container > *:first-child {
+        max-width: 100% !important;
+        width: 100% !important;
+      }
+    `
+    document.head.appendChild(style)
+  }
+
+  // JS fallback: if the class-based CSS above doesn't cover LinkedIn's current
+  // layout variant, walk the DOM to find and hide the thread-viewer sibling.
+  // Detection: the inbox list contains a[href*="/messaging/thread/"] links;
+  // the thread-viewer sibling does not (it shows the actual messages).
+  function hideThreadViewer() {
+    const links = document.querySelectorAll('a[href*="/messaging/thread/"]')
+    if (!links.length) return
+
+    // Climb from a thread link until we find a node whose parent has a sibling
+    // that contains no thread links — that sibling is the thread viewer.
+    let listPanel = links[0]
+    while (listPanel.parentElement && listPanel.parentElement !== document.body) {
+      const par = listPanel.parentElement
+      const hasThreadViewerSibling = [...par.children].some(
+        (c) => c !== listPanel && c.children.length > 0 && !c.querySelector('a[href*="/messaging/thread/"]')
+      )
+      if (hasThreadViewerSibling) {
+        let seenList = false
+        for (const c of par.children) {
+          if (c === listPanel) {
+            seenList = true
+            c.style.setProperty("max-width", "100%", "important")
+            c.style.setProperty("width", "100%", "important")
+          } else if (seenList && c.children.length > 0) {
+            // Only hide panels that come AFTER the inbox list (thread viewer is to the right)
+            c.style.setProperty("display", "none", "important")
+          }
+        }
+        par.style.setProperty("display", "block", "important")
+        return
+      }
+      listPanel = par
     }
-    /* Expand the main messaging pane */
-    .scaffold-layout__main {
-      max-width: 100% !important;
-      width: 100% !important;
-      padding-right: 0 !important;
-    }
-    /* Remove the outer container's max-width cap */
-    .scaffold-layout-container,
-    .scaffold-layout-container--reflow {
-      max-width: 100% !important;
-      padding-right: 0 !important;
-    }
-  `
-  document.head.appendChild(style)
+  }
+
+  hideThreadViewer()
+  setTimeout(hideThreadViewer, 1000)
+  setTimeout(hideThreadViewer, 3000)
 }
 
 // ─── LinkedIn inbox scraper (runs when initInboxScraper() is called) ─────────
