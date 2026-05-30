@@ -611,41 +611,49 @@ function ListDetailContent() {
                 className="flex gap-3 px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors group cursor-pointer"
                 onClick={() => openContact(contact.id)}
               >
-                {/* Photo — square, no circle */}
-                <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mt-0.5">
-                  {contact.photoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoSrc(contact.photoUrl)!} alt={fullName}
-                      className={cn("w-11 h-11 object-cover", blurred && "blur")} />
-                  ) : (
-                    <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
-                      {inits}
-                    </div>
+                {/* Left column: photo + shared-connections pill below */}
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <div className="w-11 h-11 rounded-lg overflow-hidden">
+                    {contact.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={photoSrc(contact.photoUrl)!} alt={fullName}
+                        className={cn("w-11 h-11 object-cover", blurred && "blur")} />
+                    ) : (
+                      <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
+                        {inits}
+                      </div>
+                    )}
+                  </div>
+                  {contact.commonConnections != null && contact.commonConnections > 0 && (
+                    <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5">
+                      <Users size={9} />
+                      {contact.commonConnections}
+                    </span>
                   )}
                 </div>
 
                 {/* 3-line info block */}
                 <div className="flex-1 min-w-0">
-                  {/* Line 1: Name + LI link + WA link */}
+                  {/* Line 1: Name · WA link · LI link */}
                   <div className="flex items-center gap-1.5">
                     <p className={cn("flex-1 min-w-0 font-semibold text-gray-900 text-sm leading-snug", blurred && "blur-sm select-none")}>
                       {fullName}
                     </p>
-                    {contact.profileUrl && liColor && (
-                      <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()} title={liTitle}
-                        className="shrink-0 flex items-center opacity-80 hover:opacity-100">
-                        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: liColor }}>
-                          <path d={LI_ICON_PATH} />
-                        </svg>
-                      </a>
-                    )}
                     {hasWhatsApp && (
                       <a href={whatsappHref(contact.phoneNumber!)} target="_blank" rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()} title={contact.phoneNumber ?? "Open WhatsApp"}
                         className="shrink-0 flex items-center opacity-80 hover:opacity-100">
                         <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: "#25D366" }}>
                           <path d={WA_ICON_PATH} />
+                        </svg>
+                      </a>
+                    )}
+                    {contact.profileUrl && liColor && (
+                      <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()} title={liTitle}
+                        className="shrink-0 flex items-center opacity-80 hover:opacity-100">
+                        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: liColor }}>
+                          <path d={LI_ICON_PATH} />
                         </svg>
                       </a>
                     )}
@@ -658,8 +666,9 @@ function ListDetailContent() {
                     </p>
                   )}
 
-                  {/* Line 3: Company + flag + shared contacts + remove */}
+                  {/* Line 3: flag · company · remove */}
                   <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                    {flag && <span className="text-xs shrink-0" title={normCountry ?? undefined}>{flag}</span>}
                     {contact.company ? (
                       <Link
                         href={`/companies/${encodeURIComponent(contact.company)}`}
@@ -669,14 +678,7 @@ function ListDetailContent() {
                         <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={12} radius="rounded-sm" />
                         <span className="text-xs text-gray-500 truncate group-hover/company:text-blue-600">{contact.company}</span>
                       </Link>
-                    ) : <span className="flex-1" />}
-                    {flag && <span className="text-xs shrink-0" title={normCountry ?? undefined}>{flag}</span>}
-                    {contact.commonConnections != null && contact.commonConnections > 0 && (
-                      <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5 shrink-0">
-                        <Users size={9} />
-                        {contact.commonConnections}
-                      </span>
-                    )}
+                    ) : null}
                     {!isDynamicList && (
                       <button
                         onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}
