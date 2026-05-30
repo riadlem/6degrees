@@ -19,6 +19,13 @@ export async function GET(req: Request) {
   // Note: Prisma notIn silently drops NULL rows in SQL — always OR the null case
   const DONE_STATUSES = ["responded", "meeting_booked", "meeting_done", "lkd_pending", "ignored"]
 
+  // Contacts interacted with in the last 30 days are actively in-touch and
+  // should not appear as candidates to reconnect with.
+  const THIRTY_DAYS_AGO = new Date(Date.now() - 30 * 86_400_000)
+  const notRecentlyContacted: Prisma.ContactWhereInput = {
+    OR: [{ lastInteractionAt: { lt: THIRTY_DAYS_AGO } }, { lastInteractionAt: null }],
+  }
+
   const where: Prisma.ContactWhereInput = (() => {
     if (status === "lkd_pending") return { userId, outreachStatus: "lkd_pending" }
     if (status === "meeting_booked") return { userId, outreachStatus: "meeting_booked" }
@@ -39,19 +46,26 @@ export async function GET(req: Request) {
     if (status === "not_contacted") return {
       userId,
       OR: [
-        // Auto-surfaced by interaction score with no explicit status
-        { interactionScore: { gt: 0.1 }, outreachStatus: null },
-        // Explicitly pinned to Reconnect (regardless of score)
+        // Auto-surfaced: has interaction history, not explicitly managed, not recently active
+        {
+          interactionScore: { gt: 0.1 },
+          outreachStatus: null,
+          AND: [notRecentlyContacted],
+        },
+        // Explicitly pinned to Reconnect (always show regardless of recency)
         { outreachStatus: "not_contacted" },
       ],
     }
-    // "All" tab: exclude done + blocked + lkd_pending; always include manually-pinned contacts
+    // "All" tab: exclude done + blocked + recently active; always include manually-pinned
     return {
       userId,
       OR: [
         {
           interactionScore: { gt: 0.1 },
-          OR: [{ outreachStatus: null }, { outreachStatus: { notIn: DONE_STATUSES } }],
+          AND: [
+            { OR: [{ outreachStatus: null }, { outreachStatus: { notIn: DONE_STATUSES } }] },
+            notRecentlyContacted,
+          ],
         },
         { outreachStatus: "not_contacted" },
       ],
