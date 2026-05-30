@@ -374,6 +374,8 @@ model WhatsAppMessage {
   sentAt     DateTime
   isOutbound Boolean
   phone      String?  // E.164 number from ZCONTACTJID, e.g. "+33612345678"
+  senderName String?  // non-null for group messages; name/phone of sender
+  isGroup    Boolean  @default(false)
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)

@@ -144,6 +144,9 @@ CREATE TABLE IF NOT EXISTS "Label" (
 
 CREATE INDEX IF NOT EXISTS "Label_userId_idx" ON "Label"("userId");
 
+ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "senderName" TEXT;
+ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "isGroup" BOOLEAN DEFAULT FALSE;
+
 ALTER TABLE "GmailSync" ADD COLUMN IF NOT EXISTS "gmailEmail" TEXT;
 UPDATE "GmailSync" SET "gmailEmail" = 'unknown@gmail.com' WHERE "gmailEmail" IS NULL;
 ALTER TABLE "GmailSync" ALTER COLUMN "gmailEmail" SET NOT NULL;

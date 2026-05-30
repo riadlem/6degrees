@@ -41,6 +41,10 @@ const GRID_CLASS = "[grid-template-columns:2.5rem_1fr_6rem_3.5rem] sm:[grid-temp
 type WAChat = {
   chatName: string
   contactId: string | null
+  isGroup: boolean
+  memberCount: number
+  linkedCount: number
+  inScore: boolean
   contact: {
     id: string
     firstName: string
@@ -62,9 +66,10 @@ type Stats = {
   totalMessages: number
   matched: number
   unmatched: number
+  groups: number
 }
 
-type Filter = "all" | "matched" | "unmatched"
+type Filter = "all" | "matched" | "unmatched" | "groups"
 type Sort   = "lastAt" | "messageCount"
 type Order  = "desc" | "asc"
 
@@ -211,6 +216,78 @@ function ChatRow({
   )
 }
 
+function GroupChatRow({
+  chat,
+  onToggleScore,
+}: {
+  chat: WAChat
+  onToggleScore: (chatName: string, include: boolean) => void
+}) {
+  const [toggling, setToggling] = useState(false)
+  const isLarge = chat.memberCount > 15
+
+  async function toggle() {
+    setToggling(true)
+    try {
+      await fetch("/api/whatsapp/group-score", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatName: chat.chatName, include: !chat.inScore }),
+      })
+      onToggleScore(chat.chatName, !chat.inScore)
+    } finally {
+      setToggling(false)
+    }
+  }
+
+  return (
+    <div className="group grid items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-xs"
+      style={{ gridTemplateColumns: "2.5rem 1fr auto auto" }}>
+      {/* Group avatar */}
+      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shrink-0">
+        <Users size={16} className="text-white" />
+      </div>
+
+      {/* Name + member count */}
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{chat.chatName}</p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-gray-400">
+            {chat.memberCount > 0 ? `${chat.memberCount}+ members` : "Group"}
+            {" · "}{chat.messageCount.toLocaleString()} msgs
+          </span>
+          {isLarge && (
+            <span className="text-[10px] text-orange-500 font-medium">Large group</span>
+          )}
+        </div>
+      </div>
+
+      {/* In-score toggle */}
+      <button
+        onClick={toggle}
+        disabled={toggling}
+        className={cn(
+          "flex items-center gap-1.5 text-xs border rounded-lg px-2.5 py-1.5 transition-colors shrink-0 disabled:opacity-50",
+          chat.inScore
+            ? "text-green-700 border-green-200 bg-green-50 hover:bg-green-100"
+            : "text-gray-500 border-gray-200 hover:bg-gray-50"
+        )}
+        title={chat.inScore ? "Click to exclude from relationship score" : "Click to include in relationship score"}
+      >
+        {toggling ? <Loader2 size={10} className="animate-spin" /> : null}
+        {chat.inScore
+          ? <><span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" /> In score</>
+          : "Excluded"}
+      </button>
+
+      {/* Last activity */}
+      <span className="text-xs text-gray-400 shrink-0 hidden sm:block">
+        {chat.lastAt ? relTime(chat.lastAt) : "—"}
+      </span>
+    </div>
+  )
+}
+
 export default function WhatsAppPage() {
   const { status } = useSession()
   const router = useRouter()
@@ -251,6 +328,10 @@ export default function WhatsAppPage() {
   function toggleSort(s: Sort) {
     if (sort === s) setOrder((o) => (o === "desc" ? "asc" : "desc"))
     else { setSort(s); setOrder("desc") }
+  }
+
+  function handleGroupScoreToggle(chatName: string, include: boolean) {
+    setChats((prev) => prev.map((c) => c.chatName === chatName ? { ...c, inScore: include } : c))
   }
 
   // Link / re-assign / unlink panel
@@ -404,20 +485,11 @@ export default function WhatsAppPage() {
         </div>
       )}
 
-      {/* Groups note */}
-      <div className="mb-4 text-xs text-gray-400 bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center gap-2">
-        <Users size={12} className="shrink-0" />
-        <span>
-          <strong>Group chats</strong> are excluded from the SQLite import (only 1-to-1 conversations are imported).
-          If you uploaded .txt exports of group chats, they appear here as unmatched chats.
-        </span>
-      </div>
-
       {/* Filters + search */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {/* Filter tabs */}
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-          {(["all", "matched", "unmatched"] as Filter[]).map((f) => (
+          {(["all", "matched", "unmatched", "groups"] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -428,6 +500,7 @@ export default function WhatsAppPage() {
             >
               {f === "all" ? `All${stats ? ` (${stats.totalChats})` : ""}` :
                f === "matched" ? `Matched${stats ? ` (${stats.matched})` : ""}` :
+               f === "groups" ? `Groups${stats?.groups ? ` (${stats.groups})` : ""}` :
                `Unmatched${stats ? ` (${stats.unmatched})` : ""}`}
             </button>
           ))}
@@ -492,7 +565,13 @@ export default function WhatsAppPage() {
             )}
           </div>
         ) : (
-          chats.map((chat) => (
+          chats.map((chat) => chat.isGroup ? (
+            <GroupChatRow
+              key={chat.chatName}
+              chat={chat}
+              onToggleScore={handleGroupScoreToggle}
+            />
+          ) : (
             <ChatRow
               key={chat.chatName}
               chat={chat}
