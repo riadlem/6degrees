@@ -12,7 +12,7 @@ export type GmailSyncState =
 
 type GmailSyncContextValue = {
   gmailSyncState: GmailSyncState
-  sync: (incremental?: boolean) => void
+  sync: (force?: boolean, email?: string) => void
   lastSyncedAt: Date | null
 }
 
@@ -37,11 +37,14 @@ export function GmailSyncProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // force=true bypasses incremental and does a full re-scan (rare, for resets)
-  const sync = useCallback(async (force = false) => {
+  const sync = useCallback(async (force = false, email?: string) => {
     setGmailSyncState({ phase: "connecting" })
 
     try {
-      const params = force ? "?force=true" : ""
+      const qs = new URLSearchParams()
+      if (force) qs.set("force", "true")
+      if (email) qs.set("email", email)
+      const params = qs.toString() ? `?${qs.toString()}` : ""
       const res = await fetch(`/api/gmail/sync${params}`, { method: "POST" })
       if (!res.ok || !res.body) {
         const json = await res.json().catch(() => ({}))

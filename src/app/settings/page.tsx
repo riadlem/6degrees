@@ -1431,19 +1431,30 @@ function SettingsPageInner() {
                         <p className="text-sm text-gray-700 font-medium truncate">{acct.gmailEmail}</p>
                         <p className="text-xs text-gray-400">
                           {acct.totalMessages.toLocaleString()} emails
-                          {acct.syncedAt ? ` · synced ${formatParis(new Date(acct.syncedAt))}` : ""}
+                          {acct.syncedAt ? ` · synced ${formatParis(new Date(acct.syncedAt))}` : " · never synced"}
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => disconnectGmailAccount(acct.gmailEmail)}
-                      disabled={disconnectingEmail === acct.gmailEmail}
-                      title="Disconnect this account"
-                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40 shrink-0"
-                    >
-                      {disconnectingEmail === acct.gmailEmail ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                      Disconnect
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => gmailSync(false, acct.gmailEmail)}
+                        disabled={gmailSyncing}
+                        title="Sync this account only"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                      >
+                        <RefreshCw size={11} className={gmailSyncing ? "animate-spin" : ""} />
+                        Sync
+                      </button>
+                      <button
+                        onClick={() => disconnectGmailAccount(acct.gmailEmail)}
+                        disabled={disconnectingEmail === acct.gmailEmail}
+                        title="Disconnect this account"
+                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40"
+                      >
+                        {disconnectingEmail === acct.gmailEmail ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                        Disconnect
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
