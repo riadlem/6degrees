@@ -64,7 +64,7 @@ model User {
   companyPrefs   CompanyPreference[]
   companyDomains CompanyDomain[]
   lastSyncAt     DateTime?
-  gmailSync      GmailSync?
+  gmailSyncs     GmailSync[]
   emailMessages  EmailMessage[]
   outreachDrafts OutreachDraft[]
   whatsAppMessages WhatsAppMessage[]
@@ -274,13 +274,15 @@ model DismissedEmail {
 
 model GmailSync {
   id            String    @id @default(cuid())
-  userId        String    @unique
+  userId        String
+  gmailEmail    String
   historyId     String?
   syncedAt      DateTime?
   totalMessages Int       @default(0)
-  gmailEmail    String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, gmailEmail])
 }
 
 model ContactEmailAddress {

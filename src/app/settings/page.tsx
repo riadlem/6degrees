@@ -7,13 +7,21 @@ import { Copy, RefreshCw, Check, Puzzle, Mail, Loader2, Trash2, MessageCircle, U
 import { useGmailSyncContext } from "@/contexts/GmailSyncContext"
 import { useRef } from "react"
 
+type GmailAccountStatus = {
+  gmailEmail: string
+  historyId: string | null
+  syncedAt: string | null
+  totalMessages: number
+}
+
 type GmailStatus = {
   connected: boolean
-  gmailEmail: string | null
+  accounts: GmailAccountStatus[]
+  gmailEmail: string | null  // legacy: first account
+  historyId: string | null   // legacy: first account
   syncedAt: string | null
   totalMessages: number
   matchedContacts: number
-  historyId: string | null
 }
 
 function formatParis(date: Date): string {
@@ -459,8 +467,22 @@ function SettingsPageInner() {
   async function disconnectGmail() {
     setDisconnecting(true)
     await fetch("/api/gmail/disconnect", { method: "DELETE" })
-    setGmailStatus({ connected: false, gmailEmail: null, syncedAt: null, totalMessages: 0, matchedContacts: 0, historyId: null })
+    setGmailStatus({ connected: false, accounts: [], gmailEmail: null, syncedAt: null, totalMessages: 0, matchedContacts: 0, historyId: null })
     setDisconnecting(false)
+  }
+
+  const [disconnectingEmail, setDisconnectingEmail] = useState<string | null>(null)
+
+  async function disconnectGmailAccount(email: string) {
+    setDisconnectingEmail(email)
+    try {
+      await fetch(`/api/gmail/disconnect?email=${encodeURIComponent(email)}`, { method: "DELETE" })
+      // Refresh status — account array shrinks
+      const d = await fetch("/api/gmail/sync").then((r) => r.ok ? r.json() : null)
+      if (d) setGmailStatus(d)
+    } finally {
+      setDisconnectingEmail(null)
+    }
   }
 
   const gmailSyncing =
@@ -1399,10 +1421,52 @@ function SettingsPageInner() {
         <div className="px-6 py-5 space-y-4">
           {gmailStatus?.connected ? (
             <>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                <span className="text-sm text-gray-700 font-medium">{gmailStatus.gmailEmail}</span>
+              {/* Per-account rows */}
+              <div className="space-y-2">
+                {(gmailStatus.accounts ?? []).map((acct) => (
+                  <div key={acct.gmailEmail} className="flex items-center justify-between gap-2 rounded-xl border border-gray-100 px-3 py-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm text-gray-700 font-medium truncate">{acct.gmailEmail}</p>
+                        <p className="text-xs text-gray-400">
+                          {acct.totalMessages.toLocaleString()} emails
+                          {acct.syncedAt ? ` · synced ${formatParis(new Date(acct.syncedAt))}` : " · never synced"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => gmailSync(false, acct.gmailEmail)}
+                        disabled={gmailSyncing}
+                        title="Sync this account only"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                      >
+                        <RefreshCw size={11} className={gmailSyncing ? "animate-spin" : ""} />
+                        Sync
+                      </button>
+                      <button
+                        onClick={() => disconnectGmailAccount(acct.gmailEmail)}
+                        disabled={disconnectingEmail === acct.gmailEmail}
+                        title="Disconnect this account"
+                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 disabled:opacity-40"
+                      >
+                        {disconnectingEmail === acct.gmailEmail ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+                        Disconnect
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
+
+              {/* Add another account */}
+              <a
+                href="/api/auth/gmail-connect"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                <Plus size={12} />
+                Add another Gmail account
+              </a>
 
               {(lastSyncedAt ?? gmailStatus.syncedAt) && (
                 <p className="text-xs text-gray-500">
@@ -1410,7 +1474,7 @@ function SettingsPageInner() {
                 </p>
               )}
 
-              {/* Sync diagnostics */}
+              {/* Sync diagnostics — based on first account */}
               <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 space-y-1.5 font-mono text-[11px]">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-gray-400">historyId</span>
@@ -1469,7 +1533,7 @@ function SettingsPageInner() {
                   className="flex items-center gap-1.5 text-sm bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 disabled:opacity-50 transition-colors"
                 >
                   <RefreshCw size={13} className={gmailSyncing ? "animate-spin" : ""} />
-                  {gmailSyncing ? "Syncing…" : "Sync emails"}
+                  {gmailSyncing ? "Syncing…" : "Sync all"}
                 </button>
                 <button
                   onClick={() => gmailSync(true)}
@@ -1478,14 +1542,6 @@ function SettingsPageInner() {
                   className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50 transition-colors"
                 >
                   Full resync
-                </button>
-                <button
-                  onClick={disconnectGmail}
-                  disabled={disconnecting}
-                  className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-600 ml-auto disabled:opacity-50"
-                >
-                  <Trash2 size={13} />
-                  Disconnect
                 </button>
               </div>
             </>

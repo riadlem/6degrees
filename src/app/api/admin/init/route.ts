@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS "ContactShare" (
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "ContactShare_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS "ContactShare_userId_idx" ON "ContactShare"("userId")
+CREATE INDEX IF NOT EXISTS "ContactShare_userId_idx" ON "ContactShare"("userId");
 
 CREATE TABLE IF NOT EXISTS "Label" (
   "id" TEXT NOT NULL PRIMARY KEY,
@@ -143,6 +143,12 @@ CREATE TABLE IF NOT EXISTS "Label" (
 );
 
 CREATE INDEX IF NOT EXISTS "Label_userId_idx" ON "Label"("userId");
+
+ALTER TABLE "GmailSync" ADD COLUMN IF NOT EXISTS "gmailEmail" TEXT;
+UPDATE "GmailSync" SET "gmailEmail" = 'unknown@gmail.com' WHERE "gmailEmail" IS NULL;
+ALTER TABLE "GmailSync" ALTER COLUMN "gmailEmail" SET NOT NULL;
+ALTER TABLE "GmailSync" DROP CONSTRAINT IF EXISTS "GmailSync_userId_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "GmailSync_userId_gmailEmail_key" ON "GmailSync"("userId", "gmailEmail");
 
 CREATE TABLE IF NOT EXISTS "ContactLabel" (
   "contactId" TEXT NOT NULL,

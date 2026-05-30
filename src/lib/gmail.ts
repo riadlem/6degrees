@@ -3,9 +3,9 @@ import prisma from "@/lib/prisma"
 export const GMAIL_SCOPES = "https://www.googleapis.com/auth/gmail.readonly"
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
-export async function getGmailAccessToken(userId: string): Promise<string | null> {
+export async function getGmailAccessToken(userId: string, email?: string): Promise<string | null> {
   const account = await prisma.account.findFirst({
-    where: { userId, provider: "gmail" },
+    where: { userId, provider: "gmail", ...(email ? { providerAccountId: email } : {}) },
   })
   if (!account?.access_token) return null
 
