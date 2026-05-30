@@ -9,7 +9,7 @@ import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, Arr
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
-import ContactRow, { CONTACT_ROW_GRID } from "@/components/ContactRow"
+import ContactRow, { CONTACT_ROW_GRID, CONTACT_ROW_GRID_MOBILE } from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
@@ -93,7 +93,15 @@ function ContactsContent() {
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
   const [addToListState, setAddToListState] = useState<{ contactIds: string[]; contacts?: ContactSummary[] } | null>(null)
   const [labelContacts, setLabelContacts] = useState<ContactSummary[] | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
+  }, [])
 
   // Stable serialised query key for the filter state
   const filtersKey = JSON.stringify(debouncedFilters)
@@ -783,6 +791,7 @@ function ContactsContent() {
                     onSelect={toggleSelect}
                     onClick={(c) => openContact(c.id)}
                     onAddToList={(c) => setAddToListState({ contactIds: [c.id], contacts: [c] })}
+                    isMobile={isMobile}
                   />
                 </div>
               )
