@@ -3,6 +3,7 @@ import "./globals.css"
 import { SessionProvider } from "./providers"
 import Navbar from "@/components/Navbar"
 import { GmailSyncProvider } from "@/contexts/GmailSyncContext"
+import { BrandProvider } from "@/contexts/BrandContext"
 
 export const metadata: Metadata = {
   title: "6Degrees — LinkedIn Network Navigator",
@@ -30,11 +31,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="bg-gray-50 text-gray-900 overflow-x-hidden">
         <SessionProvider>
-          <GmailSyncProvider>
-            <Navbar />
-            <main className="pt-14 pb-16 sm:pb-0">{children}</main>
-            <BuildStamp />
-          </GmailSyncProvider>
+          <BrandProvider>
+            <GmailSyncProvider>
+              <Navbar />
+              <main className="pt-14 pb-16 sm:pb-0">{children}</main>
+              <BuildStamp />
+            </GmailSyncProvider>
+          </BrandProvider>
         </SessionProvider>
       </body>
     </html>

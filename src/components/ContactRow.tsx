@@ -8,6 +8,7 @@ import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 import CompanyLogo, { companyNameToDomain } from "./CompanyLogo"
+import Link from "next/link"
 
 // ── Country → ISO code ────────────────────────────────────────────────────────
 
@@ -236,16 +237,22 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       </div>
 
       {/* Company */}
-      <div className="min-w-0 flex items-center gap-1.5">
-        {contact.company && (
-          <CompanyLogo
-            domain={companyNameToDomain(contact.company)}
-            name={contact.company}
-            size={14}
-            radius="rounded-sm"
-          />
-        )}
-        <p className="text-xs text-gray-500 truncate">{contact.company ?? ""}</p>
+      <div className="min-w-0">
+        {contact.company ? (
+          <Link
+            href={`/companies/${encodeURIComponent(contact.company)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 group/company hover:text-blue-600 transition-colors"
+          >
+            <CompanyLogo
+              domain={companyNameToDomain(contact.company)}
+              name={contact.company}
+              size={14}
+              radius="rounded-sm"
+            />
+            <p className="text-xs text-gray-500 group-hover/company:text-blue-600 truncate">{contact.company}</p>
+          </Link>
+        ) : null}
       </div>
 
       {/* City */}

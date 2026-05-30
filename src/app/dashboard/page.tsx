@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { STALE } from "@/lib/query-client"
 import { createPortal } from "react-dom"
+import Link from "next/link"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { X, Download, Maximize2 } from "lucide-react"
@@ -589,18 +590,28 @@ function StatCard({
   label,
   value,
   sub,
+  href,
 }: {
   label: string
   value: number
   sub?: string
+  href?: string
 }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">
+  const inner = (
+    <>
       <p className="text-2xl font-bold text-gray-900">{value.toLocaleString()}</p>
       <p className="text-xs text-gray-500 mt-0.5">{label}</p>
       {sub && <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>}
-    </div>
+    </>
   )
+  if (href) {
+    return (
+      <Link href={href} className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center block hover:border-blue-200 hover:shadow-sm transition-all">
+        {inner}
+      </Link>
+    )
+  }
+  return <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 text-center">{inner}</div>
 }
 
 // ─── Dashboard page ───────────────────────────────────────────────────────────
@@ -701,17 +712,19 @@ export default function DashboardPage() {
       {/* Stats row */}
       {stats && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <StatCard label="Total contacts" value={stats.totalContacts} />
-          <StatCard label="Companies" value={stats.totalCompanies} />
+          <StatCard label="Total contacts" value={stats.totalContacts} href="/contacts" />
+          <StatCard label="Companies" value={stats.totalCompanies} href="/companies" />
           <StatCard
             label="Preferred"
             value={stats.preferredCount}
             sub="companies starred"
+            href="/companies"
           />
           <StatCard
             label="Partners"
             value={stats.partnerCount}
             sub="companies tagged"
+            href="/companies"
           />
         </div>
       )}

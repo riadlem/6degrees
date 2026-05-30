@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
-import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loader2 } from "lucide-react"
+import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loader2, Palette } from "lucide-react"
+import { useBrand } from "@/contexts/BrandContext"
 
 type StatusData = {
   lastAuthError: { code: string; message: string; ts: string } | null
@@ -32,6 +33,7 @@ function Dot({ ok, warn }: { ok: boolean; warn?: boolean }) {
 function AdminContent() {
   const searchParams = useSearchParams()
   const key = searchParams.get("key") ?? ""
+  const { brand, setBrand } = useBrand()
 
   const [data, setData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -203,6 +205,33 @@ function AdminContent() {
           All tables present. Database is ready.
         </div>
       )}
+
+      {/* Branding */}
+      <section className="bg-white border border-gray-200 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Palette size={15} className="text-gray-500" />
+          <h2 className="font-semibold text-gray-900 text-sm">App Branding</h2>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">Switch the app&apos;s visual identity. Changes are saved locally.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={() => setBrand("6degrees")}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "6degrees" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
+          >
+            <span className="text-2xl font-bold text-blue-600">6°</span>
+            <span className="text-sm font-medium text-gray-900">6 Degrees</span>
+            <span className="text-xs text-gray-500">Blue theme</span>
+          </button>
+          <button
+            onClick={() => setBrand("aequus")}
+            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "aequus" ? "border-teal-500 bg-teal-50" : "border-gray-200 hover:border-gray-300"}`}
+          >
+            <span className="text-2xl font-bold text-teal-600">A°</span>
+            <span className="text-sm font-medium text-gray-900">Aequus Money</span>
+            <span className="text-xs text-gray-500">Teal theme</span>
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { useState } from "react"
 import { useSyncContext } from "@/contexts/SyncContext"
 import { usePrivacy } from "@/contexts/PrivacyContext"
+import { useBrand } from "@/contexts/BrandContext"
 
 // WhatsApp icon inline (avoids an extra icon package dependency)
 function WANavIcon({ size = 15 }: { size?: number }) {
@@ -65,6 +66,8 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const { syncState } = useSyncContext()
   const { blurred, toggle: toggleBlur } = usePrivacy()
+  const { brand } = useBrand()
+  const isAequus = brand === "aequus"
 
   if (!session) return null
 
@@ -97,8 +100,8 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 h-full flex items-center gap-6">
         {/* Logo */}
         <Link href="/contacts" className="flex items-center gap-2 shrink-0">
-          <span className="text-xl font-bold text-blue-600">6°</span>
-          <span className="font-semibold text-gray-900 hidden sm:block">Degrees</span>
+          <span className={cn("text-xl font-bold", isAequus ? "text-teal-600" : "text-blue-600")}>{isAequus ? "A°" : "6°"}</span>
+          <span className="font-semibold text-gray-900 hidden sm:block">{isAequus ? "Aequus" : "Degrees"}</span>
         </Link>
 
         {/* Nav links — desktop only */}
@@ -115,7 +118,7 @@ export default function Navbar() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                   active
-                    ? isMessages ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"
+                    ? isMessages ? "bg-green-50 text-green-700" : isAequus ? "bg-teal-50 text-teal-700" : "bg-blue-50 text-blue-700"
                     : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                 )}
               >
@@ -131,8 +134,8 @@ export default function Navbar() {
 
         {/* Sync indicator — desktop only while running */}
         {syncLabel && (
-          <div className="hidden sm:flex items-center gap-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-full px-3 py-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block animate-pulse" />
+          <div className={cn("hidden sm:flex items-center gap-2 text-xs rounded-full px-3 py-1 border", isAequus ? "text-teal-700 bg-teal-50 border-teal-200" : "text-blue-700 bg-blue-50 border-blue-200")}>
+            <span className={cn("w-1.5 h-1.5 rounded-full inline-block animate-pulse", isAequus ? "bg-teal-500" : "bg-blue-500")} />
             {syncLabel}
             {syncPct != null && <span className="font-semibold">{syncPct}%</span>}
           </div>
@@ -177,7 +180,7 @@ export default function Navbar() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={avatarUrl} alt={name} className="w-8 h-8 rounded-full object-cover" />
             ) : (
-              <span className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+              <span className={cn("w-8 h-8 rounded-full text-white text-xs font-bold flex items-center justify-center", isAequus ? "bg-teal-600" : "bg-blue-600")}>
                 {initials}
               </span>
             )}
@@ -226,9 +229,9 @@ export default function Navbar() {
 
       {/* Sync progress strip at bottom of navbar */}
       {(syncState.phase === "fetching" || syncState.phase === "syncing" || syncState.phase === "connecting") && (
-        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-100">
+        <div className={cn("absolute bottom-0 left-0 right-0 h-0.5", isAequus ? "bg-teal-100" : "bg-blue-100")}>
           <div
-            className="h-full bg-blue-500 transition-all duration-500"
+            className={cn("h-full transition-all duration-500", isAequus ? "bg-teal-500" : "bg-blue-500")}
             style={{ width: syncPct != null ? `${syncPct}%` : "15%" }}
           />
         </div>
@@ -249,7 +252,7 @@ export default function Navbar() {
             className={cn(
               "flex-1 flex flex-col items-center justify-center py-2 gap-0.5 min-w-0 transition-colors",
               active
-                ? isMessages ? "text-green-600" : "text-blue-600"
+                ? isMessages ? "text-green-600" : isAequus ? "text-teal-600" : "text-blue-600"
                 : "text-gray-400 hover:text-gray-600"
             )}
           >

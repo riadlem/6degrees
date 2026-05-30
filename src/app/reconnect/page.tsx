@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2, Chrome } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2, Chrome, AlignJustify, LayoutGrid } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -63,6 +63,8 @@ function ReconnectContent() {
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
   const [reviewContacts, setReviewContacts] = useState<ReconnectContact[]>([])
   const [reviewLoading, setReviewLoading] = useState(false)
+  const [reachOutView, setReachOutView] = useState<"list" | "photos">("list")
+  const [reviewView, setReviewView] = useState<"list" | "photos">("list")
 
   // Saved (extension history) tab state
   type ExtContact = { id: string; firstName: string; lastName: string; company: string | null; position: string | null; city: string | null; country: string | null; location: string | null; photoUrl: string | null; profileUrl: string | null; extensionSyncedAt: string }
@@ -381,19 +383,37 @@ function ReconnectContent() {
       {/* Review tab */}
       {activeTab === "review" && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-gray-500">
+          <div className="flex items-center justify-between mb-4 gap-3">
+            <p className="text-sm text-gray-500 flex-1">
               Profiles captured automatically — keep, prioritize for outreach, or discard.
             </p>
-            {reviewContacts.length > 0 && (
-              <button
-                onClick={discardAllReview}
-                className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors shrink-0"
-              >
-                <Trash2 size={12} />
-                Discard all
-              </button>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setReviewView("list")}
+                  title="List view"
+                  className={cn("px-2.5 py-1.5 transition-colors", reviewView === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+                >
+                  <AlignJustify size={13} />
+                </button>
+                <button
+                  onClick={() => setReviewView("photos")}
+                  title="Photo grid"
+                  className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", reviewView === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+                >
+                  <LayoutGrid size={13} />
+                </button>
+              </div>
+              {reviewContacts.length > 0 && (
+                <button
+                  onClick={discardAllReview}
+                  className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 size={12} />
+                  Discard all
+                </button>
+              )}
+            </div>
           </div>
 
           {reviewLoading ? (
@@ -409,6 +429,34 @@ function ReconnectContent() {
               <p className="text-sm mt-1">
                 Enable &ldquo;Auto-queue visited profiles&rdquo; in the extension popup to start capturing.
               </p>
+            </div>
+          ) : reviewView === "photos" ? (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+              {reviewContacts.map((contact) => {
+                const fullName = `${contact.firstName} ${contact.lastName}`
+                const inits = initials(contact.firstName, contact.lastName)
+                return (
+                  <div key={contact.id} className="group relative flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-violet-300 hover:shadow-md transition-all">
+                    <button onClick={() => openContact(contact.id)} className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                      {contact.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
+                      )}
+                    </button>
+                    <button onClick={() => openContact(contact.id)} className="px-2 py-1.5 text-left">
+                      <p className={cn("text-xs font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>{fullName}</p>
+                      {contact.position && <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{contact.position}</p>}
+                    </button>
+                    <div className="flex gap-1 px-1.5 pb-1.5">
+                      <button onClick={() => keepContact(contact.id)} className="flex-1 text-[10px] text-gray-600 border border-gray-200 rounded-md py-0.5 hover:bg-gray-50 transition-colors">Keep</button>
+                      <button onClick={() => reachOutContact(contact.id)} className="flex-1 text-[10px] text-blue-600 border border-blue-200 rounded-md py-0.5 hover:bg-blue-50 transition-colors">Reach</button>
+                      <button onClick={() => discardContact(contact.id)} className="flex-1 text-[10px] text-red-500 border border-red-200 rounded-md py-0.5 hover:bg-red-50 transition-colors">Discard</button>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="space-y-2">
@@ -498,7 +546,25 @@ function ReconnectContent() {
           </button>
         ))}
         <div className="flex-1 shrink-0" />
-        <span className="self-center text-xs text-gray-400 pr-1 shrink-0">{total} contacts</span>
+        <div className="flex items-center gap-2 shrink-0 pb-1">
+          <span className="text-xs text-gray-400">{total} contacts</span>
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setReachOutView("list")}
+              title="List view"
+              className={cn("px-2 py-1 transition-colors", reachOutView === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+            >
+              <AlignJustify size={12} />
+            </button>
+            <button
+              onClick={() => setReachOutView("photos")}
+              title="Photo grid"
+              className={cn("px-2 py-1 transition-colors border-l border-gray-200", reachOutView === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+            >
+              <LayoutGrid size={12} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* List */}
@@ -517,6 +583,37 @@ function ReconnectContent() {
               ? "Try a different filter."
               : <>Sync your Gmail in <a href="/settings" className="text-blue-600 hover:underline">Settings</a> to surface contacts worth reaching out to.</>}
           </p>
+        </div>
+      ) : reachOutView === "photos" ? (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {contacts.map((contact) => {
+            const fullName = `${contact.firstName} ${contact.lastName}`
+            const inits = initials(contact.firstName, contact.lastName)
+            const statusInfo = STATUS_LABELS[contact.outreachStatus ?? "not_contacted"] ?? STATUS_LABELS.not_contacted
+            return (
+              <button
+                key={contact.id}
+                onClick={() => openContact(contact.id)}
+                className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all text-left"
+              >
+                <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                  {contact.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
+                  )}
+                  <span className={cn("absolute bottom-1 left-1 right-1 text-center text-[9px] font-medium px-1 py-0.5 rounded-full truncate", statusInfo.className)}>
+                    {statusInfo.label}
+                  </span>
+                </div>
+                <div className="px-2 py-1.5">
+                  <p className={cn("text-xs font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>{fullName}</p>
+                  {contact.company && <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{contact.company}</p>}
+                </div>
+              </button>
+            )
+          })}
         </div>
       ) : (
         <div className="space-y-2">

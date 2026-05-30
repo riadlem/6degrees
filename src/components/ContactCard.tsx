@@ -7,6 +7,7 @@ import { STATUS_BADGE } from "@/lib/reconnect-status"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_COLOR, EMAIL_KIND_TITLE } from "@/lib/email-classify"
 import CompanyLogo, { companyNameToDomain } from "./CompanyLogo"
+import Link from "next/link"
 
 export type ContactSummary = {
   id: string
@@ -211,7 +212,11 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
       {/* Details */}
       <div className="px-4 pb-3 space-y-1 text-center">
         {contact.company && (
-          <div className="flex items-center justify-center gap-1.5 text-xs text-gray-600">
+          <Link
+            href={`/companies/${encodeURIComponent(contact.company)}`}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center justify-center gap-1.5 text-xs text-gray-600 hover:text-blue-600 transition-colors"
+          >
             <CompanyLogo
               domain={companyNameToDomain(contact.company)}
               name={contact.company}
@@ -219,7 +224,7 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
               radius="rounded-sm"
             />
             <span className="truncate font-medium">{contact.company}</span>
-          </div>
+          </Link>
         )}
         {contact.location && (
           <div className="flex items-center justify-center gap-1 text-xs text-gray-400">

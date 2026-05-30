@@ -21,7 +21,13 @@ export async function GET() {
   const lists = await prisma.contactList.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
-    include: { _count: { select: { members: true } } },
+    include: {
+      _count: { select: { members: true } },
+      members: {
+        take: 4,
+        select: { contact: { select: { photoUrl: true, firstName: true, lastName: true } } },
+      },
+    },
   })
 
   type ListRow = typeof lists[number] & {
