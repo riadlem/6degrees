@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "([ -z \"$POSTGRES_URL_NON_POOLING\" ] || prisma db push) && prisma generate && node scripts/build-ext-zip.mjs && next build",
+    "build": "([ -z \"$POSTGRES_URL_NON_POOLING\" ] || prisma db push --accept-data-loss) && prisma generate && node scripts/build-ext-zip.mjs && next build",
     "build:ext": "node scripts/build-ext-zip.mjs",
     "start": "next start",
     "lint": "next lint",
