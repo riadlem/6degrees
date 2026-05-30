@@ -106,7 +106,10 @@ export async function recomputeScoreForContact(contactId: string): Promise<void>
 }
 
 // ── Batch recompute for all contacts of a user ────────────────────────────────
-export async function recomputeScores(userId: string): Promise<void> {
+export async function recomputeScores(
+  userId: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
   const [emailRows, waRows, liDMRows] = await Promise.all([
     prisma.emailMessage.findMany({
       where: { userId, contactId: { not: null } },
@@ -150,6 +153,7 @@ export async function recomputeScores(userId: string): Promise<void> {
 
   // Batch update in chunks of 100
   const entries = Array.from(byContact.entries())
+  const total = entries.length
   const CHUNK = 100
   for (let i = 0; i < entries.length; i += CHUNK) {
     const chunk = entries.slice(i, i + CHUNK)
@@ -168,5 +172,6 @@ export async function recomputeScores(userId: string): Promise<void> {
         })
       }),
     )
+    onProgress?.(Math.min(i + CHUNK, total), total)
   }
 }

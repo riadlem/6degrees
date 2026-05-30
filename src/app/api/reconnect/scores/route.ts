@@ -6,6 +6,32 @@ export async function POST() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
-  await recomputeScores(session.user.id)
-  return Response.json({ ok: true })
+  const userId = session.user.id
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (data: object) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+      }
+      try {
+        await recomputeScores(userId, (done, total) => {
+          send({ done, total })
+        })
+        send({ ok: true })
+      } catch {
+        send({ error: true })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  })
 }
