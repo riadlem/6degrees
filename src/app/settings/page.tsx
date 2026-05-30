@@ -52,6 +52,51 @@ type UnmatchedWAChat = {
 }
 type LkdPendingContact = { id: string; firstName: string; lastName: string; emailAddress: string | null; company: string | null; outreachUpdatedAt: string | null }
 
+function ScoreSection() {
+  const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle")
+
+  async function recalculate() {
+    setState("running")
+    try {
+      const res = await fetch("/api/reconnect/scores", { method: "POST" })
+      setState(res.ok ? "done" : "error")
+    } catch {
+      setState("error")
+    }
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
+      <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+          <RefreshCw size={18} className="text-blue-600" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-gray-900">Interaction Scores</h2>
+          <p className="text-xs text-gray-500">Recalculate relationship scores from WhatsApp, LinkedIn DM, and email activity</p>
+        </div>
+      </div>
+      <div className="px-6 py-5 flex items-center justify-between gap-4">
+        <p className="text-xs text-gray-500 max-w-sm">
+          Run this after importing new messages or when scores on the Reconnect page look out of date. Usually takes a few seconds.
+        </p>
+        <div className="flex items-center gap-3 shrink-0">
+          {state === "done" && <span className="text-xs text-green-600 font-medium">✓ Done</span>}
+          {state === "error" && <span className="text-xs text-red-500 font-medium">Failed — try again</span>}
+          <button
+            onClick={recalculate}
+            disabled={state === "running"}
+            className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl font-medium transition-colors"
+          >
+            {state === "running" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {state === "running" ? "Recalculating…" : "Recalculate scores"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SettingsPageInner() {
   const { data: session, status } = useSession()
   const router = useRouter()
@@ -2481,6 +2526,9 @@ function SettingsPageInner() {
           </div>
         </div>
       </div>
+
+      {/* Interaction Scores */}
+      <ScoreSection />
 
       {/* Chrome Extension */}
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">

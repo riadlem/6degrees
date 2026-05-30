@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useCallback, Suspense } from "react"
-import { useSearchParams } from "next/navigation"
 import { CheckCircle, XCircle, AlertCircle, RefreshCw, Database, Settings, Loader2, Palette } from "lucide-react"
 import { useBrand } from "@/contexts/BrandContext"
 
@@ -62,9 +61,6 @@ function BrandingSection() {
 }
 
 function AdminContent() {
-  const searchParams = useSearchParams()
-  const key = searchParams.get("key") ?? ""
-
   const [data, setData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -75,22 +71,22 @@ function AdminContent() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/admin/status?key=${encodeURIComponent(key)}`)
-      if (res.status === 403) { setError("Invalid admin key"); setLoading(false); return }
+      const res = await fetch("/api/admin/status")
+      if (!res.ok) { setError("Failed to load status"); setLoading(false); return }
       setData(await res.json())
     } catch {
       setError("Failed to reach API")
     } finally {
       setLoading(false)
     }
-  }, [key])
+  }, [])
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
 
   async function initDb() {
     setInitializing(true)
     setInitResult(null)
-    const res = await fetch(`/api/admin/init?key=${encodeURIComponent(key)}`, { method: "POST" })
+    const res = await fetch("/api/admin/init", { method: "POST" })
     const result = await res.json()
     setInitResult(result)
     setInitializing(false)
@@ -107,9 +103,6 @@ function AdminContent() {
     <div className="text-center py-12">
       <XCircle size={40} className="text-red-400 mx-auto mb-3" />
       <p className="text-gray-700 font-medium">{error}</p>
-      {error === "Invalid admin key" && (
-        <p className="text-sm text-gray-500 mt-2">Add <code className="bg-gray-100 px-1 rounded">?key=YOUR_ADMIN_KEY</code> to the URL</p>
-      )}
     </div>
   )
 
