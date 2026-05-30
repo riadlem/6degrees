@@ -9,6 +9,12 @@ import { SyncProvider } from "@/contexts/SyncContext"
 import { PrivacyProvider } from "@/contexts/PrivacyContext"
 import { makeQueryClient, PERSIST_KEYS, CACHE_BUSTER } from "@/lib/query-client"
 import { idbPersister } from "@/lib/idb-persister"
+import { useLiveContactUpdates } from "@/hooks/useLiveContactUpdates"
+
+function LiveContactUpdates() {
+  useLiveContactUpdates()
+  return null
+}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   // useState ensures each server render gets its own QueryClient (no cross-request contamination).
@@ -38,7 +44,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     >
       <NextAuthSessionProvider>
         <SyncProvider>
-          <PrivacyProvider>{children}</PrivacyProvider>
+          <PrivacyProvider>
+            <LiveContactUpdates />
+            {children}
+          </PrivacyProvider>
         </SyncProvider>
       </NextAuthSessionProvider>
       {/* Dev-only inspector panel — tree-shaken in production */}

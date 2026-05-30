@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 import "./globals.css"
-import { SessionProvider } from "./providers"
+import { SessionProvider } from "@/components/Providers"
 import Navbar from "@/components/Navbar"
 import { GmailSyncProvider } from "@/contexts/GmailSyncContext"
 import { BrandProvider } from "@/contexts/BrandContext"
