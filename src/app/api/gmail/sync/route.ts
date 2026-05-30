@@ -213,16 +213,20 @@ export async function POST(req: Request) {
 
           // Preload match cache and known gmailIds to avoid per-message DB round trips.
           // Use the in-process singleton cache to skip the DB rebuild on warm instances.
+          // On incremental syncs the history API only returns new/changed IDs, so we
+          // dedup against just those (a bounded IN query) instead of loading the whole
+          // message table into memory. A full rescan still needs the complete set.
           send({ type: "status", message: "Loading contact index…" })
-          const [cachedOrNull, existingGmailIds] = await Promise.all([
+          const [cachedOrNull, existingGmailIds, baseCount] = await Promise.all([
             Promise.resolve(getCachedMatchCache(userId)),
-            prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
-              .then((rows) => new Set(rows.map((r) => r.gmailId))),
+            (useIncremental
+              ? prisma.emailMessage.findMany({ where: { userId, gmailId: { in: messageIds } }, select: { gmailId: true } })
+              : prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
+            ).then((rows) => new Set(rows.map((r) => r.gmailId))),
+            prisma.emailMessage.count({ where: { userId } }),
           ])
           const matchCache = cachedOrNull ?? await buildMatchCache(userId)
           if (!cachedOrNull) setCachedMatchCache(userId, matchCache)
-
-          const baseCount = existingGmailIds.size
           // Tell the UI how many messages are already indexed so the counter starts there
           send({
             type: "status",
