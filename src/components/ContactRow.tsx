@@ -119,9 +119,7 @@ const LEVEL_TITLES: Record<"connected" | "pending" | "followed" | "saved", strin
 }
 
 // Grid columns: checkbox | avatar | LI | name+pos | company | city | country | WA last | LI DM last | actions
-export const CONTACT_ROW_GRID        = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
-// Mobile: avatar · LI · name+flag · company · actions (no city/country/WA/LI DM columns)
-export const CONTACT_ROW_GRID_MOBILE = "36px 2.5rem 1.5rem 1fr 1fr 3.5rem"
+export const CONTACT_ROW_GRID = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
 
 interface Props {
   contact: ContactSummary
@@ -145,14 +143,115 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
   const waMsg = contact.whatsAppMessages?.[0]
   const liDmMsg = contact.linkedInDMMessages?.[0]
 
+  // ── Mobile: 3-line card layout ────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div
+        className={cn(
+          "flex gap-3 px-3 py-2.5 cursor-pointer transition-colors",
+          selected ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
+        )}
+        onClick={() => onClick?.(contact)}
+      >
+        {/* Photo — square (no circle) */}
+        <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mt-0.5">
+          {contact.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photoSrc(contact.photoUrl)!} alt={fullName}
+              className={cn("w-11 h-11 object-cover", blurred && "blur")} />
+          ) : (
+            <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
+              {inits}
+            </div>
+          )}
+        </div>
+
+        {/* 3-line info block */}
+        <div className="flex-1 min-w-0">
+          {/* Line 1: Name + LI link + WA icon */}
+          <div className="flex items-center gap-1.5">
+            <p className={cn("flex-1 min-w-0 font-semibold text-gray-900 text-sm leading-snug", blurred && "blur-sm select-none")}>
+              {fullName}
+            </p>
+            {liLevel && (
+              contact.profileUrl ? (
+                <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
+                  title={LEVEL_TITLES[liLevel]} onClick={(e) => e.stopPropagation()}
+                  className="shrink-0 flex items-center">
+                  <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: LEVEL_COLORS[liLevel] }}>
+                    <path d={LI_ICON_PATH} />
+                  </svg>
+                </a>
+              ) : (
+                <span className="shrink-0 flex items-center" title={LEVEL_TITLES[liLevel]}>
+                  <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: LEVEL_COLORS[liLevel] }}>
+                    <path d={LI_ICON_PATH} />
+                  </svg>
+                </span>
+              )
+            )}
+            {waMsg && (
+              <span className="shrink-0" title={waMsg.isOutbound ? "WhatsApp sent" : "WhatsApp received"}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"
+                  className={waMsg.isOutbound ? "text-blue-400" : "text-emerald-500"}>
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413z" />
+                </svg>
+              </span>
+            )}
+          </div>
+
+          {/* Line 2: Title (truncated, 1 line) */}
+          {contact.position && (
+            <p className={cn("text-xs text-gray-400 truncate leading-snug mt-0.5", blurred && "blur-sm select-none")}>
+              {contact.position}
+            </p>
+          )}
+
+          {/* Line 3: Company + flag + shared-contacts pill + checkbox */}
+          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+            {contact.company ? (
+              <Link
+                href={`/companies/${encodeURIComponent(contact.company)}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 min-w-0 group/company hover:text-blue-600 transition-colors"
+              >
+                <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={12} radius="rounded-sm" />
+                <span className="text-xs text-gray-500 truncate group-hover/company:text-blue-600">{contact.company}</span>
+              </Link>
+            ) : <span className="flex-1" />}
+            {flag && <span className="text-xs shrink-0" title={normCountry ?? undefined}>{flag}</span>}
+            {contact.commonConnections != null && contact.commonConnections > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5 shrink-0">
+                <Users size={9} />
+                {contact.commonConnections}
+              </span>
+            )}
+            {onSelect && (
+              <div className="ml-auto shrink-0" onClick={(e) => { e.stopPropagation(); onSelect(contact.id) }}>
+                <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center",
+                  selected ? "bg-blue-600 border-blue-600" : "border-gray-300")}>
+                  {selected && (
+                    <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M10 3L5 8.5 2 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Desktop: 10-column grid layout ────────────────────────────────────────────
   return (
     <div
       className={cn(
-        "group grid gap-2 px-3 py-2 cursor-pointer transition-colors text-xs",
-        isMobile ? "items-start" : "items-center",
+        "group grid gap-2 px-3 py-2 cursor-pointer transition-colors text-xs items-center",
         selected ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
       )}
-      style={{ gridTemplateColumns: isMobile ? CONTACT_ROW_GRID_MOBILE : CONTACT_ROW_GRID }}
+      style={{ gridTemplateColumns: CONTACT_ROW_GRID }}
       onClick={() => onClick?.(contact)}
     >
       {/* Checkbox */}
@@ -178,11 +277,8 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       <div className="w-9 h-9 rounded-full overflow-hidden shrink-0">
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photoSrc(contact.photoUrl)!}
-            alt={fullName}
-            className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")}
-          />
+          <img src={photoSrc(contact.photoUrl)!} alt={fullName}
+            className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} />
         ) : (
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
             {inits}
@@ -194,14 +290,9 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
       <div className="flex items-center justify-center">
         {liLevel ? (
           contact.profileUrl ? (
-            <a
-              href={contact.profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title={LEVEL_TITLES[liLevel]}
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center"
-            >
+            <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
+              title={LEVEL_TITLES[liLevel]} onClick={(e) => e.stopPropagation()}
+              className="flex items-center">
               <svg viewBox="0 0 24 24" style={{ width: 13, height: 13, fill: LEVEL_COLORS[liLevel] }}>
                 <path d={LI_ICON_PATH} />
               </svg>
@@ -216,20 +307,15 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         ) : null}
       </div>
 
-      {/* Name + position + flag (mobile) + optional email */}
+      {/* Name + position + email */}
       <div className="min-w-0">
-        <p className={cn("font-semibold text-gray-900 text-sm leading-tight", isMobile ? "break-words" : "truncate", blurred && "blur-sm select-none")}>
+        <p className={cn("font-semibold text-gray-900 text-sm leading-tight truncate", blurred && "blur-sm select-none")}>
           {fullName}
         </p>
-        <div className="flex items-center gap-1 leading-tight">
-          {isMobile && flag && (
-            <span className="text-xs leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>
-          )}
-          {contact.position && (
-            <p className={cn("text-xs text-gray-400 leading-tight", isMobile ? "break-words" : "truncate")}>{contact.position}</p>
-          )}
-        </div>
-        {emailKind && !isMobile && (
+        {contact.position && (
+          <p className="text-xs text-gray-400 leading-tight truncate">{contact.position}</p>
+        )}
+        {emailKind && (
           <div
             className={cn("text-[10px] flex items-center gap-0.5 mt-0.5", EMAIL_KIND_COLOR[emailKind])}
             title={EMAIL_KIND_TITLE[emailKind]}
@@ -252,65 +338,52 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
             onClick={(e) => e.stopPropagation()}
             className="flex items-center gap-1.5 group/company hover:text-blue-600 transition-colors"
           >
-            <CompanyLogo
-              domain={companyNameToDomain(contact.company)}
-              name={contact.company}
-              size={14}
-              radius="rounded-sm"
-            />
-            <p className={cn("text-xs text-gray-500 group-hover/company:text-blue-600", isMobile ? "break-words" : "truncate")}>{contact.company}</p>
+            <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={14} radius="rounded-sm" />
+            <p className="text-xs text-gray-500 group-hover/company:text-blue-600 truncate">{contact.company}</p>
           </Link>
         ) : null}
       </div>
 
-      {/* City — desktop only */}
-      {!isMobile && (
-        <div className="min-w-0">
-          <p className="text-xs text-gray-400 truncate">{normCity ?? ""}</p>
-        </div>
-      )}
+      {/* City */}
+      <div className="min-w-0">
+        <p className="text-xs text-gray-400 truncate">{normCity ?? ""}</p>
+      </div>
 
-      {/* Country: flag + name on desktop only (mobile flag is in name cell) */}
-      {!isMobile && (
-        <div className="min-w-0 flex items-center gap-1">
-          {flag && <span className="text-sm leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>}
-          <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>
-        </div>
-      )}
+      {/* Country: flag + name */}
+      <div className="min-w-0 flex items-center gap-1">
+        {flag && <span className="text-sm leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>}
+        <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>
+      </div>
 
-      {/* WA last interaction — desktop only */}
-      {!isMobile && (
-        <div className="flex items-center justify-end gap-1 shrink-0">
-          {waMsg ? (
-            <span
-              className={cn("font-medium tabular-nums", waMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
-              title={waMsg.isOutbound ? "Outbound WA message" : "Inbound WA message"}
-            >
-              {waMsg.isOutbound ? "↑" : "↓"}{" "}
-              {relTime(typeof waMsg.sentAt === "string" ? waMsg.sentAt : new Date(waMsg.sentAt).toISOString())}
-            </span>
-          ) : (
-            <span className="text-gray-200">—</span>
-          )}
-        </div>
-      )}
+      {/* WA last interaction */}
+      <div className="flex items-center justify-end gap-1 shrink-0">
+        {waMsg ? (
+          <span
+            className={cn("font-medium tabular-nums", waMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
+            title={waMsg.isOutbound ? "Outbound WA message" : "Inbound WA message"}
+          >
+            {waMsg.isOutbound ? "↑" : "↓"}{" "}
+            {relTime(typeof waMsg.sentAt === "string" ? waMsg.sentAt : new Date(waMsg.sentAt).toISOString())}
+          </span>
+        ) : (
+          <span className="text-gray-200">—</span>
+        )}
+      </div>
 
-      {/* LI DM last interaction — desktop only */}
-      {!isMobile && (
-        <div className="flex items-center justify-end gap-1 shrink-0">
-          {liDmMsg ? (
-            <span
-              className={cn("font-medium tabular-nums", liDmMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
-              title={liDmMsg.isOutbound ? "Outbound LinkedIn DM" : "Inbound LinkedIn DM"}
-            >
-              {liDmMsg.isOutbound ? "↑" : "↓"}{" "}
-              {relTime(typeof liDmMsg.sentAt === "string" ? liDmMsg.sentAt : new Date(liDmMsg.sentAt).toISOString())}
-            </span>
-          ) : (
-            <span className="text-gray-200">—</span>
-          )}
-        </div>
-      )}
+      {/* LI DM last interaction */}
+      <div className="flex items-center justify-end gap-1 shrink-0">
+        {liDmMsg ? (
+          <span
+            className={cn("font-medium tabular-nums", liDmMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
+            title={liDmMsg.isOutbound ? "Outbound LinkedIn DM" : "Inbound LinkedIn DM"}
+          >
+            {liDmMsg.isOutbound ? "↑" : "↓"}{" "}
+            {relTime(typeof liDmMsg.sentAt === "string" ? liDmMsg.sentAt : new Date(liDmMsg.sentAt).toISOString())}
+          </span>
+        ) : (
+          <span className="text-gray-200">—</span>
+        )}
+      </div>
 
       {/* Actions: status, labels, notes, connections, add-to-list */}
       <div className="flex items-center gap-1 justify-end shrink-0">

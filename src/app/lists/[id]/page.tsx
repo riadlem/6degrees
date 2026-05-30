@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
-  ArrowLeft, Share2, Trash2, UserMinus, Zap,
+  ArrowLeft, Share2, Trash2, UserMinus, Zap, Users,
   ArrowUpDown, ArrowUp, ArrowDown, Sparkles, Pencil, AlignJustify, LayoutGrid,
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
@@ -15,6 +15,7 @@ import ContactDetail from "@/components/ContactDetail"
 import SegmentBuilder from "@/components/SegmentBuilder"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { linkedinLevel, type ContactSummary } from "@/components/ContactCard"
+import CompanyLogo, { companyNameToDomain } from "@/components/CompanyLogo"
 
 // ── Country → flag emoji ─────────────────────────────────────────────────────
 
@@ -154,9 +155,8 @@ const LI_ICON_PATH =
 const WA_ICON_PATH =
   "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.524 5.826L0 24l6.342-1.5A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.846 0-3.573-.5-5.061-1.374l-.364-.216-3.766.891.953-3.675-.236-.376A9.952 9.952 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"
 
-// Grid columns — desktop shows all; mobile: avatar · name · company · actions (flag in name cell)
+// Grid columns (desktop only; mobile uses 3-line card layout)
 const GRID_DESKTOP = "36px 1fr 1fr 90px 1fr 3.5rem 5rem 5rem 4rem"
-const GRID_MOBILE  = "36px 1fr 1fr 3.5rem"
 
 // Relative time: "3h", "2d", "1w", "3mo"
 function relTime(dateStr: string): string {
@@ -349,12 +349,7 @@ function ListDetailContent() {
   const isDynamicList  = isSmartList || isCompanyList
   const segmentDef     = isSmartList ? (() => { try { return JSON.parse(list.filterSegment!) as SegmentDef } catch { return null } })() : null
 
-  const GRID = isMobile ? GRID_MOBILE : GRID_DESKTOP
-  const HEADER_COLS: { key: SortCol | null; label: string }[] = isMobile ? [
-    { key: "name",    label: "Name" },
-    { key: "company", label: "Co." },
-    { key: null,      label: "" },   // actions
-  ] : [
+  const HEADER_COLS: { key: SortCol | null; label: string }[] = [
     { key: "name",        label: "Name" },
     { key: "company",     label: "Company" },
     { key: "city",        label: "City" },
@@ -362,7 +357,7 @@ function ListDetailContent() {
     { key: "connections", label: "Conn." },
     { key: "wa_last",     label: "WA" },
     { key: "li_dm_last",  label: "LI DM" },
-    { key: null,          label: "" },  // actions
+    { key: null,          label: "" },
   ]
 
   return (
@@ -560,10 +555,10 @@ function ListDetailContent() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-          {/* ── Table header ── */}
+          {/* ── Table header — desktop only ── */}
           <div
-            className="px-3 py-2.5 border-b border-gray-100 bg-gray-50/80 text-[11px] font-semibold text-gray-400 uppercase tracking-wide"
-            style={{ display: "grid", gridTemplateColumns: GRID, gap: "12px", alignItems: "center" }}
+            className="hidden sm:grid px-3 py-2.5 border-b border-gray-100 bg-gray-50/80 text-[11px] font-semibold text-gray-400 uppercase tracking-wide"
+            style={{ gridTemplateColumns: GRID_DESKTOP, gap: "12px", alignItems: "center" }}
           >
             {/* Avatar spacer */}
             <div />
@@ -609,24 +604,107 @@ function ListDetailContent() {
             const flag = normCountry ? countryFlag(normCountry) : ""
             const hasWhatsApp = !!contact.phoneNumber
 
+            // ── Mobile: 3-line card ──────────────────────────────────────────────
+            if (isMobile) return (
+              <div
+                key={memberId}
+                className="flex gap-3 px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors group cursor-pointer"
+                onClick={() => openContact(contact.id)}
+              >
+                {/* Photo — square, no circle */}
+                <div className="w-11 h-11 rounded-lg overflow-hidden shrink-0 mt-0.5">
+                  {contact.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName}
+                      className={cn("w-11 h-11 object-cover", blurred && "blur")} />
+                  ) : (
+                    <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
+                      {inits}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3-line info block */}
+                <div className="flex-1 min-w-0">
+                  {/* Line 1: Name + LI link + WA link */}
+                  <div className="flex items-center gap-1.5">
+                    <p className={cn("flex-1 min-w-0 font-semibold text-gray-900 text-sm leading-snug", blurred && "blur-sm select-none")}>
+                      {fullName}
+                    </p>
+                    {contact.profileUrl && liColor && (
+                      <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()} title={liTitle}
+                        className="shrink-0 flex items-center opacity-80 hover:opacity-100">
+                        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: liColor }}>
+                          <path d={LI_ICON_PATH} />
+                        </svg>
+                      </a>
+                    )}
+                    {hasWhatsApp && (
+                      <a href={whatsappHref(contact.phoneNumber!)} target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()} title={contact.phoneNumber ?? "Open WhatsApp"}
+                        className="shrink-0 flex items-center opacity-80 hover:opacity-100">
+                        <svg viewBox="0 0 24 24" style={{ width: 14, height: 14, fill: "#25D366" }}>
+                          <path d={WA_ICON_PATH} />
+                        </svg>
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Line 2: Title (truncated, 1 line) */}
+                  {contact.position && (
+                    <p className={cn("text-xs text-gray-400 truncate leading-snug mt-0.5", blurred && "blur-sm select-none")}>
+                      {contact.position}
+                    </p>
+                  )}
+
+                  {/* Line 3: Company + flag + shared contacts + remove */}
+                  <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                    {contact.company ? (
+                      <Link
+                        href={`/companies/${encodeURIComponent(contact.company)}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 min-w-0 group/company hover:text-blue-600 transition-colors"
+                      >
+                        <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={12} radius="rounded-sm" />
+                        <span className="text-xs text-gray-500 truncate group-hover/company:text-blue-600">{contact.company}</span>
+                      </Link>
+                    ) : <span className="flex-1" />}
+                    {flag && <span className="text-xs shrink-0" title={normCountry ?? undefined}>{flag}</span>}
+                    {contact.commonConnections != null && contact.commonConnections > 0 && (
+                      <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-1.5 py-0.5 shrink-0">
+                        <Users size={9} />
+                        {contact.commonConnections}
+                      </span>
+                    )}
+                    {!isDynamicList && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}
+                        disabled={removingId === contact.id}
+                        title="Remove from list"
+                        className="ml-auto shrink-0 p-1 text-gray-300 hover:text-red-500 rounded hover:bg-red-50 transition-colors"
+                      >
+                        <UserMinus size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+
+            // ── Desktop: grid layout ─────────────────────────────────────────────
             return (
               <div
                 key={memberId}
                 className="px-3 py-2.5 border-b border-gray-50 last:border-0 hover:bg-gray-50/60 transition-colors group"
-                style={{ display: "grid", gridTemplateColumns: GRID, gap: "12px", alignItems: "center" }}
+                style={{ display: "grid", gridTemplateColumns: GRID_DESKTOP, gap: "12px", alignItems: "center" }}
               >
                 {/* ── Avatar (clickable) ── */}
-                <div
-                  className="w-9 h-9 shrink-0 cursor-pointer"
-                  onClick={() => openContact(contact.id)}
-                >
+                <div className="w-9 h-9 shrink-0 cursor-pointer" onClick={() => openContact(contact.id)}>
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={photoSrc(contact.photoUrl)!}
-                      alt={fullName}
-                      className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")}
-                    />
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName}
+                      className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
                       {inits}
@@ -634,28 +712,20 @@ function ListDetailContent() {
                   )}
                 </div>
 
-                {/* ── Name + position + flag (mobile second line) ── */}
-                <div
-                  className="min-w-0 cursor-pointer"
-                  onClick={() => openContact(contact.id)}
-                >
-                  <p className={cn("text-sm font-medium text-gray-900 leading-snug hover:text-blue-600 transition-colors", isMobile ? "break-words" : "truncate", blurred && "blur-sm select-none")}>
+                {/* ── Name + position ── */}
+                <div className="min-w-0 cursor-pointer" onClick={() => openContact(contact.id)}>
+                  <p className={cn("text-sm font-medium text-gray-900 leading-snug hover:text-blue-600 transition-colors truncate", blurred && "blur-sm select-none")}>
                     {fullName}
                   </p>
-                  <div className="flex items-center gap-1">
-                    {isMobile && flag && (
-                      <span className="text-xs leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>
-                    )}
-                    {contact.position && (
-                      <p className={cn("text-xs text-gray-500", isMobile ? "break-words" : "truncate")}>{contact.position}</p>
-                    )}
-                  </div>
+                  {contact.position && (
+                    <p className="text-xs text-gray-500 truncate">{contact.position}</p>
+                  )}
                 </div>
 
                 {/* ── Company ── */}
                 <div className="min-w-0">
                   {contact.company
-                    ? <p className={cn("text-sm text-gray-700", isMobile ? "break-words" : "truncate")}>{contact.company}</p>
+                    ? <p className="text-sm text-gray-700 truncate">{contact.company}</p>
                     : <span className="text-gray-300">—</span>
                   }
                   {contact.industry && (
@@ -663,52 +733,42 @@ function ListDetailContent() {
                   )}
                 </div>
 
-                {/* ── City — desktop only ── */}
-                {!isMobile && (
-                  <div className="min-w-0">
-                    {normCity
-                      ? <p className="text-xs text-gray-600 truncate">{normCity}</p>
-                      : <span className="text-gray-300 text-xs">—</span>
-                    }
-                  </div>
-                )}
+                {/* ── City ── */}
+                <div className="min-w-0">
+                  {normCity
+                    ? <p className="text-xs text-gray-600 truncate">{normCity}</p>
+                    : <span className="text-gray-300 text-xs">—</span>
+                  }
+                </div>
 
-                {/* ── Country: flag + name on desktop only (mobile flag is in name cell) ── */}
-                {!isMobile && (
-                  <div className="min-w-0 flex items-center gap-1.5">
-                    {normCountry ? (
-                      <>
-                        {flag && <span className="text-base leading-none shrink-0" title={normCountry}>{flag}</span>}
-                        <p className="text-xs text-gray-600 truncate">{normCountry}</p>
-                      </>
-                    ) : (
-                      <span className="text-gray-300 text-xs">—</span>
-                    )}
-                  </div>
-                )}
+                {/* ── Country: flag + name ── */}
+                <div className="min-w-0 flex items-center gap-1.5">
+                  {normCountry ? (
+                    <>
+                      {flag && <span className="text-base leading-none shrink-0" title={normCountry}>{flag}</span>}
+                      <p className="text-xs text-gray-600 truncate">{normCountry}</p>
+                    </>
+                  ) : (
+                    <span className="text-gray-300 text-xs">—</span>
+                  )}
+                </div>
 
-                {/* ── Mutual connections — desktop only ── */}
-                {!isMobile && (
-                  <div className="flex items-center justify-center">
-                    {contact.commonConnections != null && contact.commonConnections > 0 ? (
-                      <span className="text-xs font-medium text-blue-600 tabular-nums">
-                        {contact.commonConnections}
-                      </span>
-                    ) : (
-                      <span className="text-gray-300 text-xs">—</span>
-                    )}
-                  </div>
-                )}
+                {/* ── Mutual connections ── */}
+                <div className="flex items-center justify-center">
+                  {contact.commonConnections != null && contact.commonConnections > 0 ? (
+                    <span className="text-xs font-medium text-blue-600 tabular-nums">{contact.commonConnections}</span>
+                  ) : (
+                    <span className="text-gray-300 text-xs">—</span>
+                  )}
+                </div>
 
-                {/* ── WhatsApp last interaction — desktop only ── */}
-                {!isMobile && (() => {
+                {/* ── WA last interaction ── */}
+                {(() => {
                   const msg = contact.whatsAppMessages?.[0]
                   if (!msg) return <span className="text-gray-300 text-xs">—</span>
                   return (
-                    <div
-                      className="flex items-center gap-0.5"
-                      title={`${msg.isOutbound ? "You sent" : "They sent"} · ${new Date(msg.sentAt).toLocaleDateString()}`}
-                    >
+                    <div className="flex items-center gap-0.5"
+                      title={`${msg.isOutbound ? "You sent" : "They sent"} · ${new Date(msg.sentAt).toLocaleDateString()}`}>
                       <span className={cn("text-[11px] font-bold leading-none", msg.isOutbound ? "text-blue-400" : "text-green-500")}>
                         {msg.isOutbound ? "↑" : "↓"}
                       </span>
@@ -717,15 +777,13 @@ function ListDetailContent() {
                   )
                 })()}
 
-                {/* ── LinkedIn DM last interaction — desktop only ── */}
-                {!isMobile && (() => {
+                {/* ── LI DM last interaction ── */}
+                {(() => {
                   const msg = contact.linkedInDMMessages?.[0]
                   if (!msg) return <span className="text-gray-300 text-xs">—</span>
                   return (
-                    <div
-                      className="flex items-center gap-0.5"
-                      title={`${msg.isOutbound ? "You sent" : "They sent"} · ${new Date(msg.sentAt).toLocaleDateString()}`}
-                    >
+                    <div className="flex items-center gap-0.5"
+                      title={`${msg.isOutbound ? "You sent" : "They sent"} · ${new Date(msg.sentAt).toLocaleDateString()}`}>
                       <span className={cn("text-[11px] font-bold leading-none", msg.isOutbound ? "text-blue-400" : "text-green-500")}>
                         {msg.isOutbound ? "↑" : "↓"}
                       </span>
@@ -736,43 +794,28 @@ function ListDetailContent() {
 
                 {/* ── Actions ── */}
                 <div className="flex items-center gap-1.5 justify-end">
-                  {/* LinkedIn icon */}
                   {contact.profileUrl && liColor ? (
-                    <a
-                      href={contact.profileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      title={liTitle}
-                      className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
-                    >
+                    <a href={contact.profileUrl} target="_blank" rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()} title={liTitle}
+                      className="shrink-0 opacity-70 hover:opacity-100 transition-opacity">
                       <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, fill: liColor }}>
                         <path d={LI_ICON_PATH} />
                       </svg>
                     </a>
                   ) : (
-                    <span className="w-4" /> // spacer
+                    <span className="w-4" />
                   )}
-
-                  {/* WhatsApp icon */}
                   {hasWhatsApp ? (
-                    <a
-                      href={whatsappHref(contact.phoneNumber!)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      title={contact.phoneNumber ?? "Open WhatsApp"}
-                      className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
-                    >
+                    <a href={whatsappHref(contact.phoneNumber!)} target="_blank" rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()} title={contact.phoneNumber ?? "Open WhatsApp"}
+                      className="shrink-0 opacity-70 hover:opacity-100 transition-opacity">
                       <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, fill: "#25D366" }}>
                         <path d={WA_ICON_PATH} />
                       </svg>
                     </a>
                   ) : (
-                    <span className="w-4" /> // spacer
+                    <span className="w-4" />
                   )}
-
-                  {/* Remove (manual lists only) */}
                   {!isDynamicList && (
                     <button
                       onClick={(e) => { e.stopPropagation(); removeContact(contact.id) }}

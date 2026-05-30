@@ -9,7 +9,7 @@ import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, Arr
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
-import ContactRow, { CONTACT_ROW_GRID, CONTACT_ROW_GRID_MOBILE } from "@/components/ContactRow"
+import ContactRow, { CONTACT_ROW_GRID } from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
 import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
