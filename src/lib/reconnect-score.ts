@@ -2,6 +2,7 @@ import prisma from "@/lib/prisma"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FAST_LAMBDA       = Math.log(2) / 30  // 30-day half-life (recency decay)
+const SLOW_LAMBDA       = Math.log(2) / 180 // 180-day half-life (drift / historical strength)
 const WA_WEIGHT         = 3.0               // WhatsApp — personal, synchronous
 const LI_DM_WEIGHT      = 2.0               // LinkedIn DM — professional, high intent
 const EMAIL_WEIGHT      = 1.0               // Email — baseline
@@ -56,6 +57,27 @@ function computeScore(messages: ChannelMsg[], commonConnections: number | null):
   )
 }
 
+// ── Drift score ───────────────────────────────────────────────────────────────
+// High historical interaction + long silence = high drift.
+// Returns 0 if last interaction was within 60 days (still active).
+function computeDriftScore(messages: ChannelMsg[], lastInteractionAt: Date | null): number {
+  if (!lastInteractionAt || messages.length === 0) return 0
+  const daysSinceLast = (Date.now() - lastInteractionAt.getTime()) / 86_400_000
+  if (daysSinceLast < 60) return 0
+
+  const now = Date.now()
+  let historicalScore = 0
+  for (const msg of messages) {
+    const days = (now - msg.sentAt.getTime()) / 86_400_000
+    const ch   = msg.channel === "wa" ? 3.0 : msg.channel === "li" ? 2.0 : 1.0
+    const dir  = msg.isOutbound ? 1.2 : 1.0
+    historicalScore += ch * dir * Math.exp(-SLOW_LAMBDA * days)
+  }
+
+  const gapFactor = Math.min(daysSinceLast / 365, 3)
+  return historicalScore * gapFactor
+}
+
 // ── Single-contact recompute ───────────────────────────────────────────────────
 export async function recomputeScoreForContact(contactId: string): Promise<void> {
   const [emailMsgs, waMsgs, liDMMsgs, contact] = await Promise.all([
@@ -78,7 +100,9 @@ export async function recomputeScoreForContact(contactId: string): Promise<void>
     ? msgs.reduce<Date | null>((max, m) => !max || m.sentAt > max ? m.sentAt : max, null)
     : null
 
-  await prisma.contact.update({ where: { id: contactId }, data: { interactionScore: score, lastInteractionAt } })
+  const driftScore = computeDriftScore(msgs, lastInteractionAt)
+
+  await prisma.contact.update({ where: { id: contactId }, data: { interactionScore: score, driftScore, lastInteractionAt } })
 }
 
 // ── Batch recompute for all contacts of a user ────────────────────────────────
@@ -137,9 +161,10 @@ export async function recomputeScores(userId: string): Promise<void> {
         const lastInteractionAt = msgs.length
           ? msgs.reduce<Date | null>((max, m) => (!max || m.sentAt > max ? m.sentAt : max), null)
           : null
+        const driftScore = computeDriftScore(msgs, lastInteractionAt)
         return prisma.contact.update({
           where: { id: contactId },
-          data: { interactionScore: score, ...(lastInteractionAt ? { lastInteractionAt } : {}) },
+          data: { interactionScore: score, driftScore, ...(lastInteractionAt ? { lastInteractionAt } : {}) },
         })
       }),
     )

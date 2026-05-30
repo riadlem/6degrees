@@ -114,6 +114,7 @@ model Contact {
   lockedFields      String[]  @default([]) // field names pinned by the user — enrichment sync won't overwrite (TEXT[] in Postgres)
   lastInteractionAt DateTime?
   interactionScore  Float?
+  driftScore        Float?
   outreachStatus    String?
   outreachUpdatedAt DateTime?
   snoozedUntil      DateTime?

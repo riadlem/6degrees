@@ -27,6 +27,15 @@ export async function GET(req: Request) {
     if (status === "drafted") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "drafted" }
     if (status === "sent") return { userId, interactionScore: { gt: 0.1 }, outreachStatus: "sent" }
     if (status === "pending_review") return { userId, outreachStatus: "pending_review" }
+    if (status === "lapsed") return {
+      userId,
+      driftScore: { gt: 0.5 },
+      OR: [
+        { outreachStatus: null },
+        { outreachStatus: { notIn: DONE_STATUSES } },
+      ],
+    }
+    if (status === "ignored_list") return { userId, outreachStatus: "ignored" }
     if (status === "not_contacted") return {
       userId,
       OR: [
@@ -62,14 +71,17 @@ export async function GET(req: Request) {
         emailAddress: true,
         lastInteractionAt: true,
         interactionScore: true,
+        driftScore: true,
         outreachStatus: true,
         outreachUpdatedAt: true,
         snoozedUntil: true,
         labels: { select: { label: { select: { id: true, name: true, color: true } } } },
       },
-      orderBy: status === "pending_review"
+      orderBy: status === "pending_review" || status === "ignored_list"
         ? { outreachUpdatedAt: "desc" }
-        : { interactionScore: "desc" },
+        : status === "lapsed"
+          ? { driftScore: "desc" }
+          : { interactionScore: "desc" },
       take: 200,
     }),
     prisma.contact.count({ where: { userId, outreachStatus: "ignored" } }),
