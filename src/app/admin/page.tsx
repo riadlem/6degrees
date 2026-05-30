@@ -30,10 +30,40 @@ function Dot({ ok, warn }: { ok: boolean; warn?: boolean }) {
   return <XCircle size={16} className="text-red-500 shrink-0" />
 }
 
+function BrandingSection() {
+  const { brand, setBrand } = useBrand()
+  return (
+    <section className="bg-white border border-gray-200 rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Palette size={15} className="text-gray-500" />
+        <h2 className="font-semibold text-gray-900 text-sm">App Branding</h2>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">Switch the app&apos;s visual identity. Changes are saved locally.</p>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => setBrand("6degrees")}
+          className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "6degrees" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
+        >
+          <span className="text-2xl font-bold text-blue-600">6°</span>
+          <span className="text-sm font-medium text-gray-900">6 Degrees</span>
+          <span className="text-xs text-gray-500">Blue theme</span>
+        </button>
+        <button
+          onClick={() => setBrand("aequus")}
+          className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "aequus" ? "border-teal-500 bg-teal-50" : "border-gray-200 hover:border-gray-300"}`}
+        >
+          <span className="text-2xl font-bold text-teal-600">A°</span>
+          <span className="text-sm font-medium text-gray-900">Aequus Money</span>
+          <span className="text-xs text-gray-500">Teal theme</span>
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function AdminContent() {
   const searchParams = useSearchParams()
   const key = searchParams.get("key") ?? ""
-  const { brand, setBrand } = useBrand()
 
   const [data, setData] = useState<StatusData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -68,20 +98,18 @@ function AdminContent() {
   }
 
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="flex items-center justify-center py-12">
       <Loader2 size={24} className="animate-spin text-gray-400" />
     </div>
   )
 
   if (error) return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <XCircle size={40} className="text-red-400 mx-auto mb-3" />
-        <p className="text-gray-700 font-medium">{error}</p>
-        {error === "Invalid admin key" && (
-          <p className="text-sm text-gray-500 mt-2">Add <code className="bg-gray-100 px-1 rounded">?key=YOUR_ADMIN_KEY</code> to the URL</p>
-        )}
-      </div>
+    <div className="text-center py-12">
+      <XCircle size={40} className="text-red-400 mx-auto mb-3" />
+      <p className="text-gray-700 font-medium">{error}</p>
+      {error === "Invalid admin key" && (
+        <p className="text-sm text-gray-500 mt-2">Add <code className="bg-gray-100 px-1 rounded">?key=YOUR_ADMIN_KEY</code> to the URL</p>
+      )}
     </div>
   )
 
@@ -91,7 +119,7 @@ function AdminContent() {
   const missingTables = Object.entries(data.db.tables).filter(([, v]) => "error" in v).map(([k]) => k)
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+    <>
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">Admin · Database Setup</h1>
         <button
@@ -205,45 +233,21 @@ function AdminContent() {
           All tables present. Database is ready.
         </div>
       )}
-
-      {/* Branding */}
-      <section className="bg-white border border-gray-200 rounded-2xl p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Palette size={15} className="text-gray-500" />
-          <h2 className="font-semibold text-gray-900 text-sm">App Branding</h2>
-        </div>
-        <p className="text-xs text-gray-500 mb-4">Switch the app&apos;s visual identity. Changes are saved locally.</p>
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => setBrand("6degrees")}
-            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "6degrees" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"}`}
-          >
-            <span className="text-2xl font-bold text-blue-600">6°</span>
-            <span className="text-sm font-medium text-gray-900">6 Degrees</span>
-            <span className="text-xs text-gray-500">Blue theme</span>
-          </button>
-          <button
-            onClick={() => setBrand("aequus")}
-            className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${brand === "aequus" ? "border-teal-500 bg-teal-50" : "border-gray-200 hover:border-gray-300"}`}
-          >
-            <span className="text-2xl font-bold text-teal-600">A°</span>
-            <span className="text-sm font-medium text-gray-900">Aequus Money</span>
-            <span className="text-xs text-gray-500">Teal theme</span>
-          </button>
-        </div>
-      </section>
-    </div>
+    </>
   )
 }
 
 export default function AdminPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 size={24} className="animate-spin text-gray-400" />
-      </div>
-    }>
-      <AdminContent />
-    </Suspense>
+    <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+      <BrandingSection />
+      <Suspense fallback={
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-gray-400" />
+        </div>
+      }>
+        <AdminContent />
+      </Suspense>
+    </div>
   )
 }
