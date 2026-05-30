@@ -566,10 +566,10 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     <img
                       src={photoSrc(contact.photoUrl)!}
                       alt={fullName}
-                      className="w-16 h-16 rounded-2xl object-cover border border-gray-100"
+                      className="w-20 h-20 rounded-2xl object-cover border border-gray-100"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-bold">
+                    <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xl font-bold">
                       {inits}
                     </div>
                   )}
@@ -665,29 +665,41 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                       </button>
                     </div>
                   )}
-                  {contact.position && (
-                    <p className="text-sm text-gray-600 mt-0.5">{contact.position}</p>
+                  {contact.company ? (
+                    <div className="flex items-center gap-1 mt-0.5 group/company">
+                      <Link
+                        href={`/companies/${encodeURIComponent(contact.company)}`}
+                        className="flex items-center gap-1.5 hover:text-blue-600 transition-colors"
+                      >
+                        <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={16} radius="rounded-sm" className="shrink-0" />
+                        <span className="text-sm font-medium text-gray-700 hover:text-blue-600">{contact.company}</span>
+                      </Link>
+                      <button
+                        onClick={() => { setEditingField("company"); setEditValue(contact.company ?? "") }}
+                        className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/company:opacity-100 transition-opacity"
+                        title="Edit company"
+                      ><Edit2 size={11} /></button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setEditingField("company"); setEditValue("") }}
+                      className="text-xs text-gray-300 italic hover:text-gray-500 mt-0.5"
+                    >Add company</button>
                   )}
-                  {contact.headline && (
-                    <p className="text-xs text-gray-400 mt-1 line-clamp-2">{contact.headline}</p>
-                  )}
-                  {contact.company && (
-                    <Link
-                      href={`/companies/${encodeURIComponent(contact.company)}`}
-                      className="flex items-center gap-1.5 mt-1.5 group/company w-fit hover:text-blue-600 transition-colors"
-                    >
-                      <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={14} radius="rounded-sm" className="shrink-0" />
-                      <span className="text-sm text-gray-700 group-hover/company:text-blue-600">{contact.company}</span>
-                    </Link>
-                  )}
-                  {(contact.connectedOn || (contact.commonConnections != null && contact.commonConnections > 0) || contact.interactionScore != null) && (
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      {contact.connectedOn && (
-                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
-                          <Calendar size={11} className="shrink-0" />
-                          Connected {formatDate(contact.connectedOn)}
-                        </span>
-                      )}
+                  {contact.industry ? (
+                    <div className="flex items-center gap-1 mt-1 group/industry">
+                      <span className="inline-flex items-center text-[11px] text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+                        {contact.industry}
+                      </span>
+                      <button
+                        onClick={() => { setEditingField("industry"); setEditValue(contact.industry ?? "") }}
+                        className="text-gray-300 hover:text-gray-500 md:opacity-0 md:group-hover/industry:opacity-100 transition-opacity"
+                        title="Edit industry"
+                      ><Edit2 size={11} /></button>
+                    </div>
+                  ) : null}
+                  {(contact.commonConnections != null && contact.commonConnections > 0) || contact.interactionScore != null ? (
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                       {contact.commonConnections != null && contact.commonConnections > 0 && (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
                           <Users size={10} className="shrink-0" />
@@ -696,7 +708,6 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                       )}
                       {contact.interactionScore != null && contact.interactionScore > 0 && (
                         <span className="inline-flex items-center gap-1.5 text-xs text-gray-500" title={`Interaction score: ${contact.interactionScore.toFixed(1)}`}>
-                          <span className="text-gray-400">Score</span>
                           <span className="relative w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <span
                               className="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
@@ -707,9 +718,20 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                         </span>
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
+              {/* Position + headline — full width below photo row */}
+              {(contact.position || contact.headline) && (
+                <div className="mt-2">
+                  {contact.position && (
+                    <p className="text-sm text-gray-600">{contact.position}</p>
+                  )}
+                  {contact.headline && (
+                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{contact.headline}</p>
+                  )}
+                </div>
+              )}
 
               {/* Action buttons */}
               <div className="flex gap-2 mt-4 flex-wrap">
@@ -732,11 +754,12 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                       href={contact.profileUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`flex items-center gap-1.5 text-xs border rounded-lg px-3 py-1.5 transition-colors ${colorCls}`}
-                      title={titleText}
+                      className={`flex items-center justify-center border rounded-lg p-1.5 transition-colors ${colorCls}`}
+                      title={degLabel ? `${titleText} · ${degLabel}` : titleText}
                     >
-                      <ExternalLink size={12} />
-                      LinkedIn{degLabel && <span className="opacity-50 text-[10px]">{degLabel}</span>}
+                      <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 shrink-0" fill="currentColor">
+                        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                      </svg>
                     </a>
                   )
                 })()}
@@ -764,7 +787,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     )}
                   >
                     <Bookmark size={12} fill={contact.outreachStatus === "not_contacted" ? "currentColor" : "none"} />
-                    {contact.outreachStatus === "not_contacted" ? "In Reconnect" : "Add to Reconnect"}
+                    {contact.outreachStatus === "not_contacted" ? "In Reconnect" : "Reconnect"}
                   </button>
                 )}
                 {/* Delete contact — requires explicit confirmation */}
@@ -806,6 +829,26 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                 { field: "industry", icon: Globe,     value: contact.industry, label: "Industry" },
               ].map(({ field, icon: Icon, value, label }) => {
                 const isLocked = contact.lockedFields.includes(field)
+                // Company and industry are shown in the header — only render the edit input here
+                if (field === "company" || field === "industry") {
+                  if (editingField !== field) return null
+                  return (
+                    <div key={field} className="flex items-center gap-3">
+                      <Icon size={14} className="text-gray-400 shrink-0" />
+                      <div className="flex items-center gap-2 flex-1">
+                        <input
+                          autoFocus
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && saveField(field)}
+                          className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <button onClick={() => saveField(field)} className="text-blue-600 hover:text-blue-700"><Check size={14} /></button>
+                        <button onClick={() => setEditingField(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                      </div>
+                    </div>
+                  )
+                }
                 return (
                 <div key={field} className="flex items-center gap-3">
                   <Icon size={14} className="text-gray-400 shrink-0" />
@@ -827,19 +870,9 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1 group/field">
-                      {field === "company" && value ? (
-                        <Link
-                          href={`/companies/${encodeURIComponent(value)}`}
-                          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-blue-600 transition-colors"
-                        >
-                          <CompanyLogo domain={companyNameToDomain(value)} name={value} size={14} radius="rounded-sm" className="shrink-0" />
-                          <span className="text-sm text-gray-700 hover:text-blue-600 truncate">{value}</span>
-                        </Link>
-                      ) : (
-                        <span className={cn("text-sm flex-1", value ? "text-gray-700" : "text-gray-300 italic")}>
-                          {value ?? `Add ${label.toLowerCase()}`}
-                        </span>
-                      )}
+                      <span className={cn("text-sm flex-1", value ? "text-gray-700" : "text-gray-300 italic")}>
+                        {value ?? `Add ${label.toLowerCase()}`}
+                      </span>
                       <button
                         onClick={() => { setEditingField(field); setEditValue(value ?? "") }}
                         className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity shrink-0"
@@ -863,10 +896,16 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                 )
               })}
 
-              {/* City row */}
-              {(contact.city || contact.location) && (
+              {/* Location row — city + country combined */}
+              {(contact.city || contact.location || contact.country) && (
                 <div className="flex items-center gap-3 group/field">
-                  <MapPin size={14} className="text-gray-400 shrink-0" />
+                  {contact.country ? (
+                    <span className="text-base leading-none w-[14px] text-center shrink-0 select-none" aria-hidden>
+                      {countryFlag(contact.country) || "🌍"}
+                    </span>
+                  ) : (
+                    <MapPin size={14} className="text-gray-400 shrink-0" />
+                  )}
                   {editingField === "city" ? (
                     <div className="flex items-center gap-2 flex-1">
                       <input
@@ -874,36 +913,20 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && saveField("city")}
+                        placeholder="City"
                         className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                       <button onClick={() => saveField("city")} className="text-blue-600 hover:text-blue-700"><Check size={14} /></button>
                       <button onClick={() => setEditingField(null)} className="text-gray-400 hover:text-gray-600"><X size={14} /></button>
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-2 flex-1">
-                      <span className="text-sm text-gray-700 flex-1">{contact.city ?? contact.location}</span>
-                      <button
-                        onClick={() => { setEditingField("city"); setEditValue(contact.city ?? "") }}
-                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
-                      ><Edit2 size={12} /></button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Country row */}
-              {contact.country && (
-                <div className="flex items-center gap-3 group/field">
-                  <span className="text-base leading-none w-[14px] text-center shrink-0 select-none" aria-hidden>
-                    {countryFlag(contact.country) || "🌍"}
-                  </span>
-                  {editingField === "country" ? (
+                  ) : editingField === "country" ? (
                     <div className="flex items-center gap-2 flex-1">
                       <input
                         autoFocus
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && saveField("country")}
+                        placeholder="Country"
                         className="flex-1 text-sm border border-blue-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />
                       <button onClick={() => saveField("country")} className="text-blue-600 hover:text-blue-700"><Check size={14} /></button>
@@ -911,11 +934,19 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1">
-                      <span className="text-sm text-gray-700 flex-1">{contact.country}</span>
+                      <span className="text-sm text-gray-700 flex-1">
+                        {[contact.city ?? contact.location, contact.country].filter(Boolean).join(", ")}
+                      </span>
+                      <button
+                        onClick={() => { setEditingField("city"); setEditValue(contact.city ?? "") }}
+                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
+                        title="Edit city"
+                      ><Edit2 size={12} /></button>
                       <button
                         onClick={() => { setEditingField("country"); setEditValue(contact.country ?? "") }}
                         className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
-                      ><Edit2 size={12} /></button>
+                        title="Edit country"
+                      ><Globe size={12} /></button>
                     </div>
                   )}
                 </div>
@@ -1113,7 +1144,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
                   </svg>
                   <span className="text-sm text-gray-600 flex-1">
-                    Last LinkedIn DM {formatDate(contact.linkedinDmLastAt)}
+                    Last DM {formatDate(contact.linkedinDmLastAt)}
                     {contact.linkedinDmMessageCount > 0 && (
                       <span className="text-gray-400 ml-1">· {contact.linkedinDmMessageCount} message{contact.linkedinDmMessageCount !== 1 ? "s" : ""}</span>
                     )}
@@ -1146,15 +1177,6 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                   <Calendar size={14} className="text-gray-400 shrink-0" />
                   <span className="text-sm text-gray-600">
                     Connected {formatDate(contact.connectedOn)}
-                  </span>
-                </div>
-              )}
-
-              {contact.commonConnections != null && (
-                <div className="flex items-center gap-3">
-                  <Users size={14} className="text-gray-400 shrink-0" />
-                  <span className="text-sm text-gray-600">
-                    {contact.commonConnections} mutual connection{contact.commonConnections !== 1 ? "s" : ""}
                   </span>
                 </div>
               )}
