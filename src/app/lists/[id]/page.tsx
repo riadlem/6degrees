@@ -6,7 +6,7 @@ import { useRouter, useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft, Share2, Trash2, UserMinus, Zap,
-  ArrowUpDown, ArrowUp, ArrowDown, Sparkles, Pencil,
+  ArrowUpDown, ArrowUp, ArrowDown, Sparkles, Pencil, AlignJustify, LayoutGrid,
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
@@ -199,6 +199,7 @@ function ListDetailContent() {
   // Sort
   const [sortCol, setSortCol] = useState<SortCol>("name")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+  const [contactView, setContactView] = useState<"list" | "photos">("list")
 
   function cycleSort(col: SortCol) {
     if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
@@ -452,6 +453,23 @@ function ListDetailContent() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {/* View toggle */}
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              onClick={() => setContactView("list")}
+              title="List view"
+              className={cn("px-2.5 py-1.5 transition-colors", contactView === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+            >
+              <AlignJustify size={13} />
+            </button>
+            <button
+              onClick={() => setContactView("photos")}
+              title="Photo grid"
+              className={cn("px-2.5 py-1.5 transition-colors border-l border-gray-200", contactView === "photos" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:bg-gray-50")}
+            >
+              <LayoutGrid size={13} />
+            </button>
+          </div>
           <button
             onClick={() => setShareOpen(true)}
             className={cn(
@@ -500,6 +518,33 @@ function ListDetailContent() {
                 : <><Link href="/contacts" className="text-blue-500 hover:underline">Go to Contacts</Link> to add some.</>
             }
           </p>
+        </div>
+      ) : contactView === "photos" ? (
+        <div className="p-3 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+          {sortedMembers.map(({ contact }) => {
+            const fullName = `${contact.firstName} ${contact.lastName}`
+            const inits = initials(contact.firstName, contact.lastName)
+            return (
+              <button
+                key={contact.id}
+                onClick={() => openContact(contact.id)}
+                className="group flex flex-col rounded-xl overflow-hidden bg-white border border-gray-100 hover:border-blue-300 hover:shadow-md transition-all text-left"
+              >
+                <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
+                  {contact.photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
+                  )}
+                </div>
+                <div className="px-2 py-1.5">
+                  <p className={cn("text-xs font-semibold text-gray-900 truncate leading-tight", blurred && "blur-sm select-none")}>{fullName}</p>
+                  {contact.position && <p className="text-[10px] text-gray-400 truncate mt-0.5 leading-tight">{contact.position}</p>}
+                </div>
+              </button>
+            )
+          })}
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">

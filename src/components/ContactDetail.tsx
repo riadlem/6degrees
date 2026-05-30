@@ -13,6 +13,8 @@ import { labelColors, LABEL_COLOR_KEYS } from "@/lib/label-colors"
 import LabelBadge from "./LabelBadge"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { classifyEmail, EMAIL_KIND_BG, EMAIL_KIND_TITLE } from "@/lib/email-classify"
+import Link from "next/link"
+import CompanyLogo, { companyNameToDomain } from "./CompanyLogo"
 
 // Convert a country name to its flag emoji using regional indicator letters.
 function countryFlag(country: string | null): string {
@@ -787,12 +789,22 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1 group/field">
-                      <span className={cn("text-sm flex-1", value ? "text-gray-700" : "text-gray-300 italic")}>
-                        {value ?? `Add ${label.toLowerCase()}`}
-                      </span>
+                      {field === "company" && value ? (
+                        <Link
+                          href={`/companies/${encodeURIComponent(value)}`}
+                          className="flex items-center gap-1.5 flex-1 min-w-0 hover:text-blue-600 transition-colors"
+                        >
+                          <CompanyLogo domain={companyNameToDomain(value)} name={value} size={14} radius="rounded-sm" className="shrink-0" />
+                          <span className="text-sm text-gray-700 hover:text-blue-600 truncate">{value}</span>
+                        </Link>
+                      ) : (
+                        <span className={cn("text-sm flex-1", value ? "text-gray-700" : "text-gray-300 italic")}>
+                          {value ?? `Add ${label.toLowerCase()}`}
+                        </span>
+                      )}
                       <button
                         onClick={() => { setEditingField(field); setEditValue(value ?? "") }}
-                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity"
+                        className="text-gray-300 hover:text-gray-600 md:opacity-0 md:group-hover/field:opacity-100 transition-opacity shrink-0"
                         title={`Edit ${label.toLowerCase()}`}
                       >
                         <Edit2 size={12} />

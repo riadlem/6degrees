@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { STALE } from "@/lib/query-client"
 import { useContactsIndex } from "@/hooks/useContactsIndex"
 import { Plus, List, Trash2, Users, Share2, Building2, Sparkles } from "lucide-react"
-import { formatDate } from "@/lib/utils"
+import { formatDate, initials, photoSrc } from "@/lib/utils"
 import { cn } from "@/lib/utils"
 import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
 import SegmentBuilder from "@/components/SegmentBuilder"
@@ -23,6 +23,7 @@ type ContactList = {
   createdAt: string
   updatedAt: string
   _count: { members: number }
+  members: { contact: { photoUrl: string | null; firstName: string; lastName: string } }[]
 }
 
 export default function ListsPage() {
@@ -320,9 +321,39 @@ export default function ListsPage() {
               })()}
 
               <div className="mt-auto pt-4 flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <Users size={12} className="text-gray-400" />
-                  {list._count.members} contact{list._count.members !== 1 ? "s" : ""}
+                <div className="flex items-center gap-2">
+                  {list.members.length > 0 ? (
+                    <div className="flex items-center">
+                      <div className="flex -space-x-1.5">
+                        {list.members.slice(0, 4).map(({ contact }, i) => (
+                          contact.photoUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              key={i}
+                              src={photoSrc(contact.photoUrl)!}
+                              alt={`${contact.firstName} ${contact.lastName}`}
+                              className="w-5 h-5 rounded-full object-cover border-2 border-white"
+                            />
+                          ) : (
+                            <div
+                              key={i}
+                              className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 border-2 border-white flex items-center justify-center text-white text-[7px] font-bold"
+                            >
+                              {initials(contact.firstName, contact.lastName)}
+                            </div>
+                          )
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {list._count.members} contact{list._count.members !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <Users size={12} className="text-gray-400" />
+                      {list._count.members} contact{list._count.members !== 1 ? "s" : ""}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {list.shareEnabled && (
