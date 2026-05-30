@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS "ContactShare" (
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "ContactShare_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS "ContactShare_userId_idx" ON "ContactShare"("userId")
+CREATE INDEX IF NOT EXISTS "ContactShare_userId_idx" ON "ContactShare"("userId");
 
 CREATE TABLE IF NOT EXISTS "Label" (
   "id" TEXT NOT NULL PRIMARY KEY,
