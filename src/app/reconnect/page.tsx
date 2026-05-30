@@ -617,11 +617,13 @@ function ReconnectContent() {
         </div>
       ) : (
         <div className="space-y-2">
-          {contacts.map((contact) => {
+          {(() => {
+            const maxScore = Math.max(...contacts.map(c => c.interactionScore ?? 0), 1)
+            return contacts.map((contact) => {
             const inits = initials(contact.firstName, contact.lastName)
             const statusInfo = STATUS_LABELS[contact.outreachStatus ?? "not_contacted"] ?? STATUS_LABELS.not_contacted
             const score = contact.interactionScore ?? 0
-            const scoreWidth = Math.min(100, score * 20)
+            const scoreWidth = Math.min(100, (score / maxScore) * 100)
             const isDeprioritized = contact.outreachStatus === "deprioritized"
 
             return (
@@ -783,7 +785,8 @@ function ReconnectContent() {
                 </div>
               </div>
             )
-          })}
+          })
+          })()}
         </div>
       )}
 
