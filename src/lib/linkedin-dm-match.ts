@@ -116,6 +116,107 @@ async function directNameMatch(userId: string, chatName: string): Promise<string
   return null
 }
 
+/** Minimal conversation shape needed to resolve a contact. */
+export type ResolvableConversation = {
+  conversationId: string
+  chatName: string
+  profileUrl: string | null
+}
+
+/**
+ * Resolve many conversations to contactIds in a handful of bulk queries
+ * (vs. 2-3 queries per conversation when matching one at a time).
+ *
+ * Returns a Map of conversationId → contactId (null = unmatched). Mirrors the
+ * priority of matchLinkedInDMToContact: linkedinKey, then profileUrl key, then
+ * accent-normalised name variants.
+ */
+export async function batchResolveContacts(
+  userId: string,
+  convs: ResolvableConversation[],
+): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>()
+  if (convs.length === 0) return result
+
+  // ── Step 1: vanity key → Contact.linkedinKey ──────────────────────────────
+  const keyToConvIds = new Map<string, string[]>()
+  for (const c of convs) {
+    const key = c.profileUrl ? extractLinkedInKey(c.profileUrl) : null
+    if (key) {
+      if (!keyToConvIds.has(key)) keyToConvIds.set(key, [])
+      keyToConvIds.get(key)!.push(c.conversationId)
+    }
+  }
+  if (keyToConvIds.size > 0) {
+    const contacts = await prisma.contact.findMany({
+      where: { userId, linkedinKey: { in: [...keyToConvIds.keys()] } },
+      select: { id: true, linkedinKey: true },
+    })
+    for (const c of contacts) {
+      for (const convId of keyToConvIds.get(c.linkedinKey.toLowerCase()) ?? []) {
+        result.set(convId, c.id)
+      }
+    }
+  }
+
+  // ── Step 2: vanity key → Contact.profileUrl (renamed vanity URLs) ──────────
+  const unresolvedWithUrl = convs.filter((c) => !result.has(c.conversationId) && c.profileUrl)
+  if (unresolvedWithUrl.length > 0) {
+    const contactsWithUrl = await prisma.contact.findMany({
+      where: { userId, profileUrl: { not: null } },
+      select: { id: true, profileUrl: true },
+    })
+    const profileKeyMap = new Map<string, string>()
+    for (const c of contactsWithUrl) {
+      const k = c.profileUrl ? extractLinkedInKey(c.profileUrl) : null
+      if (k && !profileKeyMap.has(k)) profileKeyMap.set(k, c.id)
+    }
+    for (const c of unresolvedWithUrl) {
+      const key = extractLinkedInKey(c.profileUrl!)
+      if (key && profileKeyMap.has(key)) result.set(c.conversationId, profileKeyMap.get(key)!)
+    }
+  }
+
+  // ── Step 3: name variants, one query per first-character bucket ────────────
+  const unresolvedByName = convs.filter((c) => !result.has(c.conversationId))
+  const convVariantKeys = new Map<string, string[]>()
+  const allFirstChars = new Set<string>()
+  for (const c of unresolvedByName) {
+    const variants = nameVariants(c.chatName)
+    if (variants.length === 0) { result.set(c.conversationId, null); continue }
+    convVariantKeys.set(c.conversationId, variants.map((v) => `${v.normFirst}\0${v.normLast}`))
+    for (const v of variants) allFirstChars.add(v.normFirst.charAt(0))
+  }
+  if (allFirstChars.size > 0) {
+    const pool = await prisma.$queryRaw<{ id: string; firstName: string; lastName: string | null }[]>`
+      SELECT id, "firstName", "lastName"
+      FROM "Contact"
+      WHERE "userId" = ${userId}
+        AND LOWER(LEFT("firstName", 1)) = ANY(${[...allFirstChars]}::text[])
+    `
+    const lookup = new Map<string, string[]>()
+    for (const c of pool) {
+      const k = `${stripAccents(c.firstName ?? "").toLowerCase()}\0${stripAccents(c.lastName ?? "").toLowerCase()}`
+      if (!lookup.has(k)) lookup.set(k, [])
+      lookup.get(k)!.push(c.id)
+    }
+    for (const [convId, keys] of convVariantKeys) {
+      let matched: string | null = null
+      for (const key of keys) {
+        const hits = lookup.get(key) ?? []
+        if (hits.length === 1) { matched = hits[0]; break }
+      }
+      result.set(convId, matched)
+    }
+  }
+
+  // Ensure every conversation has an entry
+  for (const c of convs) {
+    if (!result.has(c.conversationId)) result.set(c.conversationId, null)
+  }
+  return result
+}
+
 /**
  * Match a LinkedIn DM conversation partner to a Contact in the database.
  *

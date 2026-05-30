@@ -1,7 +1,9 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 import { randomUUID } from "crypto"
+import { batchResolveContacts, type ResolvableConversation } from "@/lib/linkedin-dm-match"
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -43,64 +45,46 @@ export async function POST(req: Request) {
 
   await ensureInboxColumns()
 
-  let upserted = 0
+  // Normalise + de-duplicate the incoming conversations by conversationId.
+  type Row = { conversationId: string; chatName: string; profileUrl: string | null; lastInboxAt: Date; lastInboxOutbound: boolean | null }
+  const byConvId = new Map<string, Row>()
   for (const conv of body.conversations as Record<string, unknown>[]) {
     const conversationId = String(conv.conversationId || "").trim()
     const chatName = String(conv.chatName || "").trim()
     if (!conversationId || !chatName) continue
+    byConvId.set(conversationId, {
+      conversationId,
+      chatName,
+      profileUrl: typeof conv.profileUrl === "string" ? conv.profileUrl : null,
+      lastInboxAt: conv.lastInboxAt ? new Date(conv.lastInboxAt as string) : new Date(),
+      lastInboxOutbound: typeof conv.lastInboxOutbound === "boolean" ? conv.lastInboxOutbound : null,
+    })
+  }
+  const rows = [...byConvId.values()]
 
-    const profileUrl = typeof conv.profileUrl === "string" ? conv.profileUrl : null
-    const lastInboxAt = conv.lastInboxAt
-      ? new Date(conv.lastInboxAt as string)
-      : new Date()
-    const lastInboxOutbound =
-      typeof conv.lastInboxOutbound === "boolean" ? conv.lastInboxOutbound : null
+  // Resolve ALL contacts in a handful of bulk queries instead of 2-3 per row.
+  const resolvable: ResolvableConversation[] = rows.map((r) => ({
+    conversationId: r.conversationId,
+    chatName: r.chatName,
+    profileUrl: r.profileUrl,
+  }))
+  const contactMap = await batchResolveContacts(userId, resolvable)
 
-    // Auto-match contact by LinkedIn profile URL
-    let contactId: string | null = null
-    if (profileUrl) {
-      const m = profileUrl.match(/\/in\/([^/?#]+)/)
-      const linkedinKey = m ? m[1].toLowerCase() : null
-      if (linkedinKey) {
-        const c = await prisma.contact.findFirst({
-          where: {
-            userId,
-            OR: [
-              { linkedinKey },
-              { profileUrl: { contains: `/in/${linkedinKey}`, mode: "insensitive" } },
-            ],
-          },
-          select: { id: true },
-        })
-        if (c) contactId = c.id
-      }
-    }
-
-    // Fallback: match by first + last name when no profileUrl match
-    if (!contactId && chatName) {
-      const parts = chatName.trim().split(/\s+/)
-      if (parts.length >= 2) {
-        const c = await prisma.contact.findFirst({
-          where: {
-            userId,
-            firstName: { equals: parts[0], mode: "insensitive" },
-            lastName: { equals: parts.slice(1).join(" "), mode: "insensitive" },
-          },
-          select: { id: true },
-        })
-        if (c) contactId = c.id
-      }
-    }
-
+  // Bulk-upsert conversations in chunks.
+  let upserted = 0
+  const CHUNK = 200
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK)
+    const values = chunk.map((r) => {
+      const contactId = contactMap.get(r.conversationId) ?? null
+      return Prisma.sql`(${randomUUID()}, ${userId}, ${r.conversationId}, ${r.chatName}, ${r.profileUrl}, ${contactId}, 0, NOW(), false, ${r.lastInboxAt}, ${r.lastInboxOutbound})`
+    })
     try {
-      const id = randomUUID()
       await prisma.$executeRaw`
         INSERT INTO "LinkedInDMConversation"
           ("id", "userId", "conversationId", "chatName", "profileUrl", "contactId",
            "messageCount", "importedAt", "ignored", "lastInboxAt", "lastInboxOutbound")
-        VALUES
-          (${id}, ${userId}, ${conversationId}, ${chatName}, ${profileUrl}, ${contactId},
-           0, NOW(), false, ${lastInboxAt}, ${lastInboxOutbound})
+        VALUES ${Prisma.join(values)}
         ON CONFLICT ("userId", "conversationId") DO UPDATE SET
           "chatName"           = EXCLUDED."chatName",
           "profileUrl"         = COALESCE(EXCLUDED."profileUrl", "LinkedInDMConversation"."profileUrl"),
@@ -108,9 +92,9 @@ export async function POST(req: Request) {
           "lastInboxAt"        = EXCLUDED."lastInboxAt",
           "lastInboxOutbound"  = EXCLUDED."lastInboxOutbound"
       `
-      upserted++
+      upserted += chunk.length
     } catch (e) {
-      console.error("[inbox-scan] upsert error:", e)
+      console.error("[inbox-scan] bulk upsert error:", e)
     }
   }
 
