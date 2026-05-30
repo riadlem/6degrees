@@ -670,6 +670,31 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                   {contact.headline && (
                     <p className="text-xs text-gray-400 mt-1 line-clamp-2">{contact.headline}</p>
                   )}
+                  {contact.company && (
+                    <Link
+                      href={`/companies/${encodeURIComponent(contact.company)}`}
+                      className="flex items-center gap-1.5 mt-1.5 group/company w-fit hover:text-blue-600 transition-colors"
+                    >
+                      <CompanyLogo domain={companyNameToDomain(contact.company)} name={contact.company} size={14} radius="rounded-sm" className="shrink-0" />
+                      <span className="text-sm text-gray-700 group-hover/company:text-blue-600">{contact.company}</span>
+                    </Link>
+                  )}
+                  {(contact.connectedOn || (contact.commonConnections != null && contact.commonConnections > 0)) && (
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      {contact.connectedOn && (
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                          <Calendar size={11} className="shrink-0" />
+                          Connected {formatDate(contact.connectedOn)}
+                        </span>
+                      )}
+                      {contact.commonConnections != null && contact.commonConnections > 0 && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
+                          <Users size={10} className="shrink-0" />
+                          {contact.commonConnections} mutual
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
