@@ -8,7 +8,9 @@ import {
   ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2, Share2
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import CompanyLogo from "@/components/CompanyLogo"
 import { usePrivacy } from "@/contexts/PrivacyContext"

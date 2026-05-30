@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { normalizeEmail } from "@/lib/gmail"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -95,8 +95,8 @@ export async function POST(req: Request) {
     }
   }
 
-  // Recompute scores in the background — don't block the response
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  // Recompute the score for just this contact — don't block the response
+  recomputeScoreForContact(contactId).catch((err) => console.error("recomputeScore failed:", err))
 
   // Return propagatedEmails so the UI can immediately remove them from the list
   return Response.json({ ok: true, propagatedEmails })

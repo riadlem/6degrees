@@ -7,7 +7,9 @@ import { Search, ArrowUp, ArrowDown, Loader2, Settings, ExternalLink } from "luc
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import MessagesTabBar from "@/components/MessagesTabBar"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import Link from "next/link"
 
 function relTime(dateStr: string): string {

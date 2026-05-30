@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { matchChatNameToContact } from "@/lib/whatsapp-match"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScores, recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -38,8 +38,8 @@ export async function POST(req: Request) {
     })
   }
 
-  // Recompute scores in the background — don't block the response
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  // Recompute the score for just this contact — don't block the response
+  recomputeScoreForContact(contactId).catch((err) => console.error("recomputeScore failed:", err))
 
   return Response.json({ ok: true, updated: result.count })
 }
@@ -60,6 +60,7 @@ export async function PUT(req: Request) {
   `
 
   let fixed = 0
+  const touched = new Set<string>()
   for (const { chatName } of unmatched) {
     const contactId = await matchChatNameToContact(userId, chatName)
     if (!contactId) continue
@@ -78,11 +79,12 @@ export async function PUT(req: Request) {
         data: { phoneNumber: msgWithPhone.phone },
       })
     }
+    touched.add(contactId)
     fixed++
   }
 
-  if (fixed > 0) {
-    recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  if (touched.size > 0) {
+    recomputeScores(userId, { contactIds: [...touched] }).catch((err) => console.error("recomputeScores failed:", err))
   }
 
   return Response.json({ ok: true, checked: unmatched.length, fixed })
@@ -98,12 +100,23 @@ export async function DELETE(req: Request) {
   const { chatName } = body ?? {}
   if (!chatName) return Response.json({ error: "Missing chatName" }, { status: 400 })
 
+  // Capture which contacts were linked to this chat before clearing, so we can
+  // recompute just their scores.
+  const linked = await prisma.whatsAppMessage.findMany({
+    where: { userId, chatName, contactId: { not: null } },
+    select: { contactId: true },
+    distinct: ["contactId"],
+  })
+  const linkedIds = linked.map((m) => m.contactId).filter((id): id is string => !!id)
+
   const result = await prisma.whatsAppMessage.updateMany({
     where: { userId, chatName },
     data: { contactId: null },
   })
 
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  if (linkedIds.length > 0) {
+    recomputeScores(userId, { contactIds: linkedIds }).catch((err) => console.error("recomputeScores failed:", err))
+  }
 
   return Response.json({ ok: true, unlinked: result.count })
 }

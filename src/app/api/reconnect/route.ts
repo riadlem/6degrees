@@ -3,13 +3,22 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { Prisma } from "@prisma/client"
 
+// Ensure snoozedUntil column exists (may not be in DB yet if migration hasn't
+// run). Runs once per lambda instead of on every request — the DDL is a no-op
+// once the column exists but still costs a round-trip + catalog lock attempt.
+let _columnEnsured = false
+async function ensureSnoozedColumn() {
+  if (_columnEnsured) return
+  _columnEnsured = true
+  await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "snoozedUntil" TIMESTAMP(3)`.catch(() => {})
+}
+
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
   const userId = session.user.id
 
-  // Ensure snoozedUntil column exists (may not be in DB yet if migration hasn't run)
-  await prisma.$executeRaw`ALTER TABLE "Contact" ADD COLUMN IF NOT EXISTS "snoozedUntil" TIMESTAMP(3)`
+  await ensureSnoozedColumn()
 
   const { searchParams } = new URL(req.url)
   const status = searchParams.get("status") ?? ""

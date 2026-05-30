@@ -140,6 +140,7 @@ model Contact {
   @@index([userId, company])
   @@index([userId, industry])
   @@index([userId, interactionScore])
+  @@index([userId, driftScore])
   @@index([userId, firstName])
   @@index([userId, lastName])
   @@index([userId, outreachStatus])
@@ -317,6 +318,7 @@ model EmailMessage {
   @@unique([userId, gmailId])
   @@index([userId, contactId])
   @@index([contactId, sentAt])
+  @@index([userId, fromEmail])
 }
 
 model OutreachDraft {
@@ -374,6 +376,8 @@ model WhatsAppMessage {
   sentAt     DateTime
   isOutbound Boolean
   phone      String?  // E.164 number from ZCONTACTJID, e.g. "+33612345678"
+  senderName String?  // non-null for group messages; name/phone of sender
+  isGroup    Boolean  @default(false)
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)

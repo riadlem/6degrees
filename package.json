@@ -29,7 +29,6 @@
     "@types/jszip": "^3.4.0",
     "better-sqlite3": "^12.10.0",
     "clsx": "^2.1.1",
-    "html-to-image": "^1.11.13",
     "idb-keyval": "^6.2.4",
     "jszip": "^3.10.1",
     "lucide-react": "^0.441.0",

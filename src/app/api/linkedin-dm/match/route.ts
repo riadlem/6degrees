@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { matchLinkedInDMToContact } from "@/lib/linkedin-dm-match"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScores, recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -35,8 +35,8 @@ export async function POST(req: Request) {
     data: { contactId },
   })
 
-  // Recompute scores in the background — don't block the response
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  // Recompute the score for just this contact — don't block the response
+  recomputeScoreForContact(contactId).catch((err) => console.error("recomputeScore failed:", err))
 
   return Response.json({ ok: true, updated: result.count })
 }
@@ -58,6 +58,7 @@ export async function PUT(req: Request) {
   `
 
   let fixed = 0
+  const touched = new Set<string>()
   for (const { conversationId, chatName, profileUrl } of unmatched) {
     const contactId = await matchLinkedInDMToContact(userId, chatName, profileUrl ?? null)
     if (!contactId) continue
@@ -73,11 +74,12 @@ export async function PUT(req: Request) {
       data: { contactId },
     })
 
+    touched.add(contactId)
     fixed++
   }
 
-  if (fixed > 0) {
-    recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  if (touched.size > 0) {
+    recomputeScores(userId, { contactIds: [...touched] }).catch((err) => console.error("recomputeScores failed:", err))
   }
 
   return Response.json({ ok: true, checked: unmatched.length, fixed })
@@ -94,6 +96,14 @@ export async function DELETE(req: Request) {
   const { conversationId } = body ?? {}
   if (!conversationId) return Response.json({ error: "Missing conversationId" }, { status: 400 })
 
+  // Capture the linked contact(s) before clearing so we can rescope the recompute.
+  const linked = await prisma.linkedInDMMessage.findMany({
+    where: { userId, conversationId, contactId: { not: null } },
+    select: { contactId: true },
+    distinct: ["contactId"],
+  })
+  const linkedIds = linked.map((m) => m.contactId).filter((id): id is string => !!id)
+
   const result = await prisma.linkedInDMMessage.updateMany({
     where: { userId, conversationId },
     data: { contactId: null },
@@ -105,7 +115,9 @@ export async function DELETE(req: Request) {
     data: { contactId: null },
   })
 
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  if (linkedIds.length > 0) {
+    recomputeScores(userId, { contactIds: linkedIds }).catch((err) => console.error("recomputeScores failed:", err))
+  }
 
   return Response.json({ ok: true, unlinked: result.count })
 }

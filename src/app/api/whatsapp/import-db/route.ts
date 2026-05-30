@@ -2,9 +2,11 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { matchChatNameToContact } from "@/lib/whatsapp-match"
-import { recomputeScoreForContact } from "@/lib/reconnect-score"
+import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
+
+const GROUP_MAX_MEMBERS = 15
 
 // The client parses ChatStorage.sqlite in the browser using sql.js (WASM)
 // and sends only the extracted message rows as compact JSON.
@@ -12,12 +14,35 @@ export const maxDuration = 300
 // never leaves the browser.
 type ChatPayload = {
   chatName: string
-  phone: string | null          // E.164 number from ZCONTACTJID, e.g. "+33612345678"
-  messages: [number, number][]  // [sentAtMs, isOutbound 0|1]
+  phone: string | null          // E.164 number for 1:1 chats; null for groups
+  isGroup: boolean
+  memberCount: number           // unique inbound sender count
+  messages: [number, number, string | null][]  // [sentAtMs, isOutbound 0|1, senderPhone|null]
 }
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
+}
+
+// Match a phone number to a contact using last-9-digit suffix matching
+async function matchPhoneToContact(userId: string, phone: string): Promise<string | null> {
+  const digits = phone.replace(/\D/g, "")
+  if (digits.length < 7) return null
+  const suffix = digits.slice(-9)
+  const candidates = await prisma.$queryRaw<{ id: string; phoneNumber: string | null }[]>`
+    SELECT id, "phoneNumber" FROM "Contact"
+    WHERE "userId" = ${userId}
+      AND "phoneNumber" IS NOT NULL
+      AND "phoneNumber" != ''
+      AND replace(replace(replace("phoneNumber", ' ', ''), '-', ''), '.', '') LIKE ${"%" + suffix}
+  `
+  for (const c of candidates) {
+    if (c.phoneNumber) {
+      const cDigits = c.phoneNumber.replace(/\D/g, "")
+      if (cDigits.endsWith(suffix)) return c.id
+    }
+  }
+  return null
 }
 
 export async function POST(req: Request) {
@@ -51,16 +76,12 @@ export async function POST(req: Request) {
       try {
         send({ type: "status", message: `Processing ${chats.length} chats…` })
 
-        // Ensure phone column exists (added after initial schema; idempotent)
-        await prisma.$executeRaw`
-          ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "phone" TEXT
-        `.catch(() => {})
+        // Ensure columns exist (idempotent)
+        await prisma.$executeRaw`ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "phone" TEXT`.catch(() => {})
+        await prisma.$executeRaw`ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "senderName" TEXT`.catch(() => {})
+        await prisma.$executeRaw`ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "isGroup" BOOLEAN DEFAULT FALSE`.catch(() => {})
 
         // ── Phase 1: pre-load existing state in parallel ─────────────────────
-        // Three queries run simultaneously:
-        //   a) chatName → contactId for already-matched chats
-        //   b) chatNames that were previously unmatched
-        //   c) existing message count per chat (to skip re-inserts on re-import)
         const [existingMappings, unmatchedRows, countRows] = await Promise.all([
           prisma.whatsAppMessage.findMany({
             where: { userId, contactId: { not: null } },
@@ -88,8 +109,9 @@ export async function POST(req: Request) {
           countRows.map((r) => [r.chatName, Number(r.cnt)])
         )
 
-        // ── Phase 2: match NEW chats in parallel batches of 4 ───────────────
+        // ── Phase 2: match NEW 1:1 chats ─────────────────────────────────────
         const newChatNames = chats
+          .filter((c) => !c.isGroup)
           .map((c) => c.chatName)
           .filter((name) => !chatContactCache.has(name) && !unmatchedSet.has(name))
 
@@ -108,52 +130,90 @@ export async function POST(req: Request) {
           }
         }
 
-        // ── Phase 3: resolve contactIds + classify chats ─────────────────────
-        type ResolvedChat = ChatPayload & { contactId: string | null; alreadyImported: boolean }
-        const resolved: ResolvedChat[] = chats.map((chat) => {
-          let contactId: string | null
-          if (chatContactCache.has(chat.chatName)) {
-            contactId = chatContactCache.get(chat.chatName)!
-          } else if (freshMatches.has(chat.chatName)) {
-            contactId = freshMatches.get(chat.chatName) ?? null
-          } else {
-            contactId = null
+        // ── Phase 2b: match small group senders by phone ──────────────────────
+        type GroupSenderMap = Map<string, string | null>  // phone → contactId
+        const groupSenderCache = new Map<string, GroupSenderMap>()
+
+        const newSmallGroups = chats.filter(
+          (c) => c.isGroup && c.memberCount <= GROUP_MAX_MEMBERS
+        )
+        if (newSmallGroups.length > 0) {
+          send({ type: "status", message: `Matching senders in ${newSmallGroups.length} group${newSmallGroups.length !== 1 ? "s" : ""}…` })
+          for (const chat of newSmallGroups) {
+            const uniquePhones = new Set(
+              chat.messages
+                .filter(([, isOut, phone]) => isOut === 0 && phone)
+                .map(([, , phone]) => phone as string)
+            )
+            if (uniquePhones.size === 0) continue
+            const senderMap: GroupSenderMap = new Map()
+            const phoneList = [...uniquePhones]
+            const MATCH_CONCURRENCY = 4
+            for (let i = 0; i < phoneList.length; i += MATCH_CONCURRENCY) {
+              const batch = phoneList.slice(i, i + MATCH_CONCURRENCY)
+              const results = await Promise.all(
+                batch.map((phone) => matchPhoneToContact(userId, phone))
+              )
+              batch.forEach((phone, j) => senderMap.set(phone, results[j]))
+            }
+            groupSenderCache.set(chat.chatName, senderMap)
           }
+        }
+
+        // ── Phase 3: resolve contactIds + classify chats ─────────────────────
+        type ResolvedChat = ChatPayload & {
+          groupSenders: GroupSenderMap | null
+          alreadyImported: boolean
+        }
+
+        function get1to1ContactId(chatName: string): string | null {
+          if (chatContactCache.has(chatName)) return chatContactCache.get(chatName)!
+          return freshMatches.get(chatName) ?? null
+        }
+
+        const resolved: ResolvedChat[] = chats.map((chat) => {
           const existing = existingCountMap.get(chat.chatName) ?? 0
-          // Fast-path: skip DB inserts if we already have at least as many rows
           const alreadyImported = existing >= chat.messages.length
-          return { ...chat, contactId, alreadyImported }
+          const groupSenders = chat.isGroup ? (groupSenderCache.get(chat.chatName) ?? null) : null
+          return { ...chat, groupSenders, alreadyImported }
         })
 
         let totalSynced = 0
-        let totalMatched = resolved.filter((c) => c.contactId).length
+        const totalMatched = resolved.filter((c) => {
+          if (c.isGroup) return c.groupSenders ? [...c.groupSenders.values()].some(Boolean) : false
+          return !!get1to1ContactId(c.chatName)
+        }).length
 
-        // ── Phase 4: phone backfill — all matched chats with a phone, in // ──
-        const phoneUpdates = resolved.filter((c) => c.contactId && c.phone)
-        if (phoneUpdates.length > 0) {
-          await Promise.all(
-            phoneUpdates.map((c) =>
-              prisma.contact.updateMany({
-                where: { id: c.contactId!, phoneNumber: null },
+        // ── Phase 4: phone backfill for 1:1 chats ────────────────────────────
+        await Promise.all(
+          resolved
+            .filter((c) => !c.isGroup && c.phone)
+            .map((c) => {
+              const cid = get1to1ContactId(c.chatName)
+              if (!cid) return
+              return prisma.contact.updateMany({
+                where: { id: cid, phoneNumber: null },
                 data: { phoneNumber: c.phone! },
               }).catch(() => {})
-            )
-          )
-        }
+            })
+        )
 
-        // ── Phase 5: send instant progress for already-imported chats ────────
+        // ── Phase 5: instant progress for already-imported chats ─────────────
         for (const chat of resolved.filter((c) => c.alreadyImported)) {
+          const matched = chat.isGroup
+            ? (chat.groupSenders ? [...chat.groupSenders.values()].some(Boolean) : false)
+            : !!get1to1ContactId(chat.chatName)
           send({
             type: "progress",
             file: chat.chatName,
-            matched: !!chat.contactId,
+            matched,
             messages: chat.messages.length,
             synced: 0,
             skipped: chat.messages.length,
           })
         }
 
-        // ── Phase 6: insert new messages in parallel batches of 5 ────────────
+        // ── Phase 6: insert new messages ──────────────────────────────────────
         const toInsert = resolved.filter((c) => !c.alreadyImported)
         if (toInsert.length > 0) {
           send({ type: "status", message: `Inserting messages for ${toInsert.length} chat${toInsert.length !== 1 ? "s" : ""}…` })
@@ -164,30 +224,44 @@ export async function POST(req: Request) {
           const batch = toInsert.slice(i, i + INSERT_CONCURRENCY)
           await Promise.all(
             batch.map(async (chat) => {
+              const resolvedContactId = chat.isGroup ? null : get1to1ContactId(chat.chatName)
               const CHUNK = 200
               let synced = 0
               let skipped = 0
               for (let j = 0; j < chat.messages.length; j += CHUNK) {
                 const chunk = chat.messages.slice(j, j + CHUNK)
                 const result = await prisma.whatsAppMessage.createMany({
-                  data: chunk.map(([sentAtMs, isOut]) => ({
-                    userId,
-                    contactId: chat.contactId ?? null,
-                    chatName: chat.chatName,
-                    sentAt: new Date(sentAtMs),
-                    isOutbound: isOut === 1,
-                    phone: chat.phone ?? null,
-                  })),
+                  data: chunk.map(([sentAtMs, isOut, senderPhone]) => {
+                    let contactId: string | null = null
+                    if (!chat.isGroup) {
+                      contactId = resolvedContactId
+                    } else if (isOut === 0 && senderPhone && chat.groupSenders) {
+                      contactId = chat.groupSenders.get(senderPhone) ?? null
+                    }
+                    return {
+                      userId,
+                      contactId,
+                      chatName: chat.chatName,
+                      sentAt: new Date(sentAtMs),
+                      isOutbound: isOut === 1,
+                      phone: !chat.isGroup ? (chat.phone ?? null) : null,
+                      isGroup: chat.isGroup,
+                      senderName: chat.isGroup ? (senderPhone ?? null) : null,
+                    }
+                  }),
                   skipDuplicates: true,
                 })
                 synced += result.count
                 skipped += chunk.length - result.count
               }
               totalSynced += synced
+              const matched = chat.isGroup
+                ? (chat.groupSenders ? [...chat.groupSenders.values()].some(Boolean) : false)
+                : !!resolvedContactId
               send({
                 type: "progress",
                 file: chat.chatName,
-                matched: !!chat.contactId,
+                matched,
                 messages: chat.messages.length,
                 synced,
                 skipped,
@@ -211,11 +285,19 @@ export async function POST(req: Request) {
           },
         })
 
-        // Recalculate scores for matched contacts before closing the stream
-        const matchedIds = [...new Set(resolved.filter((c) => c.contactId).map((c) => c.contactId as string))]
+        // Recalculate scores for all matched contacts
+        const matchedIds = [...new Set(
+          resolved.flatMap((c) => {
+            if (c.isGroup && c.groupSenders) {
+              return [...c.groupSenders.values()].filter((v): v is string => !!v)
+            }
+            const cid = get1to1ContactId(c.chatName)
+            return cid ? [cid] : []
+          })
+        )]
         if (matchedIds.length > 0) {
           send({ type: "status", message: `Updating scores for ${matchedIds.length} contact${matchedIds.length !== 1 ? "s" : ""}…` })
-          await Promise.all(matchedIds.map((id) => recomputeScoreForContact(id).catch(() => {})))
+          await recomputeScores(userId, { contactIds: matchedIds }).catch(() => {})
         }
 
         send({ type: "done", synced: totalSynced, chats: chats.length, matched: totalMatched })

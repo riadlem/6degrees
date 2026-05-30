@@ -652,11 +652,10 @@ function SettingsPageInner() {
       // Keep last 2 years; older messages have negligible scoring weight
       const cutoff = Math.floor(Date.now() / 1000) - 2 * 365 * 24 * 3600 - APPLE_EPOCH
 
-      // 1:1 sessions only (group JIDs end with @g.us)
+      // All sessions including groups (group JIDs end with @g.us)
       const sessions = db.exec(`
         SELECT Z_PK, ZPARTNERNAME, ZCONTACTJID FROM ZWACHATSESSION
         WHERE ZPARTNERNAME IS NOT NULL
-          AND (ZCONTACTJID IS NULL OR ZCONTACTJID NOT LIKE '%@g.us')
       `)[0]
 
       if (!sessions?.values?.length) {
@@ -665,9 +664,14 @@ function SettingsPageInner() {
         return
       }
 
-      // Build compact chat payload: { chatName, phone, messages: [[sentAtMs, isOutbound], …] }
-      // Capped at 500 most-recent messages per chat (enough for scoring).
-      type ChatPayload = { chatName: string; phone: string | null; messages: [number, number][] }
+      // Build compact chat payload with optional per-message sender phone for groups
+      type ChatPayload = {
+        chatName: string
+        phone: string | null
+        isGroup: boolean
+        memberCount: number
+        messages: [number, number, string | null][]  // [sentAtMs, isOutbound, senderPhone|null]
+      }
       const chats: ChatPayload[] = []
 
       // Parse WhatsApp JID → E.164 phone number.
@@ -683,10 +687,13 @@ function SettingsPageInner() {
       const OTP_RE = /ne partagez pas|do not share|pas le partager|code de v[eé]rification|verification code|code de s[eé]curit[eé]|security code|votre code de s[eé]curit[eé]|your security code|en savoir plus|tap to learn more|one.?time\s*(pass|code|password|pin)|votre code.{0,20}\d{4,8}|your code.{0,20}\d{4,8}|code.{0,30}(whatsapp|google|apple|facebook|instagram|telegram)|\bG-\d{4,8}\b|\d{4,8}\s+is your|\d{4,8}\s+est\b|^\s*\d{4,8}\s*$/i
 
       for (const [pk, chatName, jid] of sessions.values) {
-        // Include ZTEXT so we can filter OTP/security-code messages client-side
-        // (content is never sent to the server — only timestamps + isOutbound)
+        const isGroup = String(jid ?? "").endsWith("@g.us")
+
+        // Include ZSENDERID for groups so we can match sender to contact server-side.
+        // ZTEXT is used only for OTP filtering; content is never sent to the server.
         const msgs = db.exec(`
-          SELECT ZMESSAGEDATE, ZISFROMME, ZTEXT FROM ZWAMESSAGE
+          SELECT ZMESSAGEDATE, ZISFROMME, ZTEXT, ${isGroup ? "ZSENDERID" : "NULL"} AS ZSENDERID
+          FROM ZWAMESSAGE
           WHERE ZCHATSESSION = ${pk}
             AND ZMESSAGETYPE NOT IN (6, 10, 12, 14, 15)
             AND ZMESSAGEDATE > ${cutoff}
@@ -697,12 +704,21 @@ function SettingsPageInner() {
           !text || !OTP_RE.test(String(text))
         )
         if (!filtered.length) continue
+
+        // Count unique inbound senders (determines whether group is large)
+        const senderPhones = isGroup
+          ? new Set(filtered.filter(([, f]) => Number(f) !== 1).map(([, , , sid]) => jidToPhone(sid as string | null)).filter(Boolean))
+          : new Set<string>()
+
         chats.push({
           chatName: String(chatName),
-          phone: jidToPhone(jid as string | null),
-          messages: filtered.map(([d, f]) => [
+          phone: isGroup ? null : jidToPhone(jid as string | null),
+          isGroup,
+          memberCount: senderPhones.size,
+          messages: filtered.map(([d, f, , sid]) => [
             Math.floor((Number(d) + APPLE_EPOCH) * 1000),  // → ms timestamp
             Number(f) === 1 ? 1 : 0,
+            isGroup && Number(f) !== 1 ? jidToPhone(sid as string | null) : null,
           ]),
         })
       }

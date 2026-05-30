@@ -15,8 +15,8 @@ export async function POST() {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
       }
       try {
-        await recomputeScores(userId, (done, total) => {
-          send({ done, total })
+        await recomputeScores(userId, {
+          onProgress: (done, total) => send({ done, total }),
         })
         send({ ok: true })
       } catch {

@@ -1,6 +1,8 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
+import { randomUUID } from "crypto"
 import { parseVcf, type ParsedVcfContact } from "@/lib/vcf-parser"
 import { enrichContactsFromPhoneBook } from "@/lib/phone-contact-enrich"
 
@@ -96,38 +98,47 @@ export async function POST(req: Request) {
   }
 
   const total = contacts.length
-  let imported = 0
 
-  // Upsert in chunks to avoid parameter limits
+  // De-duplicate by fullName before bulk insert — a single INSERT … ON CONFLICT
+  // can't touch the same conflict key twice, and VCF exports often repeat names.
+  // Merge fields, preferring the first non-null value seen.
+  const byName = new Map<string, ParsedVcfContact>()
+  for (const c of contacts) {
+    if (!c.fullName) continue
+    const existing = byName.get(c.fullName)
+    if (!existing) { byName.set(c.fullName, { ...c }); continue }
+    byName.set(c.fullName, {
+      ...existing,
+      phone:       existing.phone       ?? c.phone,
+      email:       existing.email       ?? c.email,
+      birthday:    existing.birthday    ?? c.birthday,
+      photoData:   existing.photoData   ?? c.photoData,
+      linkedinUrl: existing.linkedinUrl ?? c.linkedinUrl,
+    })
+  }
+  const deduped = [...byName.values()]
+
+  // Bulk upsert in chunks — one INSERT … ON CONFLICT per chunk instead of one
+  // round-trip per contact. COALESCE keeps existing values when the incoming
+  // field is null (matches the previous "don't overwrite with null" behaviour).
+  let imported = 0
   const CHUNK = 100
-  for (let i = 0; i < contacts.length; i += CHUNK) {
-    const chunk = contacts.slice(i, i + CHUNK)
-    await Promise.all(
-      chunk.map(async (c) => {
-        try {
-          await prisma.phoneContact.upsert({
-            where: { userId_fullName: { userId, fullName: c.fullName } },
-            update: {
-              phone: c.phone ?? undefined,
-              email: c.email ?? undefined,
-              birthday: c.birthday ?? undefined,
-              photoData: c.photoData ?? undefined,
-              linkedinUrl: c.linkedinUrl ?? undefined,
-            },
-            create: {
-              userId,
-              fullName: c.fullName,
-              phone: c.phone,
-              email: c.email,
-              birthday: c.birthday,
-              photoData: c.photoData,
-              linkedinUrl: c.linkedinUrl,
-            },
-          })
-          imported++
-        } catch { /* skip individual failures */ }
-      })
-    )
+  for (let i = 0; i < deduped.length; i += CHUNK) {
+    const chunk = deduped.slice(i, i + CHUNK)
+    const rows = chunk.map((c) => Prisma.sql`(${randomUUID()}, ${userId}, ${c.fullName}, ${c.phone ?? null}, ${c.email ?? null}, ${c.birthday ?? null}, ${c.photoData ?? null}, ${c.linkedinUrl ?? null})`)
+    try {
+      await prisma.$executeRaw`
+        INSERT INTO "PhoneContact" ("id","userId","fullName","phone","email","birthday","photoData","linkedinUrl")
+        VALUES ${Prisma.join(rows)}
+        ON CONFLICT ("userId","fullName") DO UPDATE SET
+          "phone"       = COALESCE(EXCLUDED."phone",       "PhoneContact"."phone"),
+          "email"       = COALESCE(EXCLUDED."email",       "PhoneContact"."email"),
+          "birthday"    = COALESCE(EXCLUDED."birthday",    "PhoneContact"."birthday"),
+          "photoData"   = COALESCE(EXCLUDED."photoData",   "PhoneContact"."photoData"),
+          "linkedinUrl" = COALESCE(EXCLUDED."linkedinUrl", "PhoneContact"."linkedinUrl")
+      `
+      imported += chunk.length
+    } catch { /* skip a failing chunk rather than aborting the whole import */ }
   }
 
   const withPhotos = contacts.filter((c) => c.photoData).length

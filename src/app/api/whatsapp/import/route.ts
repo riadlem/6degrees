@@ -3,9 +3,11 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseWhatsAppExport, extractChatName } from "@/lib/whatsapp-parser"
 import { matchChatNameToContact, enrichContactFromPhoneBook } from "@/lib/whatsapp-match"
-import { recomputeScoreForContact } from "@/lib/reconnect-score"
+import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
+
+const GROUP_MAX_MEMBERS = 15
 
 function sseEvent(data: unknown): string {
   return `data: ${JSON.stringify(data)}\n\n`
@@ -68,13 +70,42 @@ export async function POST(req: Request) {
             continue
           }
 
-          const contactId = await matchChatNameToContact(userId, chatName)
           totalChats++
-          if (contactId) {
-            totalMatched++
-            matchedContactIds.add(contactId)
-            await enrichContactFromPhoneBook(userId, contactId, chatName)
+
+          // Detect group chat: more than one unique inbound sender name
+          const uniqueSenders = new Set(messages.filter((m) => !m.isOutbound).map((m) => m.senderName))
+          const isGroup = uniqueSenders.size > 1
+          const isLargeGroup = isGroup && uniqueSenders.size > GROUP_MAX_MEMBERS
+
+          // Map senderName → contactId
+          const senderToContact = new Map<string, string | null>()
+
+          if (!isGroup) {
+            // 1:1 chat — match by chatName
+            const contactId = await matchChatNameToContact(userId, chatName)
+            if (contactId) {
+              totalMatched++
+              matchedContactIds.add(contactId)
+              await enrichContactFromPhoneBook(userId, contactId, chatName)
+            }
+            senderToContact.set("__1to1__", contactId)
+          } else if (!isLargeGroup) {
+            // Small group — match each unique sender
+            const senderList = [...uniqueSenders]
+            const MATCH_CONCURRENCY = 4
+            for (let i = 0; i < senderList.length; i += MATCH_CONCURRENCY) {
+              const batch = senderList.slice(i, i + MATCH_CONCURRENCY)
+              const results = await Promise.all(batch.map((name) => matchChatNameToContact(userId, name)))
+              batch.forEach((name, j) => {
+                senderToContact.set(name, results[j])
+                if (results[j]) {
+                  totalMatched++
+                  matchedContactIds.add(results[j]!)
+                }
+              })
+            }
           }
+          // Large groups: senderToContact stays empty → all contactId = null (score-neutral)
 
           // Upsert messages in chunks of 200
           let synced = 0
@@ -83,13 +114,23 @@ export async function POST(req: Request) {
           for (let i = 0; i < messages.length; i += CHUNK) {
             const chunk = messages.slice(i, i + CHUNK)
             const result = await prisma.whatsAppMessage.createMany({
-              data: chunk.map((m) => ({
-                userId,
-                contactId: contactId ?? null,
-                chatName,
-                sentAt: m.sentAt,
-                isOutbound: m.isOutbound,
-              })),
+              data: chunk.map((m) => {
+                let contactId: string | null = null
+                if (!isGroup) {
+                  contactId = senderToContact.get("__1to1__") ?? null
+                } else if (!m.isOutbound) {
+                  contactId = senderToContact.get(m.senderName) ?? null
+                }
+                return {
+                  userId,
+                  contactId,
+                  chatName,
+                  sentAt: m.sentAt,
+                  isOutbound: m.isOutbound,
+                  isGroup,
+                  senderName: isGroup ? m.senderName : null,
+                }
+              }),
               skipDuplicates: true,
             })
             synced += result.count
@@ -98,10 +139,14 @@ export async function POST(req: Request) {
 
           totalSynced += synced
 
+          const matchedCount = isGroup
+            ? [...senderToContact.values()].filter(Boolean).length
+            : (senderToContact.get("__1to1__") ? 1 : 0)
+
           send({
             type: "progress",
             file: chatName,
-            matched: !!contactId,
+            matched: matchedCount > 0,
             messages: messages.length,
             synced,
             skipped,
@@ -124,11 +169,12 @@ export async function POST(req: Request) {
           },
         })
 
-        // Recalculate scores for matched contacts before closing the stream
-        // so they surface immediately on the Reconnect page
+        // Recalculate scores for matched contacts before closing the stream.
+        // Scoped batch recompute = a few indexed reads + bulk UPDATEs instead of
+        // 4 queries × N contacts.
         if (matchedContactIds.size > 0) {
           send({ type: "status", message: `Updating scores for ${matchedContactIds.size} contact${matchedContactIds.size !== 1 ? "s" : ""}…` })
-          await Promise.all([...matchedContactIds].map((id) => recomputeScoreForContact(id).catch(() => {})))
+          await recomputeScores(userId, { contactIds: [...matchedContactIds] }).catch(() => {})
         }
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched })

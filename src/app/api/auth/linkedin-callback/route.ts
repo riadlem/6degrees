@@ -1,23 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-import { createHmac } from "crypto"
-
-function verifyState(state: string): string | null {
-  try {
-    const decoded = Buffer.from(state, "base64url").toString()
-    const parts = decoded.split(":")
-    if (parts.length !== 3) return null
-    const [userId, ts, sig] = parts
-    const payload = `${userId}:${ts}`
-    const expected = createHmac("sha256", process.env.NEXTAUTH_SECRET ?? "secret").update(payload).digest("hex")
-    if (sig !== expected) return null
-    if (Date.now() - Number(ts) > 10 * 60 * 1000) return null // 10 min expiry
-    return userId
-  } catch {
-    return null
-  }
-}
+import { verifyOAuthState } from "@/lib/oauth-state"
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
@@ -33,7 +17,7 @@ export async function GET(req: Request) {
     return Response.redirect(`${process.env.NEXTAUTH_URL}/contacts?linkedin_error=missing_params`)
   }
 
-  const userId = verifyState(state)
+  const userId = verifyOAuthState(state)
   if (!userId) {
     return Response.redirect(`${process.env.NEXTAUTH_URL}/contacts?linkedin_error=invalid_state`)
   }

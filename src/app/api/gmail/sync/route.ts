@@ -106,6 +106,10 @@ export async function POST(req: Request) {
         if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null }
       }
 
+      // Contacts whose emails were (re)matched this run — used to scope the
+      // post-sync score recompute instead of re-scoring the whole address book.
+      const touchedContactIds = new Set<string>()
+
       try {
         for (const account of allAccounts) {
           const currentEmail = account.providerAccountId
@@ -209,16 +213,20 @@ export async function POST(req: Request) {
 
           // Preload match cache and known gmailIds to avoid per-message DB round trips.
           // Use the in-process singleton cache to skip the DB rebuild on warm instances.
+          // On incremental syncs the history API only returns new/changed IDs, so we
+          // dedup against just those (a bounded IN query) instead of loading the whole
+          // message table into memory. A full rescan still needs the complete set.
           send({ type: "status", message: "Loading contact index…" })
-          const [cachedOrNull, existingGmailIds] = await Promise.all([
+          const [cachedOrNull, existingGmailIds, baseCount] = await Promise.all([
             Promise.resolve(getCachedMatchCache(userId)),
-            prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
-              .then((rows) => new Set(rows.map((r) => r.gmailId))),
+            (useIncremental
+              ? prisma.emailMessage.findMany({ where: { userId, gmailId: { in: messageIds } }, select: { gmailId: true } })
+              : prisma.emailMessage.findMany({ where: { userId }, select: { gmailId: true } })
+            ).then((rows) => new Set(rows.map((r) => r.gmailId))),
+            prisma.emailMessage.count({ where: { userId } }),
           ])
           const matchCache = cachedOrNull ?? await buildMatchCache(userId)
           if (!cachedOrNull) setCachedMatchCache(userId, matchCache)
-
-          const baseCount = existingGmailIds.size
           // Tell the UI how many messages are already indexed so the counter starts there
           send({
             type: "status",
@@ -296,6 +304,7 @@ export async function POST(req: Request) {
                   })
 
                   if (contactId) {
+                    touchedContactIds.add(contactId)
                     const relevantEmail = parsed.isOutbound ? parsed.toEmails[0] : parsed.fromEmail
                     if (relevantEmail) {
                       recordMatchedEmailCached(
@@ -387,9 +396,12 @@ export async function POST(req: Request) {
           })
         }
 
-        // Recompute interaction scores after all accounts are synced
-        send({ type: "status", message: "Computing relationship scores…" })
-        await recomputeScores(userId)
+        // Recompute interaction scores only for contacts whose emails changed
+        // this run. Skip entirely when nothing matched.
+        if (touchedContactIds.size > 0) {
+          send({ type: "status", message: "Computing relationship scores…" })
+          await recomputeScores(userId, { contactIds: [...touchedContactIds] })
+        }
 
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Sync failed" })

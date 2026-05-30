@@ -318,7 +318,11 @@ export async function POST(req: Request) {
           create: { userId, importedAt: new Date(), totalMessages: totalSynced, totalChats },
         })
 
-        recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+        // Scope the recompute to the contacts these conversations resolved to.
+        const touchedIds = [...new Set([...contactMap.values()].filter((id): id is string => !!id))]
+        if (touchedIds.length > 0) {
+          recomputeScores(userId, { contactIds: touchedIds }).catch((err) => console.error("recomputeScores failed:", err))
+        }
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched, skippedConvs })
       } catch (err) {

@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { Users, Building2, MapPin, StickyNote, Plus, Mail, Sparkles } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -118,7 +119,7 @@ interface Props {
   onAddToList?: (contact: ContactSummary) => void
 }
 
-export default function ContactCard({ contact, selected, onSelect, onClick, onAddToList }: Props) {
+function ContactCard({ contact, selected, onSelect, onClick, onAddToList }: Props) {
   const fullName = `${contact.firstName} ${contact.lastName}`
   const inits = initials(contact.firstName, contact.lastName)
   const { blurred } = usePrivacy()
@@ -286,3 +287,6 @@ export default function ContactCard({ contact, selected, onSelect, onClick, onAd
     </div>
   )
 }
+
+// Memoized: cards live in large grids; skip re-render when props are unchanged.
+export default memo(ContactCard)

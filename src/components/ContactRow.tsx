@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { StickyNote, Plus, Mail, Sparkles, Users } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import LabelBadge from "./LabelBadge"
@@ -130,7 +131,7 @@ interface Props {
   isMobile?: boolean
 }
 
-export default function ContactRow({ contact, selected, onSelect, onClick, onAddToList, isMobile = false }: Props) {
+function ContactRow({ contact, selected, onSelect, onClick, onAddToList, isMobile = false }: Props) {
   const fullName = `${contact.firstName} ${contact.lastName}`
   const inits = initials(contact.firstName, contact.lastName)
   const { blurred } = usePrivacy()
@@ -439,3 +440,6 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
     </div>
   )
 }
+
+// Memoized: rows live in large lists; skip re-render when props are unchanged.
+export default memo(ContactRow)

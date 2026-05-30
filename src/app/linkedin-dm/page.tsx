@@ -10,7 +10,9 @@ import {
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import MessagesTabBar from "@/components/MessagesTabBar"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
