@@ -118,9 +118,10 @@ const LEVEL_TITLES: Record<"connected" | "pending" | "followed" | "saved", strin
   saved:     "Profile saved – not connected on LinkedIn",
 }
 
-// Grid columns — same layout as lists/[id]/page.tsx
-// checkbox | avatar | LI | name+pos | company | city | country | WA last | LI DM last | actions
-export const CONTACT_ROW_GRID = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
+// Grid columns: checkbox | avatar | LI | name+pos | company | city | country | WA last | LI DM last | actions
+export const CONTACT_ROW_GRID        = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
+// Mobile: hide city, country text, WA, LI DM — show flag only for country
+export const CONTACT_ROW_GRID_MOBILE = "36px 2.5rem 1.5rem 1fr 1fr 1.5rem 3.5rem"
 
 interface Props {
   contact: ContactSummary
@@ -128,9 +129,10 @@ interface Props {
   onSelect?: (id: string) => void
   onClick?: (contact: ContactSummary) => void
   onAddToList?: (contact: ContactSummary) => void
+  isMobile?: boolean
 }
 
-export default function ContactRow({ contact, selected, onSelect, onClick, onAddToList }: Props) {
+export default function ContactRow({ contact, selected, onSelect, onClick, onAddToList, isMobile = false }: Props) {
   const fullName = `${contact.firstName} ${contact.lastName}`
   const inits = initials(contact.firstName, contact.lastName)
   const { blurred } = usePrivacy()
@@ -149,7 +151,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         "group grid items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs",
         selected ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
       )}
-      style={{ gridTemplateColumns: CONTACT_ROW_GRID }}
+      style={{ gridTemplateColumns: isMobile ? CONTACT_ROW_GRID_MOBILE : CONTACT_ROW_GRID }}
       onClick={() => onClick?.(contact)}
     >
       {/* Checkbox */}
@@ -255,46 +257,52 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         ) : null}
       </div>
 
-      {/* City */}
-      <div className="min-w-0">
-        <p className="text-xs text-gray-400 truncate">{normCity ?? ""}</p>
-      </div>
+      {/* City — desktop only */}
+      {!isMobile && (
+        <div className="min-w-0">
+          <p className="text-xs text-gray-400 truncate">{normCity ?? ""}</p>
+        </div>
+      )}
 
-      {/* Country + flag */}
+      {/* Country: flag + name on desktop, flag only on mobile */}
       <div className="min-w-0 flex items-center gap-1">
-        {flag && <span className="text-sm leading-none shrink-0">{flag}</span>}
-        <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>
+        {flag && <span className="text-sm leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>}
+        {!isMobile && <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>}
       </div>
 
-      {/* WA last interaction */}
-      <div className="flex items-center justify-end gap-1 shrink-0">
-        {waMsg ? (
-          <span
-            className={cn("font-medium tabular-nums", waMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
-            title={waMsg.isOutbound ? "Outbound WA message" : "Inbound WA message"}
-          >
-            {waMsg.isOutbound ? "↑" : "↓"}{" "}
-            {relTime(typeof waMsg.sentAt === "string" ? waMsg.sentAt : new Date(waMsg.sentAt).toISOString())}
-          </span>
-        ) : (
-          <span className="text-gray-200">—</span>
-        )}
-      </div>
+      {/* WA last interaction — desktop only */}
+      {!isMobile && (
+        <div className="flex items-center justify-end gap-1 shrink-0">
+          {waMsg ? (
+            <span
+              className={cn("font-medium tabular-nums", waMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
+              title={waMsg.isOutbound ? "Outbound WA message" : "Inbound WA message"}
+            >
+              {waMsg.isOutbound ? "↑" : "↓"}{" "}
+              {relTime(typeof waMsg.sentAt === "string" ? waMsg.sentAt : new Date(waMsg.sentAt).toISOString())}
+            </span>
+          ) : (
+            <span className="text-gray-200">—</span>
+          )}
+        </div>
+      )}
 
-      {/* LI DM last interaction */}
-      <div className="flex items-center justify-end gap-1 shrink-0">
-        {liDmMsg ? (
-          <span
-            className={cn("font-medium tabular-nums", liDmMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
-            title={liDmMsg.isOutbound ? "Outbound LinkedIn DM" : "Inbound LinkedIn DM"}
-          >
-            {liDmMsg.isOutbound ? "↑" : "↓"}{" "}
-            {relTime(typeof liDmMsg.sentAt === "string" ? liDmMsg.sentAt : new Date(liDmMsg.sentAt).toISOString())}
-          </span>
-        ) : (
-          <span className="text-gray-200">—</span>
-        )}
-      </div>
+      {/* LI DM last interaction — desktop only */}
+      {!isMobile && (
+        <div className="flex items-center justify-end gap-1 shrink-0">
+          {liDmMsg ? (
+            <span
+              className={cn("font-medium tabular-nums", liDmMsg.isOutbound ? "text-blue-500" : "text-emerald-600")}
+              title={liDmMsg.isOutbound ? "Outbound LinkedIn DM" : "Inbound LinkedIn DM"}
+            >
+              {liDmMsg.isOutbound ? "↑" : "↓"}{" "}
+              {relTime(typeof liDmMsg.sentAt === "string" ? liDmMsg.sentAt : new Date(liDmMsg.sentAt).toISOString())}
+            </span>
+          ) : (
+            <span className="text-gray-200">—</span>
+          )}
+        </div>
+      )}
 
       {/* Actions: status, labels, notes, connections, add-to-list */}
       <div className="flex items-center gap-1 justify-end shrink-0">
