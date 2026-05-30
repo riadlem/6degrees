@@ -808,7 +808,9 @@
     }
     // Find the experience section by data attribute or localized heading text.
     function findExperienceSection() {
-      const byAttr = document.querySelector("section[data-view-name*='experience']")
+      const byAttr = document.querySelector(
+        "section[data-view-name*='experience'], section[componentkey*='ExperienceTopLevelSection']"
+      )
       if (byAttr) return byAttr
       for (const s of document.querySelectorAll("main section")) {
         const h = s.querySelector("h2, h3")
@@ -823,7 +825,9 @@
     function findCurrentCompanyByPresent(expRoot) {
       if (!expRoot) return null
       // Each experience entry is typically an <li> or a pvs-entity div
-      for (const item of expRoot.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+      for (const item of expRoot.querySelectorAll(
+        "li, [class*='pvs-entity'], [class*='experience-item'], [componentkey*='ExperienceElement'], [componentkey*='MultiplePositionGroupListItem']"
+      )) {
         if (!PRESENT_RE.test(item.textContent)) continue
         for (const a of item.querySelectorAll("a[href*='/company/']")) {
           if (a.closest("aside")) continue
@@ -1144,6 +1148,14 @@
         if (/^\d/.test(t)) continue  // "2 years 3 months" etc.
         return t
       }
+      // SDUI v2: title may be in a <p> element (no aria-hidden spans used)
+      for (const p of item.querySelectorAll("p")) {
+        const t = (p.textContent ?? "").trim()
+        if (!t || t.length < 2 || t.length > 80) continue
+        if (DATE_RE.test(t) || EMP_TYPE_RE.test(t)) continue
+        if (/^\d/.test(t) || /·/.test(t)) continue
+        return t
+      }
       return null
     }
 
@@ -1175,7 +1187,10 @@
 
     // Look inside the experience section for an item with a "Present" date range.
     function findExperienceSection() {
-      const byAttr = document.querySelector("section[data-view-name*='experience']")
+      // LinkedIn SDUI v2 (2024+) uses componentkey; older layouts use data-view-name
+      const byAttr = document.querySelector(
+        "section[data-view-name*='experience'], section[componentkey*='ExperienceTopLevelSection']"
+      )
       if (byAttr) return byAttr
       for (const s of document.querySelectorAll("main section")) {
         const h = s.querySelector("h2, h3")
@@ -1190,7 +1205,9 @@
 
     // Collect all concurrent "Present" roles.
     const candidates = []
-    for (const item of expSection.querySelectorAll("li, [class*='pvs-entity'], [class*='experience-item']")) {
+    for (const item of expSection.querySelectorAll(
+      "li, [class*='pvs-entity'], [class*='experience-item'], [componentkey*='ExperienceElement'], [componentkey*='MultiplePositionGroupListItem']"
+    )) {
       if (!PRESENT_RE.test(item.textContent)) continue
       const title = titleFromItem(item)
       if (!title || title.length < 2 || title.length >= 80) continue
@@ -1200,6 +1217,34 @@
       // the employment type as "Part-time" anywhere in the item's text.
       const secondary = SECONDARY_RE.test(title) || PART_TIME_RE.test(item.textContent)
       candidates.push({ title, company, startYear, secondary })
+    }
+
+    // SDUI v2 fallback: when experience items aren't wrapped in <li>/pvs-entity,
+    // LinkedIn renders them as sequences of <p> elements:
+    //   <p>Sales Director</p>  <p>OSF Digital · CDI</p>  <p>Jan 2023 - Present · …</p>
+    // Find the first <p> matching PRESENT_RE, then look back for the title.
+    if (candidates.length === 0) {
+      const DATE_RE2 = /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|fév|avr|mai|juin|juil|août|\d{4})\b/i
+      const EMP_TYPE_RE2 = /\b(full.?time|part.?time|freelance|contract|internship|self.?employed|temps plein|temps partiel|ind[eé]pendant|CDI|CDD)\b/i
+      const allPs = [...expSection.querySelectorAll("p")]
+      for (let i = 0; i < allPs.length; i++) {
+        if (!PRESENT_RE.test(allPs[i].textContent ?? "")) continue
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          const t = (allPs[j].textContent ?? "").trim()
+          if (!t || t.length < 2 || t.length > 80) continue
+          if (DATE_RE2.test(t) || EMP_TYPE_RE2.test(t)) continue
+          if (/^\d/.test(t) || /·/.test(t)) continue
+          let company = null
+          if (j + 1 < allPs.length && j + 1 !== i) {
+            const ct = (allPs[j + 1].textContent ?? "").trim()
+            if (ct.includes("·")) company = ct.split("·")[0].trim().slice(0, 60) || null
+            if (company && company.length < 2) company = null
+          }
+          candidates.push({ title: t, company, startYear: 0, secondary: SECONDARY_RE.test(t) })
+          break
+        }
+        break
+      }
     }
 
     if (!candidates.length) return null

@@ -15,64 +15,6 @@ import MessagesTabBar from "@/components/MessagesTabBar"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const COUNTRY_ISO: Record<string, string> = {
-  "Afghanistan":"AF","Albania":"AL","Algeria":"DZ","Angola":"AO","Argentina":"AR",
-  "Armenia":"AM","Australia":"AU","Austria":"AT","Azerbaijan":"AZ","Bahrain":"BH",
-  "Bangladesh":"BD","Belarus":"BY","Belgium":"BE","Bolivia":"BO","Brazil":"BR",
-  "Bulgaria":"BG","Cambodia":"KH","Cameroon":"CM","Canada":"CA","Chile":"CL",
-  "China":"CN","Colombia":"CO","Costa Rica":"CR","Croatia":"HR","Cyprus":"CY",
-  "Czech Republic":"CZ","Czechia":"CZ","Denmark":"DK","Dominican Republic":"DO",
-  "Ecuador":"EC","Egypt":"EG","Estonia":"EE","Ethiopia":"ET","Finland":"FI",
-  "France":"FR","Georgia":"GE","Germany":"DE","Ghana":"GH","Greece":"GR",
-  "Guatemala":"GT","Honduras":"HN","Hong Kong":"HK","Hungary":"HU","Iceland":"IS",
-  "India":"IN","Indonesia":"ID","Iran":"IR","Iraq":"IQ","Ireland":"IE",
-  "Israel":"IL","Italy":"IT","Ivory Coast":"CI","Japan":"JP","Jordan":"JO",
-  "Kazakhstan":"KZ","Kenya":"KE","Kuwait":"KW","Latvia":"LV","Lebanon":"LB",
-  "Libya":"LY","Lithuania":"LT","Luxembourg":"LU","Malaysia":"MY","Malta":"MT",
-  "Mexico":"MX","Moldova":"MD","Morocco":"MA","Mozambique":"MZ","Myanmar":"MM",
-  "Nepal":"NP","Netherlands":"NL","New Zealand":"NZ","Nigeria":"NG","Norway":"NO",
-  "Oman":"OM","Pakistan":"PK","Palestine":"PS","Panama":"PA","Peru":"PE",
-  "Philippines":"PH","Poland":"PL","Portugal":"PT","Qatar":"QA","Romania":"RO",
-  "Russia":"RU","Rwanda":"RW","Saudi Arabia":"SA","Senegal":"SN","Serbia":"RS",
-  "Singapore":"SG","Slovakia":"SK","Slovenia":"SI","South Africa":"ZA",
-  "South Korea":"KR","Spain":"ES","Sri Lanka":"LK","Sudan":"SD","Sweden":"SE",
-  "Switzerland":"CH","Syria":"SY","Taiwan":"TW","Tanzania":"TZ","Thailand":"TH",
-  "Tunisia":"TN","Turkey":"TR","Türkiye":"TR","Uganda":"UG","Ukraine":"UA",
-  "United Arab Emirates":"AE","UAE":"AE","United Kingdom":"GB","UK":"GB",
-  "United States":"US","USA":"US","Uruguay":"UY","Uzbekistan":"UZ",
-  "Venezuela":"VE","Vietnam":"VN","Yemen":"YE","Zambia":"ZM","Zimbabwe":"ZW",
-}
-const FR_COUNTRY: Record<string, string> = {
-  "royaume-uni": "United Kingdom", "royaume uni": "United Kingdom",
-  "états-unis": "United States", "etats-unis": "United States",
-  "etats unis": "United States", "états unis": "United States",
-  "usa": "United States", "allemagne": "Germany", "espagne": "Spain",
-  "italie": "Italy", "pays-bas": "Netherlands", "belgique": "Belgium",
-  "suisse": "Switzerland", "autriche": "Austria", "chine": "China",
-  "japon": "Japan", "russie": "Russia", "pologne": "Poland",
-  "grèce": "Greece", "grece": "Greece", "danemark": "Denmark",
-  "norvège": "Norway", "norvege": "Norway", "suède": "Sweden",
-  "suede": "Sweden", "finlande": "Finland", "irlande": "Ireland",
-  "turquie": "Turkey", "maroc": "Morocco", "australie": "Australia",
-  "brésil": "Brazil", "bresil": "Brazil", "mexique": "Mexico",
-  "inde": "India", "égypte": "Egypt", "egypte": "Egypt",
-  "afrique du sud": "South Africa",
-  "emirats arabes unis": "United Arab Emirates",
-  "émirats arabes unis": "United Arab Emirates",
-  "arabie saoudite": "Saudi Arabia",
-  "sénégal": "Senegal", "senegal": "Senegal",
-  "côte d'ivoire": "Ivory Coast", "cote d'ivoire": "Ivory Coast",
-  "cameroun": "Cameroon",
-}
-function normCountry(c: string | null | undefined): string | null {
-  if (!c) return null
-  return FR_COUNTRY[c.trim().toLowerCase()] ?? c.trim()
-}
-function countryFlag(country: string): string {
-  const iso = COUNTRY_ISO[country]
-  if (!iso) return ""
-  return iso.split("").map((c) => String.fromCodePoint(c.charCodeAt(0) + 127397)).join("")
-}
 function relTime(dateStr: string): string {
   const ms = Date.now() - new Date(dateStr).getTime()
   const h = ms / 3_600_000
@@ -93,8 +35,8 @@ function WAIcon({ size = 16, className = "" }: { size?: number; className?: stri
   )
 }
 
-// Grid columns — header + rows must match
-const GRID = "2.5rem 1fr 4.5rem 6rem 5rem 6rem 3.5rem"
+// Grid: mobile shows avatar | name | last | actions; desktop adds msgs + response
+const GRID_CLASS = "[grid-template-columns:2.5rem_1fr_6rem_3.5rem] sm:[grid-template-columns:2.5rem_1fr_4.5rem_6rem_6rem_3.5rem]"
 
 type WAChat = {
   chatName: string
@@ -150,13 +92,9 @@ function ChatRow({
     ? Math.round((inboundCount / chat.messageCount) * 100)
     : 0
 
-  const country = normCountry(contact?.country)
-  const flag = country ? countryFlag(country) : ""
-
   return (
     <div
-      className="group grid items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-xs"
-      style={{ gridTemplateColumns: GRID }}
+      className={cn("group grid items-center gap-2 px-3 py-2.5 hover:bg-gray-50 transition-colors border-b border-gray-50 last:border-0 text-xs", GRID_CLASS)}
     >
       {/* Avatar — click to open contact profile */}
       <div
@@ -198,16 +136,16 @@ function ChatRow({
         </div>
       </div>
 
-      {/* Message count badge */}
-      <div className="shrink-0">
+      {/* Message count badge — hidden on mobile */}
+      <div className="hidden sm:block shrink-0">
         <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700 bg-green-50 rounded-full px-2 py-0.5">
           <WAIcon size={9} />
           {chat.messageCount.toLocaleString()}
         </span>
       </div>
 
-      {/* Response rate bar */}
-      <div className="min-w-0">
+      {/* Response rate bar — hidden on mobile */}
+      <div className="hidden sm:block min-w-0">
         <div className="flex items-center gap-1.5">
           <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden min-w-0">
             <div className="h-full bg-green-400 rounded-full" style={{ width: `${responseRate}%` }} />
@@ -219,12 +157,6 @@ function ChatRow({
           {" · "}
           <span className="text-blue-500">↑{chat.outboundCount}</span>
         </p>
-      </div>
-
-      {/* Country + flag */}
-      <div className="min-w-0 flex items-center gap-1">
-        {flag && <span className="text-sm leading-none shrink-0">{flag}</span>}
-        {country && <p className="text-xs text-gray-500 truncate">{country}</p>}
       </div>
 
       {/* Last message + direction */}
@@ -519,20 +451,18 @@ export default function WhatsAppPage() {
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         {/* Column headers */}
         <div
-          className="grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide"
-          style={{ gridTemplateColumns: GRID }}
+          className={cn("grid items-center gap-2 px-3 py-2 border-b border-gray-100 bg-gray-50 text-xs font-medium text-gray-400 uppercase tracking-wide", GRID_CLASS)}
         >
           <div />
           <div>Name</div>
           <button
             onClick={() => toggleSort("messageCount")}
-            className={cn("flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
+            className={cn("hidden sm:flex items-center justify-center gap-1 hover:text-gray-600 transition-colors", sort === "messageCount" && "text-gray-600")}
           >
             Msgs
             {sort === "messageCount" ? (order === "desc" ? <ArrowDown size={10} className="text-green-500" /> : <ArrowUp size={10} className="text-green-500" />) : <ArrowUpDown size={9} className="opacity-30" />}
           </button>
-          <div>Response</div>
-          <div>Country</div>
+          <div className="hidden sm:block">Response</div>
           <button
             onClick={() => toggleSort("lastAt")}
             className={cn("flex items-center justify-end gap-1 hover:text-gray-600 transition-colors", sort === "lastAt" && "text-gray-600")}
