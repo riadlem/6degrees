@@ -83,8 +83,8 @@ export async function GET(req: Request) {
   })
 
   await prisma.gmailSync.upsert({
-    where: { userId },
-    update: { gmailEmail },               // never overwrite an existing historyId on reconnect
+    where: { userId_gmailEmail: { userId, gmailEmail } },
+    update: {},  // don't overwrite historyId on reconnect
     create: { userId, gmailEmail, historyId },  // anchor set on first connection
   })
 

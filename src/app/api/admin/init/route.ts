@@ -144,6 +144,12 @@ CREATE TABLE IF NOT EXISTS "Label" (
 
 CREATE INDEX IF NOT EXISTS "Label_userId_idx" ON "Label"("userId");
 
+ALTER TABLE "GmailSync" ADD COLUMN IF NOT EXISTS "gmailEmail" TEXT;
+UPDATE "GmailSync" SET "gmailEmail" = 'unknown@gmail.com' WHERE "gmailEmail" IS NULL;
+ALTER TABLE "GmailSync" ALTER COLUMN "gmailEmail" SET NOT NULL;
+ALTER TABLE "GmailSync" DROP CONSTRAINT IF EXISTS "GmailSync_userId_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "GmailSync_userId_gmailEmail_key" ON "GmailSync"("userId", "gmailEmail");
+
 CREATE TABLE IF NOT EXISTS "ContactLabel" (
   "contactId" TEXT NOT NULL,
   "labelId" TEXT NOT NULL,
