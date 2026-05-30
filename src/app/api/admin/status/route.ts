@@ -1,17 +1,13 @@
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { getLastAuthError } from "@/lib/auth-error-store"
 
-function checkKey(req: Request) {
-  const key = new URL(req.url).searchParams.get("key")
-  const adminKey = process.env.ADMIN_KEY
-  if (!adminKey) return process.env.NODE_ENV !== "production"
-  return key === adminKey
-}
-
 const TABLES = ["User", "Account", "Session", "VerificationToken", "Contact", "ContactNote", "ContactList", "ContactListMember"] as const
 
-export async function GET(req: Request) {
-  if (!checkKey(req)) return new Response("Forbidden", { status: 403 })
+export async function GET() {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
   const dbUrl = process.env.POSTGRES_PRISMA_URL ?? process.env.DATABASE_URL ?? ""
   const dbUrlSafe = dbUrl.replace(/:([^:@]+)@/, ":***@")

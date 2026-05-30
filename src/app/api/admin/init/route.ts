@@ -1,11 +1,6 @@
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
-
-function checkKey(req: Request) {
-  const key = new URL(req.url).searchParams.get("key")
-  const adminKey = process.env.ADMIN_KEY
-  if (!adminKey) return process.env.NODE_ENV !== "production"
-  return key === adminKey
-}
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS "User" (
@@ -144,8 +139,9 @@ CREATE TABLE IF NOT EXISTS "ContactLabel" (
 );
 `
 
-export async function POST(req: Request) {
-  if (!checkKey(req)) return new Response("Forbidden", { status: 403 })
+export async function POST() {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
 
   const statements = SQL
     .split(";")
