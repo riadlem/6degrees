@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { matchChatNameToContact } from "@/lib/whatsapp-match"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -211,8 +211,12 @@ export async function POST(req: Request) {
           },
         })
 
-        // Recompute scores in the background — don't block the SSE stream
-        recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+        // Recalculate scores for matched contacts before closing the stream
+        const matchedIds = [...new Set(resolved.filter((c) => c.contactId).map((c) => c.contactId as string))]
+        if (matchedIds.length > 0) {
+          send({ type: "status", message: `Updating scores for ${matchedIds.length} contact${matchedIds.length !== 1 ? "s" : ""}…` })
+          await Promise.all(matchedIds.map((id) => recomputeScoreForContact(id).catch(() => {})))
+        }
 
         send({ type: "done", synced: totalSynced, chats: chats.length, matched: totalMatched })
       } catch (err) {

@@ -593,6 +593,7 @@ function ContactsContent() {
               { value: "mutual",        label: "Most connections" },
               { value: "mutual_asc",    label: "Fewest connections" },
               { value: "score",         label: "Interaction score" },
+              { value: "drift_score",   label: "Lapsed score" },
             ].map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}

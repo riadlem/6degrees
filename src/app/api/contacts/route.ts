@@ -246,7 +246,8 @@ export async function GET(request: Request) {
     sort === "mutual"         ? { commonConnections: { sort: "desc", nulls: "last" } } :
     sort === "mutual_asc"     ? { commonConnections: { sort: "asc",  nulls: "last" } } :
     sort === "name_desc"      ? { lastName: "desc" } :
-    sort === "score"          ? { interactionScore: "desc" } :
+    sort === "score"          ? { interactionScore: { sort: "desc", nulls: "last" } } :
+    sort === "drift_score"    ? { driftScore: { sort: "desc", nulls: "last" } } :
     sort === "country"        ? { country: "asc" } :
     sort === "country_desc"   ? { country: "desc" } :
     sort === "industry"       ? { industry: "asc" } :
@@ -329,7 +330,8 @@ export async function POST(request: Request) {
     sort === "mutual"         ? { commonConnections: { sort: "desc", nulls: "last" } } :
     sort === "mutual_asc"     ? { commonConnections: { sort: "asc",  nulls: "last" } } :
     sort === "name_desc"      ? { lastName: "desc" } :
-    sort === "score"          ? { interactionScore: "desc" } :
+    sort === "score"          ? { interactionScore: { sort: "desc", nulls: "last" } } :
+    sort === "drift_score"    ? { driftScore: { sort: "desc", nulls: "last" } } :
     sort === "country"        ? { country: "asc" } :
     sort === "country_desc"   ? { country: "desc" } :
     sort === "industry"       ? { industry: "asc" } :
