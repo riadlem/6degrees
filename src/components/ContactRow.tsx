@@ -387,8 +387,19 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         )}
       </div>
 
-      {/* Actions: status, labels, notes, connections, add-to-list */}
+      {/* Actions: score bar, status, labels, notes, connections, add-to-list */}
       <div className="flex items-center gap-1 justify-end shrink-0">
+        {contact.interactionScore != null && contact.interactionScore > 0 && (
+          <span className="inline-flex items-center gap-1 shrink-0" title={`Score: ${contact.interactionScore.toFixed(1)}`}>
+            <span className="relative w-10 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <span
+                className="absolute inset-y-0 left-0 bg-blue-400 rounded-full"
+                style={{ width: `${Math.min(100, contact.interactionScore * 4)}%` }}
+              />
+            </span>
+            <span className="text-[10px] text-gray-400 tabular-nums">{contact.interactionScore.toFixed(1)}</span>
+          </span>
+        )}
         {contact.commonConnections != null && contact.commonConnections > 0 && (
           <span className="inline-flex items-center gap-0.5 text-xs font-bold text-blue-700 bg-blue-100 rounded-full px-2 py-0.5">
             <Users size={10} />

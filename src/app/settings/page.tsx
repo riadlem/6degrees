@@ -54,16 +54,45 @@ type LkdPendingContact = { id: string; firstName: string; lastName: string; emai
 
 function ScoreSection() {
   const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle")
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
 
   async function recalculate() {
     setState("running")
+    setProgress(null)
     try {
       const res = await fetch("/api/reconnect/scores", { method: "POST" })
-      setState(res.ok ? "done" : "error")
+      if (!res.ok || !res.body) { setState("error"); return }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const text = decoder.decode(value, { stream: true })
+        for (const line of text.split("\n")) {
+          if (!line.startsWith("data: ")) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.ok) {
+              setState("done")
+              setProgress(null)
+            } else if (data.error) {
+              setState("error")
+            } else if (typeof data.done === "number") {
+              setProgress({ done: data.done, total: data.total })
+            }
+          } catch { /* partial chunk */ }
+        }
+      }
     } catch {
       setState("error")
     }
   }
+
+  const pct = progress && progress.total > 0
+    ? Math.round((progress.done / progress.total) * 100)
+    : null
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
@@ -76,22 +105,42 @@ function ScoreSection() {
           <p className="text-xs text-gray-500">Recalculate relationship scores from WhatsApp, LinkedIn DM, and email activity</p>
         </div>
       </div>
-      <div className="px-6 py-5 flex items-center justify-between gap-4">
-        <p className="text-xs text-gray-500 max-w-sm">
-          Run this after importing new messages or when scores on the Reconnect page look out of date. Usually takes a few seconds.
-        </p>
-        <div className="flex items-center gap-3 shrink-0">
-          {state === "done" && <span className="text-xs text-green-600 font-medium">✓ Done</span>}
-          {state === "error" && <span className="text-xs text-red-500 font-medium">Failed — try again</span>}
-          <button
-            onClick={recalculate}
-            disabled={state === "running"}
-            className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl font-medium transition-colors"
-          >
-            {state === "running" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            {state === "running" ? "Recalculating…" : "Recalculate scores"}
-          </button>
+      <div className="px-6 py-5 space-y-3">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-xs text-gray-500 max-w-sm">
+            Run this after importing new messages or when scores on the Reconnect page look out of date.
+          </p>
+          <div className="flex items-center gap-3 shrink-0">
+            {state === "done" && <span className="text-xs text-green-600 font-medium">✓ Done</span>}
+            {state === "error" && <span className="text-xs text-red-500 font-medium">Failed — try again</span>}
+            <button
+              onClick={recalculate}
+              disabled={state === "running"}
+              className="flex items-center gap-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl font-medium transition-colors"
+            >
+              {state === "running" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {state === "running" ? "Recalculating…" : "Recalculate scores"}
+            </button>
+          </div>
         </div>
+        {state === "running" && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>
+                {progress
+                  ? `Processing ${progress.done} / ${progress.total} contacts…`
+                  : "Loading messages…"}
+              </span>
+              {pct != null && <span>{pct}%</span>}
+            </div>
+            <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{ width: pct != null ? `${pct}%` : "0%" }}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

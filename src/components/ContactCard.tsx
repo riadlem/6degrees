@@ -32,6 +32,7 @@ export type ContactSummary = {
   labels: { label: { id: string; name: string; color: string } }[]
   whatsAppMessages:   { sentAt: string; isOutbound: boolean }[]
   linkedInDMMessages: { sentAt: string; isOutbound: boolean }[]
+  interactionScore: number | null
 }
 
 /**

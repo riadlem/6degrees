@@ -127,6 +127,7 @@ type Contact = {
   education: EducationEntry[] | null
   sharedConnections: SharedConnection[] | null
   lastInteractionAt: string | null
+  interactionScore: number | null
   outreachStatus: string | null
   emailAddress: string | null
   emailAddresses: { email: string; isPrimary: boolean }[]
@@ -679,7 +680,7 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                       <span className="text-sm text-gray-700 group-hover/company:text-blue-600">{contact.company}</span>
                     </Link>
                   )}
-                  {(contact.connectedOn || (contact.commonConnections != null && contact.commonConnections > 0)) && (
+                  {(contact.connectedOn || (contact.commonConnections != null && contact.commonConnections > 0) || contact.interactionScore != null) && (
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       {contact.connectedOn && (
                         <span className="inline-flex items-center gap-1 text-xs text-gray-400">
@@ -691,6 +692,18 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 rounded-full px-2 py-0.5">
                           <Users size={10} className="shrink-0" />
                           {contact.commonConnections} mutual
+                        </span>
+                      )}
+                      {contact.interactionScore != null && contact.interactionScore > 0 && (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-gray-500" title={`Interaction score: ${contact.interactionScore.toFixed(1)}`}>
+                          <span className="text-gray-400">Score</span>
+                          <span className="relative w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <span
+                              className="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
+                              style={{ width: `${Math.min(100, contact.interactionScore * 4)}%` }}
+                            />
+                          </span>
+                          <span className="font-medium text-gray-700 tabular-nums">{contact.interactionScore.toFixed(1)}</span>
                         </span>
                       )}
                     </div>
