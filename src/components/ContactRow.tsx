@@ -120,8 +120,8 @@ const LEVEL_TITLES: Record<"connected" | "pending" | "followed" | "saved", strin
 
 // Grid columns: checkbox | avatar | LI | name+pos | company | city | country | WA last | LI DM last | actions
 export const CONTACT_ROW_GRID        = "36px 2.5rem 1.5rem 1fr 1fr 80px 90px 5rem 5rem 5.5rem"
-// Mobile: hide city, country text, WA, LI DM — show flag only for country
-export const CONTACT_ROW_GRID_MOBILE = "36px 2.5rem 1.5rem 1fr 1fr 1.5rem 3.5rem"
+// Mobile: avatar · LI · name+flag · company · actions (no city/country/WA/LI DM columns)
+export const CONTACT_ROW_GRID_MOBILE = "36px 2.5rem 1.5rem 1fr 1fr 3.5rem"
 
 interface Props {
   contact: ContactSummary
@@ -148,7 +148,8 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
   return (
     <div
       className={cn(
-        "group grid items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs",
+        "group grid gap-2 px-3 py-2 cursor-pointer transition-colors text-xs",
+        isMobile ? "items-start" : "items-center",
         selected ? "bg-blue-50" : "odd:bg-white even:bg-gray-50/60 hover:bg-gray-100"
       )}
       style={{ gridTemplateColumns: isMobile ? CONTACT_ROW_GRID_MOBILE : CONTACT_ROW_GRID }}
@@ -215,15 +216,20 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         ) : null}
       </div>
 
-      {/* Name + position + optional email */}
+      {/* Name + position + flag (mobile) + optional email */}
       <div className="min-w-0">
-        <p className={cn("font-semibold text-gray-900 text-sm truncate leading-tight", blurred && "blur-sm select-none")}>
+        <p className={cn("font-semibold text-gray-900 text-sm leading-tight", isMobile ? "break-words" : "truncate", blurred && "blur-sm select-none")}>
           {fullName}
         </p>
-        {contact.position && (
-          <p className="text-xs text-gray-400 truncate leading-tight">{contact.position}</p>
-        )}
-        {emailKind && (
+        <div className="flex items-center gap-1 leading-tight">
+          {isMobile && flag && (
+            <span className="text-xs leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>
+          )}
+          {contact.position && (
+            <p className={cn("text-xs text-gray-400 leading-tight", isMobile ? "break-words" : "truncate")}>{contact.position}</p>
+          )}
+        </div>
+        {emailKind && !isMobile && (
           <div
             className={cn("text-[10px] flex items-center gap-0.5 mt-0.5", EMAIL_KIND_COLOR[emailKind])}
             title={EMAIL_KIND_TITLE[emailKind]}
@@ -252,7 +258,7 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
               size={14}
               radius="rounded-sm"
             />
-            <p className="text-xs text-gray-500 group-hover/company:text-blue-600 truncate">{contact.company}</p>
+            <p className={cn("text-xs text-gray-500 group-hover/company:text-blue-600", isMobile ? "break-words" : "truncate")}>{contact.company}</p>
           </Link>
         ) : null}
       </div>
@@ -264,11 +270,13 @@ export default function ContactRow({ contact, selected, onSelect, onClick, onAdd
         </div>
       )}
 
-      {/* Country: flag + name on desktop, flag only on mobile */}
-      <div className="min-w-0 flex items-center gap-1">
-        {flag && <span className="text-sm leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>}
-        {!isMobile && <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>}
-      </div>
+      {/* Country: flag + name on desktop only (mobile flag is in name cell) */}
+      {!isMobile && (
+        <div className="min-w-0 flex items-center gap-1">
+          {flag && <span className="text-sm leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>}
+          <p className="text-xs text-gray-500 truncate">{normCountry ?? ""}</p>
+        </div>
+      )}
 
       {/* WA last interaction — desktop only */}
       {!isMobile && (

@@ -154,9 +154,9 @@ const LI_ICON_PATH =
 const WA_ICON_PATH =
   "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z M12 0C5.373 0 0 5.373 0 12c0 2.117.554 4.103 1.524 5.826L0 24l6.342-1.5A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.846 0-3.573-.5-5.061-1.374l-.364-.216-3.766.891.953-3.675-.236-.376A9.952 9.952 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"
 
-// Grid columns — desktop shows all; mobile compacts to: avatar · name · company · flag · actions
+// Grid columns — desktop shows all; mobile: avatar · name · company · actions (flag in name cell)
 const GRID_DESKTOP = "36px 1fr 1fr 90px 1fr 3.5rem 5rem 5rem 4rem"
-const GRID_MOBILE  = "36px 1fr 1fr 1.5rem 3.5rem"
+const GRID_MOBILE  = "36px 1fr 1fr 3.5rem"
 
 // Relative time: "3h", "2d", "1w", "3mo"
 function relTime(dateStr: string): string {
@@ -353,7 +353,6 @@ function ListDetailContent() {
   const HEADER_COLS: { key: SortCol | null; label: string }[] = isMobile ? [
     { key: "name",    label: "Name" },
     { key: "company", label: "Co." },
-    { key: null,      label: "" },   // flag
     { key: null,      label: "" },   // actions
   ] : [
     { key: "name",        label: "Name" },
@@ -635,23 +634,28 @@ function ListDetailContent() {
                   )}
                 </div>
 
-                {/* ── Name + position (clickable) ── */}
+                {/* ── Name + position + flag (mobile second line) ── */}
                 <div
                   className="min-w-0 cursor-pointer"
                   onClick={() => openContact(contact.id)}
                 >
-                  <p className={cn("text-sm font-medium text-gray-900 truncate leading-snug hover:text-blue-600 transition-colors", blurred && "blur-sm select-none")}>
+                  <p className={cn("text-sm font-medium text-gray-900 leading-snug hover:text-blue-600 transition-colors", isMobile ? "break-words" : "truncate", blurred && "blur-sm select-none")}>
                     {fullName}
                   </p>
-                  {contact.position && (
-                    <p className="text-xs text-gray-500 truncate">{contact.position}</p>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {isMobile && flag && (
+                      <span className="text-xs leading-none shrink-0" title={normCountry ?? undefined}>{flag}</span>
+                    )}
+                    {contact.position && (
+                      <p className={cn("text-xs text-gray-500", isMobile ? "break-words" : "truncate")}>{contact.position}</p>
+                    )}
+                  </div>
                 </div>
 
                 {/* ── Company ── */}
                 <div className="min-w-0">
                   {contact.company
-                    ? <p className="text-sm text-gray-700 truncate">{contact.company}</p>
+                    ? <p className={cn("text-sm text-gray-700", isMobile ? "break-words" : "truncate")}>{contact.company}</p>
                     : <span className="text-gray-300">—</span>
                   }
                   {contact.industry && (
@@ -669,17 +673,19 @@ function ListDetailContent() {
                   </div>
                 )}
 
-                {/* ── Country: flag + name on desktop, flag only on mobile ── */}
-                <div className="min-w-0 flex items-center gap-1.5">
-                  {normCountry ? (
-                    <>
-                      {flag && <span className="text-base leading-none shrink-0" title={normCountry}>{flag}</span>}
-                      {!isMobile && <p className="text-xs text-gray-600 truncate">{normCountry}</p>}
-                    </>
-                  ) : (
-                    <span className="text-gray-300 text-xs">—</span>
-                  )}
-                </div>
+                {/* ── Country: flag + name on desktop only (mobile flag is in name cell) ── */}
+                {!isMobile && (
+                  <div className="min-w-0 flex items-center gap-1.5">
+                    {normCountry ? (
+                      <>
+                        {flag && <span className="text-base leading-none shrink-0" title={normCountry}>{flag}</span>}
+                        <p className="text-xs text-gray-600 truncate">{normCountry}</p>
+                      </>
+                    ) : (
+                      <span className="text-gray-300 text-xs">—</span>
+                    )}
+                  </div>
+                )}
 
                 {/* ── Mutual connections — desktop only ── */}
                 {!isMobile && (
