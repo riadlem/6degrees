@@ -11,7 +11,9 @@ import {
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import { summariseSegment, type SegmentDef } from "@/lib/segment-executor"
 import ShareModal from "@/components/ShareModal"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import SegmentBuilder from "@/components/SegmentBuilder"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import { linkedinLevel, type ContactSummary } from "@/components/ContactCard"

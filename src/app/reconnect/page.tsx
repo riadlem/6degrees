@@ -5,7 +5,9 @@ import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { RefreshCcw, Clock, Sparkles, MoreHorizontal, Ban, ClipboardList, Trash2, Chrome, AlignJustify, LayoutGrid, History, RotateCcw, ChevronDown, ExternalLink } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import OutreachDraftModal from "@/components/OutreachDraftModal"
 import EnrichContent from "@/components/EnrichContent"
 import { usePrivacy } from "@/contexts/PrivacyContext"

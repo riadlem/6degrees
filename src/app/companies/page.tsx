@@ -787,6 +787,10 @@ function CompaniesContent() {
     return [...set].sort()
   }, [companies])
 
+  // Hoisted out of renderRow so it's allocated once per data change instead of
+  // once per row (was O(N²) and broke CompanyRow memoization).
+  const allCompanyNames = useMemo(() => companies.map((c) => c.name), [companies])
+
   const textMatch = (c: Company) =>
     !q || c.name.toLowerCase().includes(q.toLowerCase()) || c.industry?.toLowerCase().includes(q.toLowerCase())
 
@@ -850,7 +854,7 @@ function CompaniesContent() {
       <CompanyRow
         key={c.name}
         company={c}
-        allCompanyNames={companies.map((c) => c.name)}
+        allCompanyNames={allCompanyNames}
         pendingSuggestion={pending}
         onSetStatus={setStatus}
         onSetSize={setSize}

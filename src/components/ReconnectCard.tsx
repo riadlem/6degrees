@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { Mail, Clock, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 
@@ -47,7 +48,7 @@ type Props = {
   onMarkInvitationSent: () => void
 }
 
-export default function ReconnectCard({
+function ReconnectCard({
   contact,
   isLapsed,
   scoreWidth,
@@ -231,3 +232,6 @@ export default function ReconnectCard({
     </div>
   )
 }
+
+// Memoized: rendered per row in the Reconnect list.
+export default memo(ReconnectCard)

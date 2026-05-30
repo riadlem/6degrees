@@ -11,7 +11,9 @@ import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopove
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
 import ContactRow, { CONTACT_ROW_GRID } from "@/components/ContactRow"
 import ContactFilters, { type FilterState } from "@/components/ContactFilters"
-import ContactDetail from "@/components/ContactDetail"
+import dynamic from "next/dynamic"
+// Lazy-load the contact drawer — it is large and only mounts on open.
+const ContactDetail = dynamic(() => import("@/components/ContactDetail"), { ssr: false })
 import AddToListModal from "@/components/AddToListModal"
 import ManageLabelsModal from "@/components/ManageLabelsModal"
 import SegmentBuilder from "@/components/SegmentBuilder"
