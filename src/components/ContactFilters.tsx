@@ -57,6 +57,7 @@ const SORT_OPTIONS = [
   { value: "recent",        label: "Recently synced" },
   { value: "location",      label: "Location A–Z" },
   { value: "score",         label: "Interaction score" },
+  { value: "drift_score",   label: "Lapsed score" },
   { value: "country",       label: "Country A–Z" },
   { value: "country_desc",  label: "Country Z–A" },
   { value: "industry",      label: "Industry A–Z" },

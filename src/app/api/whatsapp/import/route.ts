@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseWhatsAppExport, extractChatName } from "@/lib/whatsapp-parser"
 import { matchChatNameToContact, enrichContactFromPhoneBook } from "@/lib/whatsapp-match"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -50,6 +50,7 @@ export async function POST(req: Request) {
         let totalSynced = 0
         let totalChats = 0
         let totalMatched = 0
+        const matchedContactIds = new Set<string>()
 
         // Only import messages from the last 4 years — older interactions
         // have negligible score weight and bloat the table unnecessarily.
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
           totalChats++
           if (contactId) {
             totalMatched++
+            matchedContactIds.add(contactId)
             await enrichContactFromPhoneBook(userId, contactId, chatName)
           }
 
@@ -122,8 +124,12 @@ export async function POST(req: Request) {
           },
         })
 
-        // Recompute scores in the background — don't block the SSE stream
-        recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+        // Recalculate scores for matched contacts before closing the stream
+        // so they surface immediately on the Reconnect page
+        if (matchedContactIds.size > 0) {
+          send({ type: "status", message: `Updating scores for ${matchedContactIds.size} contact${matchedContactIds.size !== 1 ? "s" : ""}…` })
+          await Promise.all([...matchedContactIds].map((id) => recomputeScoreForContact(id).catch(() => {})))
+        }
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched })
       } catch (err) {
