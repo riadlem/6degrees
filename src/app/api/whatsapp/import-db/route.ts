@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { matchChatNameToContact } from "@/lib/whatsapp-match"
-import { recomputeScoreForContact } from "@/lib/reconnect-score"
+import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -297,7 +297,7 @@ export async function POST(req: Request) {
         )]
         if (matchedIds.length > 0) {
           send({ type: "status", message: `Updating scores for ${matchedIds.length} contact${matchedIds.length !== 1 ? "s" : ""}…` })
-          await Promise.all(matchedIds.map((id) => recomputeScoreForContact(id).catch(() => {})))
+          await recomputeScores(userId, { contactIds: matchedIds }).catch(() => {})
         }
 
         send({ type: "done", synced: totalSynced, chats: chats.length, matched: totalMatched })

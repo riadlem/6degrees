@@ -26,7 +26,11 @@ type ContactRow = {
   connectedOn: Date | null
 }
 
+// Runs once per lambda instead of on every request.
+let _columnsEnsured = false
 async function ensureColumns() {
+  if (_columnsEnsured) return
+  _columnsEnsured = true
   await prisma.$executeRaw`
     ALTER TABLE "LinkedInDMConversation" ADD COLUMN IF NOT EXISTS "ignored" BOOLEAN NOT NULL DEFAULT FALSE
   `.catch(() => {})

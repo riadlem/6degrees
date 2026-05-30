@@ -2,20 +2,19 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { getLastAuthError } from "@/lib/auth-error-store"
+import { isAdminSession } from "@/lib/admin"
 
 const TABLES = ["User", "Account", "Session", "VerificationToken", "Contact", "ContactNote", "ContactList", "ContactListMember"] as const
 
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
-
-  const dbUrl = process.env.POSTGRES_PRISMA_URL ?? process.env.DATABASE_URL ?? ""
-  const dbUrlSafe = dbUrl.replace(/:([^:@]+)@/, ":***@")
+  // Diagnostics expose deployment topology and global row counts — admin-only.
+  if (!isAdminSession(session)) return new Response("Forbidden", { status: 403 })
 
   const env = {
     POSTGRES_PRISMA_URL: !!process.env.POSTGRES_PRISMA_URL,
     POSTGRES_URL_NON_POOLING: !!process.env.POSTGRES_URL_NON_POOLING,
-    DATABASE_URL_preview: dbUrlSafe || null,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? null,
     NEXTAUTH_SECRET: !!process.env.NEXTAUTH_SECRET,
     LINKEDIN_CLIENT_ID: !!process.env.LINKEDIN_CLIENT_ID,

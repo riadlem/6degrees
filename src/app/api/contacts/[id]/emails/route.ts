@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { normalizeEmail } from "@/lib/gmail"
-import { recomputeScores } from "@/lib/reconnect-score"
+import { recomputeScoreForContact } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -74,8 +74,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     data: { contactId: null },
   })
 
-  // Recompute scores in the background — don't block the response
-  recomputeScores(userId).catch((err) => console.error("recomputeScores failed:", err))
+  // Recompute the score for just this contact — don't block the response
+  recomputeScoreForContact(params.id).catch((err) => console.error("recomputeScore failed:", err))
 
   return Response.json({ ok: true })
 }

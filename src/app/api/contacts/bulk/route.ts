@@ -57,9 +57,17 @@ export async function PATCH(request: Request) {
     if (value === "") {
       return Response.json({ updated: 0 })
     }
+    // Only create notes on contacts that belong to this user (the column-update
+    // path is userId-scoped via updateMany; this path must scope explicitly to
+    // avoid writing notes onto another user's contacts).
+    const owned = await prisma.contact.findMany({
+      where: { id: { in: ids as string[] }, userId },
+      select: { id: true },
+    })
+    if (owned.length === 0) return Response.json({ updated: 0 })
     const result = await prisma.contactNote.createMany({
-      data: (ids as string[]).map((contactId) => ({
-        contactId,
+      data: owned.map(({ id }) => ({
+        contactId: id,
         content: value,
       })),
       skipDuplicates: false,

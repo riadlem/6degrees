@@ -106,6 +106,10 @@ export async function POST(req: Request) {
         if (keepaliveTimer) { clearInterval(keepaliveTimer); keepaliveTimer = null }
       }
 
+      // Contacts whose emails were (re)matched this run — used to scope the
+      // post-sync score recompute instead of re-scoring the whole address book.
+      const touchedContactIds = new Set<string>()
+
       try {
         for (const account of allAccounts) {
           const currentEmail = account.providerAccountId
@@ -296,6 +300,7 @@ export async function POST(req: Request) {
                   })
 
                   if (contactId) {
+                    touchedContactIds.add(contactId)
                     const relevantEmail = parsed.isOutbound ? parsed.toEmails[0] : parsed.fromEmail
                     if (relevantEmail) {
                       recordMatchedEmailCached(
@@ -387,9 +392,12 @@ export async function POST(req: Request) {
           })
         }
 
-        // Recompute interaction scores after all accounts are synced
-        send({ type: "status", message: "Computing relationship scores…" })
-        await recomputeScores(userId)
+        // Recompute interaction scores only for contacts whose emails changed
+        // this run. Skip entirely when nothing matched.
+        if (touchedContactIds.size > 0) {
+          send({ type: "status", message: "Computing relationship scores…" })
+          await recomputeScores(userId, { contactIds: [...touchedContactIds] })
+        }
 
       } catch (err) {
         send({ type: "error", message: err instanceof Error ? err.message : "Sync failed" })

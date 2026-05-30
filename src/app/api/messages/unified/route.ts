@@ -27,7 +27,12 @@ type LiInboxRow = { conversationId: string; chatName: string; contactId: string 
 type EmailRow = { key: string; chatName: string; contactId: string | null; lastAt: Date; lastIsOutbound: boolean; subject: string | null; fromEmail: string }
 type ContactRow = { id: string; firstName: string; lastName: string; company: string | null; photoUrl: string | null; profileUrl: string | null }
 
+// Runs once per lambda rather than on every request — the DDL is a no-op once
+// the columns exist but still costs a serial round-trip on this hot read path.
+let _columnsEnsured = false
 async function ensureInboxColumns() {
+  if (_columnsEnsured) return
+  _columnsEnsured = true
   await prisma.$executeRaw`
     ALTER TABLE "LinkedInDMConversation"
     ADD COLUMN IF NOT EXISTS "lastInboxAt" TIMESTAMP(3),

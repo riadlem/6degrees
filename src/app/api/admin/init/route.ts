@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
+import { isAdminSession } from "@/lib/admin"
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS "User" (
@@ -147,6 +148,10 @@ CREATE INDEX IF NOT EXISTS "Label_userId_idx" ON "Label"("userId");
 ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "senderName" TEXT;
 ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "isGroup" BOOLEAN DEFAULT FALSE;
 
+-- Performance indexes (match prisma/schema.prisma @@index declarations)
+CREATE INDEX IF NOT EXISTS "EmailMessage_userId_fromEmail_idx" ON "EmailMessage"("userId","fromEmail");
+CREATE INDEX IF NOT EXISTS "Contact_userId_driftScore_idx" ON "Contact"("userId","driftScore");
+
 ALTER TABLE "GmailSync" ADD COLUMN IF NOT EXISTS "gmailEmail" TEXT;
 UPDATE "GmailSync" SET "gmailEmail" = 'unknown@gmail.com' WHERE "gmailEmail" IS NULL;
 ALTER TABLE "GmailSync" ALTER COLUMN "gmailEmail" SET NOT NULL;
@@ -166,6 +171,8 @@ CREATE TABLE IF NOT EXISTS "ContactLabel" (
 export async function POST() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return new Response("Unauthorized", { status: 401 })
+  // Schema migrations are admin-only — a logged-in non-admin must not run DDL.
+  if (!isAdminSession(session)) return new Response("Forbidden", { status: 403 })
 
   const statements = SQL
     .split(";")

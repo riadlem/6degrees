@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth"
 import prisma from "@/lib/prisma"
 import { parseWhatsAppExport, extractChatName } from "@/lib/whatsapp-parser"
 import { matchChatNameToContact, enrichContactFromPhoneBook } from "@/lib/whatsapp-match"
-import { recomputeScoreForContact } from "@/lib/reconnect-score"
+import { recomputeScores } from "@/lib/reconnect-score"
 
 export const maxDuration = 300
 
@@ -169,10 +169,12 @@ export async function POST(req: Request) {
           },
         })
 
-        // Recalculate scores for matched contacts before closing the stream
+        // Recalculate scores for matched contacts before closing the stream.
+        // Scoped batch recompute = a few indexed reads + bulk UPDATEs instead of
+        // 4 queries × N contacts.
         if (matchedContactIds.size > 0) {
           send({ type: "status", message: `Updating scores for ${matchedContactIds.size} contact${matchedContactIds.size !== 1 ? "s" : ""}…` })
-          await Promise.all([...matchedContactIds].map((id) => recomputeScoreForContact(id).catch(() => {})))
+          await recomputeScores(userId, { contactIds: [...matchedContactIds] }).catch(() => {})
         }
 
         send({ type: "done", synced: totalSynced, chats: totalChats, matched: totalMatched })

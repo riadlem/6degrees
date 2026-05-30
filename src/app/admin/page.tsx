@@ -9,7 +9,6 @@ type StatusData = {
   env: {
     POSTGRES_PRISMA_URL: boolean
     POSTGRES_URL_NON_POOLING: boolean
-    DATABASE_URL_preview: string | null
     NEXTAUTH_URL: string | null
     NEXTAUTH_SECRET: boolean
     LINKEDIN_CLIENT_ID: boolean
@@ -141,7 +140,7 @@ function AdminContent() {
         </div>
         <div className="space-y-2.5">
           {[
-            { key: "POSTGRES_PRISMA_URL", ok: data.env.POSTGRES_PRISMA_URL, value: data.env.DATABASE_URL_preview },
+            { key: "POSTGRES_PRISMA_URL", ok: data.env.POSTGRES_PRISMA_URL },
             { key: "POSTGRES_URL_NON_POOLING", ok: data.env.POSTGRES_URL_NON_POOLING },
             { key: "NEXTAUTH_SECRET", ok: data.env.NEXTAUTH_SECRET },
             { key: "NEXTAUTH_URL", ok: !!data.env.NEXTAUTH_URL, value: data.env.NEXTAUTH_URL },

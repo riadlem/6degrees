@@ -140,6 +140,7 @@ model Contact {
   @@index([userId, company])
   @@index([userId, industry])
   @@index([userId, interactionScore])
+  @@index([userId, driftScore])
   @@index([userId, firstName])
   @@index([userId, lastName])
   @@index([userId, outreachStatus])
@@ -317,6 +318,7 @@ model EmailMessage {
   @@unique([userId, gmailId])
   @@index([userId, contactId])
   @@index([contactId, sentAt])
+  @@index([userId, fromEmail])
 }
 
 model OutreachDraft {

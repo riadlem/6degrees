@@ -19,12 +19,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     return Response.json({ error: "contactIds required" }, { status: 400 })
   }
 
+  // Only attach contacts that belong to this user (prevents linking a label to
+  // a foreign contact by guessing its id).
+  const owned = await prisma.contact.findMany({
+    where: { id: { in: contactIds }, userId: session.user.id },
+    select: { id: true },
+  })
+
   await prisma.contactLabel.createMany({
-    data: contactIds.map((contactId) => ({ contactId, labelId: params.id })),
+    data: owned.map(({ id }) => ({ contactId: id, labelId: params.id })),
     skipDuplicates: true,
   })
 
-  return Response.json({ ok: true })
+  return Response.json({ ok: true, added: owned.length })
 }
 
 // Remove contactIds from this label

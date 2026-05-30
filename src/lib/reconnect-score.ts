@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const FAST_LAMBDA       = Math.log(2) / 30  // 30-day half-life (recency decay)
@@ -105,22 +106,35 @@ export async function recomputeScoreForContact(contactId: string): Promise<void>
   await prisma.contact.update({ where: { id: contactId }, data: { interactionScore: score, driftScore, lastInteractionAt } })
 }
 
-// ── Batch recompute for all contacts of a user ────────────────────────────────
+// ── Batch recompute ────────────────────────────────────────────────────────────
+// By default recomputes scores for every contact of the user. Pass
+// `contactIds` to scope the recompute to only the contacts an import/sync just
+// touched — this turns three full-table message scans + N writes into a handful
+// of indexed reads + a few bulk UPDATEs. Use the unscoped form only for an
+// explicit "recompute everything" (the /api/reconnect/scores endpoint).
 export async function recomputeScores(
   userId: string,
-  onProgress?: (done: number, total: number) => void,
+  opts?: { contactIds?: string[]; onProgress?: (done: number, total: number) => void },
 ): Promise<void> {
+  const { contactIds, onProgress } = opts ?? {}
+  // When scoping to specific contacts, nothing to do for an empty set.
+  if (contactIds && contactIds.length === 0) return
+
+  const scopeMsg = contactIds
+    ? { contactId: { in: contactIds } }
+    : { userId, contactId: { not: null } }
+
   const [emailRows, waRows, liDMRows] = await Promise.all([
     prisma.emailMessage.findMany({
-      where: { userId, contactId: { not: null } },
+      where: scopeMsg,
       select: { contactId: true, sentAt: true, isOutbound: true },
     }),
     prisma.whatsAppMessage.findMany({
-      where: { userId, contactId: { not: null } },
+      where: scopeMsg,
       select: { contactId: true, sentAt: true, isOutbound: true },
     }),
     prisma.linkedInDMMessage.findMany({
-      where: { userId, contactId: { not: null } },
+      where: scopeMsg,
       select: { contactId: true, sentAt: true, isOutbound: true },
     }),
   ])
@@ -140,9 +154,12 @@ export async function recomputeScores(
     byContact.set(row.contactId, arr)
   }
 
-  // Include contacts with commonConnections but no messages yet
+  // Include contacts with commonConnections but no messages yet (so the
+  // shared-connections bonus alone can surface them). Scope to contactIds too.
   const contactsWithConnections = await prisma.contact.findMany({
-    where: { userId, commonConnections: { gt: 0 } },
+    where: contactIds
+      ? { id: { in: contactIds }, commonConnections: { gt: 0 } }
+      : { userId, commonConnections: { gt: 0 } },
     select: { id: true, commonConnections: true },
   })
   const connectionsMap = new Map<string, number>()
@@ -151,27 +168,34 @@ export async function recomputeScores(
     if (!byContact.has(c.id)) byContact.set(c.id, [])
   }
 
-  // Batch update in chunks of 100
+  // Compute then flush in chunks via a single bulk UPDATE per chunk
+  // (UPDATE … FROM (VALUES …)) instead of one round-trip per contact.
   const entries = Array.from(byContact.entries())
   const total = entries.length
-  const CHUNK = 100
+  const CHUNK = 500
   for (let i = 0; i < entries.length; i += CHUNK) {
     const chunk = entries.slice(i, i + CHUNK)
-    await Promise.all(
-      chunk.map(([contactId, msgs]) => {
-        const connections = connectionsMap.get(contactId) ?? null
-        const score = computeScore(msgs, connections)
-        if (score === 0) return Promise.resolve()
-        const lastInteractionAt = msgs.length
-          ? msgs.reduce<Date | null>((max, m) => (!max || m.sentAt > max ? m.sentAt : max), null)
-          : null
-        const driftScore = computeDriftScore(msgs, lastInteractionAt)
-        return prisma.contact.update({
-          where: { id: contactId },
-          data: { interactionScore: score, driftScore, ...(lastInteractionAt ? { lastInteractionAt } : {}) },
-        })
-      }),
-    )
+    const rows: Prisma.Sql[] = []
+    for (const [contactId, msgs] of chunk) {
+      const connections = connectionsMap.get(contactId) ?? null
+      const score = computeScore(msgs, connections)
+      if (score === 0) continue // preserve prior behaviour: never zero out a score
+      const lastInteractionAt = msgs.length
+        ? msgs.reduce<Date | null>((max, m) => (!max || m.sentAt > max ? m.sentAt : max), null)
+        : null
+      const driftScore = computeDriftScore(msgs, lastInteractionAt)
+      rows.push(Prisma.sql`(${contactId}::text, ${score}::double precision, ${driftScore}::double precision, ${lastInteractionAt}::timestamp)`)
+    }
+    if (rows.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE "Contact" AS c
+        SET "interactionScore" = v.score,
+            "driftScore"       = v.drift,
+            "lastInteractionAt" = COALESCE(v.last, c."lastInteractionAt")
+        FROM (VALUES ${Prisma.join(rows)}) AS v(id, score, drift, last)
+        WHERE c.id = v.id
+      `
+    }
     onProgress?.(Math.min(i + CHUNK, total), total)
   }
 }
