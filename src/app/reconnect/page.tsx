@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2, Chrome, AlignJustify, LayoutGrid } from "lucide-react"
+import { RefreshCcw, Mail, Clock, ChevronRight, Sparkles, ExternalLink, Check, MoreHorizontal, Ban, AlarmClock, Timer, ClipboardList, Trash2, Chrome, AlignJustify, LayoutGrid, History, RotateCcw, ChevronDown } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
 import OutreachDraftModal from "@/components/OutreachDraftModal"
@@ -20,6 +20,7 @@ type ReconnectContact = {
   emailAddress: string | null
   lastInteractionAt: string | null
   interactionScore: number | null
+  driftScore: number | null
   outreachStatus: string | null
   outreachUpdatedAt: string | null
   labels: { label: { id: string; name: string; color: string } }[]
@@ -27,6 +28,7 @@ type ReconnectContact = {
 
 const STATUS_TABS = [
   { value: "",               label: "All" },
+  { value: "lapsed",         label: "Lapsed" },
   { value: "lkd_pending",    label: "Invite to LinkedIn" },
   { value: "not_contacted",  label: "Not contacted" },
   { value: "drafted",        label: "Drafted" },
@@ -65,6 +67,10 @@ function ReconnectContent() {
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reachOutView, setReachOutView] = useState<"list" | "photos">("list")
   const [reviewView, setReviewView] = useState<"list" | "photos">("list")
+  const [showIgnored, setShowIgnored] = useState(false)
+  const [ignoredContacts, setIgnoredContacts] = useState<ReconnectContact[]>([])
+  const [ignoredLoading, setIgnoredLoading] = useState(false)
+  const [ignoredLoaded, setIgnoredLoaded] = useState(false)
 
   // Saved (extension history) tab state
   type ExtContact = { id: string; firstName: string; lastName: string; company: string | null; position: string | null; city: string | null; country: string | null; location: string | null; photoUrl: string | null; profileUrl: string | null; extensionSyncedAt: string }
@@ -209,6 +215,41 @@ function ReconnectContent() {
     setTotal((t) => Math.max(0, t - 1))
     setBlockedCount((n) => n + 1)
     setMoreOpenId(null)
+    // Invalidate the cached ignored list so it reloads next time
+    setIgnoredLoaded(false)
+    if (showIgnored) {
+      const contact = contacts.find(c => c.id === contactId)
+      if (contact) setIgnoredContacts(prev => [{ ...contact, outreachStatus: "ignored" }, ...prev])
+    }
+  }
+
+  async function fetchIgnoredContacts() {
+    setIgnoredLoading(true)
+    try {
+      const res = await fetch("/api/reconnect?status=ignored_list")
+      if (res.ok) {
+        const data = await res.json()
+        setIgnoredContacts(data.contacts)
+        setIgnoredLoaded(true)
+      }
+    } finally {
+      setIgnoredLoading(false)
+    }
+  }
+
+  async function restoreContact(contactId: string) {
+    await fetch(`/api/reconnect/${contactId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: null }),
+    })
+    setIgnoredContacts((prev) => prev.filter((c) => c.id !== contactId))
+    setBlockedCount((n) => Math.max(0, n - 1))
+  }
+
+  function toggleIgnored() {
+    if (!showIgnored && !ignoredLoaded) fetchIgnoredContacts()
+    setShowIgnored((v) => !v)
   }
 
   // Review tab actions
@@ -536,12 +577,13 @@ function ReconnectContent() {
             key={tab.value}
             onClick={() => setActiveStatus(tab.value)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
+              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap shrink-0",
               activeStatus === tab.value
-                ? "border-blue-600 text-blue-700"
+                ? tab.value === "lapsed" ? "border-amber-500 text-amber-700" : "border-blue-600 text-blue-700"
                 : "border-transparent text-gray-500 hover:text-gray-700",
             )}
           >
+            {tab.value === "lapsed" && <History size={12} />}
             {tab.label}
           </button>
         ))}
@@ -579,9 +621,11 @@ function ReconnectContent() {
           <RefreshCcw size={32} className="mx-auto mb-3 opacity-30" />
           <p className="font-medium text-gray-500">No contacts here yet</p>
           <p className="text-sm mt-1">
-            {activeStatus
-              ? "Try a different filter."
-              : <>Sync your Gmail in <a href="/settings" className="text-blue-600 hover:underline">Settings</a> to surface contacts worth reaching out to.</>}
+            {activeStatus === "lapsed"
+              ? "No lapsed relationships found. Contacts with strong past interaction and 60+ days of silence will appear here."
+              : activeStatus
+                ? "Try a different filter."
+                : <>Sync your Gmail in <a href="/settings" className="text-blue-600 hover:underline">Settings</a> to surface contacts worth reaching out to.</>}
           </p>
         </div>
       ) : reachOutView === "photos" ? (
@@ -618,11 +662,12 @@ function ReconnectContent() {
       ) : (
         <div className="space-y-2">
           {(() => {
-            const maxScore = Math.max(...contacts.map(c => c.interactionScore ?? 0), 1)
+            const isLapsed = activeStatus === "lapsed"
+            const maxScore = Math.max(...contacts.map(c => isLapsed ? (c.driftScore ?? 0) : (c.interactionScore ?? 0)), 1)
             return contacts.map((contact) => {
             const inits = initials(contact.firstName, contact.lastName)
             const statusInfo = STATUS_LABELS[contact.outreachStatus ?? "not_contacted"] ?? STATUS_LABELS.not_contacted
-            const score = contact.interactionScore ?? 0
+            const score = isLapsed ? (contact.driftScore ?? 0) : (contact.interactionScore ?? 0)
             const scoreWidth = Math.min(100, (score / maxScore) * 100)
             const isDeprioritized = contact.outreachStatus === "deprioritized"
 
@@ -665,7 +710,7 @@ function ReconnectContent() {
                   <div className="flex items-center gap-2 mt-1.5">
                     <div className="w-24 h-1 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-blue-400 rounded-full"
+                        className={cn("h-full rounded-full", isLapsed ? "bg-amber-400" : "bg-blue-400")}
                         style={{ width: `${scoreWidth}%` }}
                       />
                     </div>
@@ -790,11 +835,58 @@ function ReconnectContent() {
         </div>
       )}
 
-      {/* Blocked section */}
+      {/* Ignored contacts section */}
       {blockedCount > 0 && activeStatus === "" && (
-        <div className="mt-8 flex items-center gap-2 text-xs text-gray-400">
-          <Ban size={12} />
-          <span>{blockedCount} contact{blockedCount !== 1 ? "s" : ""} blocked forever</span>
+        <div className="mt-8">
+          <button
+            onClick={toggleIgnored}
+            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <Ban size={12} />
+            <span>{blockedCount} contact{blockedCount !== 1 ? "s" : ""} ignored forever</span>
+            <ChevronDown size={12} className={cn("transition-transform", showIgnored && "rotate-180")} />
+          </button>
+
+          {showIgnored && (
+            <div className="mt-3 border border-gray-100 rounded-xl overflow-hidden">
+              {ignoredLoading ? (
+                <div className="py-4 flex items-center justify-center text-xs text-gray-400">Loading…</div>
+              ) : ignoredContacts.length === 0 ? (
+                <div className="py-4 text-center text-xs text-gray-400">No ignored contacts</div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {ignoredContacts.map((c) => {
+                    const inits = initials(c.firstName, c.lastName)
+                    return (
+                      <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-gray-50">
+                        {c.photoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-8 h-8 rounded-lg object-cover shrink-0", blurred && "blur")} />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-semibold shrink-0">
+                            {inits}
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className={cn("text-sm font-medium text-gray-700 truncate", blurred && "blur-sm select-none")}>
+                            {c.firstName} {c.lastName}
+                          </p>
+                          {c.company && <p className="text-xs text-gray-400 truncate">{c.company}</p>}
+                        </div>
+                        <button
+                          onClick={() => restoreContact(c.id)}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 border border-blue-200 hover:border-blue-300 rounded-lg px-2.5 py-1 transition-colors shrink-0"
+                        >
+                          <RotateCcw size={10} />
+                          Restore
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
