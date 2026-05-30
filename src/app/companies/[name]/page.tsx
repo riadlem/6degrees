@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useParams } from "next/navigation"
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Handshake, Globe, Building2, Network, Users, Check, X, Pencil,
-  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2
+  ExternalLink, Mail, UserPlus, Ban, Clock, ChevronDown, ChevronUp, Link2, Plus, Loader2, Share2
 } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import ContactDetail from "@/components/ContactDetail"
@@ -14,6 +14,7 @@ import CompanyLogo from "@/components/CompanyLogo"
 import { usePrivacy } from "@/contexts/PrivacyContext"
 import Link from "next/link"
 import { STATUS_BADGE } from "@/lib/reconnect-status"
+import ContactShareModal from "@/components/ContactShareModal"
 
 // ── Location / interaction helpers ────────────────────────────────────────────
 
@@ -340,6 +341,7 @@ export default function CompanyDetailPage() {
   const [contactSort, setContactSort] = useState<string>("score")  // default: by interaction score
   const [contactFilter, setContactFilter] = useState<string>("")   // text filter on name/position/country/industry
   const [contactView, setContactView] = useState<"list" | "photos">("list")
+  const [shareOpen, setShareOpen] = useState(false)
 
   // Unmatched senders
   const [unmatched, setUnmatched] = useState<UnmatchedSender[]>([])
@@ -655,7 +657,14 @@ export default function CompanyDetailPage() {
           </div>
 
           {/* Quick actions */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <button
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border bg-white text-gray-500 border-gray-200 hover:border-gray-300 transition-colors"
+            >
+              <Share2 size={13} />
+              Share all
+            </button>
             <button
               onClick={() => patch({ isPartner: !company.isPartner })}
               className={cn("flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors",
@@ -1245,6 +1254,15 @@ export default function CompanyDetailPage() {
       </div>
 
       <ContactDetail contactId={selectedContactId} onClose={() => setSelectedContactId(null)} />
+
+      {shareOpen && (
+        <ContactShareModal
+          filterType="company"
+          filterValue={companyName}
+          contactCount={company.count}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
     </div>
   )
 }

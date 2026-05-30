@@ -77,6 +77,7 @@ model User {
   phoneContacts  PhoneContact[]
   eventSpeakers  EventSpeaker[]
   eventShares    EventShare[]
+  contactShares  ContactShare[]
 }
 
 model Contact {
@@ -477,4 +478,22 @@ model EventSpeaker {
   @@unique([userId, speakerKey])
   @@index([userId, eventSlug])
   @@index([userId, contactId])
+}
+
+// ─── Contact sharing ─────────────────────────────────────────────────────────
+
+model ContactShare {
+  id          String   @id @default(cuid())
+  userId      String
+  token       String   @unique @default(cuid())
+  name        String?
+  level       Int      @default(1)   // 1=basic, 2=+contact info, 3=+interaction
+  filterType  String                 // "ids" | "company" | "segment"
+  filterValue String   @db.Text     // JSON string[]: id list / company name / SegmentDef
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

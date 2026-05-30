@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { STALE } from "@/lib/query-client"
-import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react"
+import { RefreshCw, ListPlus, Tag, Sparkles, Upload, Pencil, Wand2, ArrowUp, ArrowDown, ArrowUpDown, Share2 } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import BulkAssignPopover, { type BulkField } from "@/components/BulkAssignPopover"
 import ContactCard, { type ContactSummary } from "@/components/ContactCard"
@@ -15,6 +15,7 @@ import ContactDetail from "@/components/ContactDetail"
 import AddToListModal from "@/components/AddToListModal"
 import ManageLabelsModal from "@/components/ManageLabelsModal"
 import SegmentBuilder from "@/components/SegmentBuilder"
+import ContactShareModal from "@/components/ContactShareModal"
 import { useSyncContext } from "@/contexts/SyncContext"
 import { usePersistedFilters } from "@/hooks/usePersistedFilters"
 
@@ -88,6 +89,7 @@ function ContactsContent() {
   }, [filters])
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [shareOpen, setShareOpen] = useState(false)
   const [segmentOpen, setSegmentOpen] = useState(false)
   const [segmentIds, setSegmentIds] = useState<string[] | null>(null)
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
@@ -373,6 +375,13 @@ function ContactsContent() {
                 <ListPlus size={15} />
                 <span className="hidden sm:inline">Add {selectedIds.size} to list</span>
                 <span className="sm:hidden">{selectedIds.size}</span>
+              </button>
+              <button
+                onClick={() => setShareOpen(true)}
+                className="flex items-center gap-1.5 text-sm text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 px-2.5 sm:px-3 py-2 rounded-xl transition-colors font-medium"
+              >
+                <Share2 size={14} />
+                <span className="hidden sm:inline">Share</span>
               </button>
             </>
           )}
@@ -832,6 +841,16 @@ function ContactsContent() {
             setSelectedIds(new Set())
             queryClient.invalidateQueries({ queryKey: ["contacts", userId] })
           }}
+        />
+      )}
+
+      {/* Share modal */}
+      {shareOpen && (
+        <ContactShareModal
+          filterType="ids"
+          filterValue={JSON.stringify([...selectedIds])}
+          contactCount={selectedIds.size}
+          onClose={() => setShareOpen(false)}
         />
       )}
     </div>
