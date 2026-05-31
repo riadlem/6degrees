@@ -54,6 +54,17 @@ export async function POST(req: Request) {
         let totalMatched = 0
         const matchedContactIds = new Set<string>()
 
+        // Request-scoped cache: avoid re-querying the same sender/chatName
+        // across multiple files in a single import session.
+        const matchCache = new Map<string, string | null>()
+
+        async function cachedMatch(name: string): Promise<string | null> {
+          if (matchCache.has(name)) return matchCache.get(name)!
+          const id = await matchChatNameToContact(userId, name)
+          matchCache.set(name, id)
+          return id
+        }
+
         // Only import messages from the last 4 years — older interactions
         // have negligible score weight and bloat the table unnecessarily.
         const FOUR_YEARS_AGO = new Date(Date.now() - 4 * 365.25 * 24 * 60 * 60 * 1000)
@@ -81,8 +92,8 @@ export async function POST(req: Request) {
           const senderToContact = new Map<string, string | null>()
 
           if (!isGroup) {
-            // 1:1 chat — match by chatName
-            const contactId = await matchChatNameToContact(userId, chatName)
+            // 1:1 chat — match by chatName (uses request-scoped cache)
+            const contactId = await cachedMatch(chatName)
             if (contactId) {
               totalMatched++
               matchedContactIds.add(contactId)
@@ -90,12 +101,12 @@ export async function POST(req: Request) {
             }
             senderToContact.set("__1to1__", contactId)
           } else if (!isLargeGroup) {
-            // Small group — match each unique sender
+            // Small group — match each unique sender (uses request-scoped cache)
             const senderList = [...uniqueSenders]
             const MATCH_CONCURRENCY = 4
             for (let i = 0; i < senderList.length; i += MATCH_CONCURRENCY) {
               const batch = senderList.slice(i, i + MATCH_CONCURRENCY)
-              const results = await Promise.all(batch.map((name) => matchChatNameToContact(userId, name)))
+              const results = await Promise.all(batch.map((name) => cachedMatch(name)))
               batch.forEach((name, j) => {
                 senderToContact.set(name, results[j])
                 if (results[j]) {

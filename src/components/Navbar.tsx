@@ -178,7 +178,7 @@ export default function Navbar() {
           >
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatarUrl} alt={name} className="w-8 h-8 rounded-full object-cover" />
+              <img src={avatarUrl} alt={name} className="w-8 h-8 rounded-full object-cover" loading="lazy" decoding="async" />
             ) : (
               <span className={cn("w-8 h-8 rounded-full text-white text-xs font-bold flex items-center justify-center", isAequus ? "bg-teal-600" : "bg-blue-600")}>
                 {initials}

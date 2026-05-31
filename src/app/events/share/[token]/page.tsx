@@ -56,7 +56,7 @@ export default async function SharedEventPage({ params }: Props) {
                 <div className="flex items-center gap-2">
                   {share.user.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={share.user.image} alt="" className="w-6 h-6 rounded-full" />
+                    <img src={share.user.image} alt="" className="w-6 h-6 rounded-full" loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
                       {(share.user.name ?? "U")[0]}

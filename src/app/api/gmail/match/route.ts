@@ -21,24 +21,22 @@ export async function POST(req: Request) {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
   if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
-  // Register email address on the contact
-  await prisma.contactEmailAddress.upsert({
-    where: { contactId_email: { contactId, email: normalized } },
-    update: {},
-    create: { contactId, email: normalized, source: "manual", isPrimary: false },
-  })
-
-  // Update all unmatched inbound messages from this email
-  await prisma.emailMessage.updateMany({
-    where: { userId, contactId: null, fromEmail: normalized },
-    data: { contactId },
-  })
-
-  // Update all unmatched outbound messages sent to this email
-  await prisma.emailMessage.updateMany({
-    where: { userId, contactId: null, isOutbound: true, toEmails: { has: normalized } },
-    data: { contactId },
-  })
+  // Register address + link existing messages atomically
+  await prisma.$transaction([
+    prisma.contactEmailAddress.upsert({
+      where: { contactId_email: { contactId, email: normalized } },
+      update: {},
+      create: { contactId, email: normalized, source: "manual", isPrimary: false },
+    }),
+    prisma.emailMessage.updateMany({
+      where: { userId, contactId: null, fromEmail: normalized },
+      data: { contactId },
+    }),
+    prisma.emailMessage.updateMany({
+      where: { userId, contactId: null, isOutbound: true, toEmails: { has: normalized } },
+      data: { contactId },
+    }),
+  ])
 
   // ── Propagate to other unmatched emails from senders with the same display name ──
   // e.g. "Bassem Tawfeeq" <bassem@gmail.com> manually linked → also auto-link

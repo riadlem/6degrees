@@ -23,17 +23,11 @@ export async function POST(req: Request) {
   const contact = await prisma.contact.findFirst({ where: { id: contactId, userId } })
   if (!contact) return Response.json({ error: "Contact not found" }, { status: 404 })
 
-  // Link ALL messages from this conversation to the contact
-  const result = await prisma.linkedInDMMessage.updateMany({
-    where: { userId, conversationId },
-    data: { contactId },
-  })
-
-  // Keep LinkedInDMConversation in sync
-  await prisma.linkedInDMConversation.updateMany({
-    where: { userId, conversationId },
-    data: { contactId },
-  })
+  // Link messages + conversation atomically
+  const [result] = await prisma.$transaction([
+    prisma.linkedInDMMessage.updateMany({ where: { userId, conversationId }, data: { contactId } }),
+    prisma.linkedInDMConversation.updateMany({ where: { userId, conversationId }, data: { contactId } }),
+  ])
 
   // Recompute the score for just this contact — don't block the response
   recomputeScoreForContact(contactId).catch((err) => console.error("recomputeScore failed:", err))
@@ -104,16 +98,10 @@ export async function DELETE(req: Request) {
   })
   const linkedIds = linked.map((m) => m.contactId).filter((id): id is string => !!id)
 
-  const result = await prisma.linkedInDMMessage.updateMany({
-    where: { userId, conversationId },
-    data: { contactId: null },
-  })
-
-  // Sync the conversation record
-  await prisma.linkedInDMConversation.updateMany({
-    where: { userId, conversationId },
-    data: { contactId: null },
-  })
+  const [result] = await prisma.$transaction([
+    prisma.linkedInDMMessage.updateMany({ where: { userId, conversationId }, data: { contactId: null } }),
+    prisma.linkedInDMConversation.updateMany({ where: { userId, conversationId }, data: { contactId: null } }),
+  ])
 
   if (linkedIds.length > 0) {
     recomputeScores(userId, { contactIds: linkedIds }).catch((err) => console.error("recomputeScores failed:", err))

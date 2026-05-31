@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown, UserPlus,
   ExternalLink, Loader2, Settings, Users, Pencil, Unlink2, EyeOff, RotateCcw
@@ -385,13 +386,12 @@ function NotConnectedCard({
 }
 
 export default function LinkedInDMPage() {
-  const { status } = useSession()
+  const { status, data: session } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { blurred } = usePrivacy()
+  const userId = session?.user?.id
 
-  const [chats, setChats] = useState<LiDMChat[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<Sort>("lastAt")
   const [order, setOrder] = useState<Order>("desc")
@@ -405,21 +405,22 @@ export default function LinkedInDMPage() {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const params = new URLSearchParams({ filter, sort, order, q })
-    const res = await fetch(`/api/linkedin-dm/chats?${params}`)
-    if (res.ok) {
-      const data = await res.json()
-      setChats(data.chats)
-      setStats(data.stats)
-    }
-    setLoading(false)
-  }, [filter, sort, order, q])
+  const { data: chatsData, isLoading: loading } = useQuery<{ chats: LiDMChat[]; stats: Stats }>({
+    queryKey: ["linkedin-dm-chats", userId, filter, sort, order, q],
+    queryFn: () => {
+      const params = new URLSearchParams({ filter, sort, order, q })
+      return fetch(`/api/linkedin-dm/chats?${params}`).then((r) => r.json())
+    },
+    enabled: status === "authenticated",
+    staleTime: 30_000,
+  })
 
-  useEffect(() => {
-    if (status === "authenticated") load()
-  }, [status, load])
+  const chats = chatsData?.chats ?? []
+  const stats = chatsData?.stats ?? null
+
+  function invalidateChats() {
+    queryClient.invalidateQueries({ queryKey: ["linkedin-dm-chats", userId] })
+  }
 
   function toggleSort(s: Sort) {
     if (sort === s) setOrder((o) => (o === "desc" ? "asc" : "desc"))
@@ -466,7 +467,7 @@ export default function LinkedInDMPage() {
       })
       if (res.ok) {
         closeLinkModal()
-        await load()
+        invalidateChats()
       } else {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? "Failed to link contact")
@@ -484,7 +485,7 @@ export default function LinkedInDMPage() {
       if (res.ok) {
         const data = await res.json()
         setRematchResult({ fixed: data.fixed, checked: data.checked })
-        await load()
+        invalidateChats()
       }
     } finally {
       setRematching(false)
@@ -497,7 +498,7 @@ export default function LinkedInDMPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId }),
     })
-    await load()
+    invalidateChats()
   }
 
   async function doRestore(conversationId: string) {
@@ -506,7 +507,7 @@ export default function LinkedInDMPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conversationId }),
     })
-    await load()
+    invalidateChats()
   }
 
   async function doUnlink(conversationId: string) {
@@ -519,7 +520,7 @@ export default function LinkedInDMPage() {
       })
       if (res.ok) {
         closeLinkModal()
-        await load()
+        invalidateChats()
       } else {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? "Failed to unlink")

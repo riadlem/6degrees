@@ -383,7 +383,7 @@ function ReconnectContent() {
                       onClick={() => router.push(`/contacts?contact=${c.id}`)}
                     >
                       {c.photoUrl
-                        ? <img src={c.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} />
+                        ? <img src={c.photoUrl} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }} loading="lazy" decoding="async" />
                         : <div className="w-9 h-9 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center text-xs font-semibold shrink-0">{ini}</div>
                       }
                       <div className="flex items-center gap-1.5 min-w-0 ml-3 sm:ml-0">
@@ -474,7 +474,7 @@ function ReconnectContent() {
                     <button onClick={() => openContact(contact.id)} className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
                       {contact.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                        <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} loading="lazy" decoding="async" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
                       )}
@@ -506,7 +506,7 @@ function ReconnectContent() {
                     <button onClick={() => openContact(contact.id)} className="shrink-0">
                       {contact.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
+                        <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} loading="lazy" decoding="async" />
                       ) : (
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-violet-700 flex items-center justify-center text-white text-sm font-bold">
                           {inits}
@@ -636,7 +636,7 @@ function ReconnectContent() {
                 <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
                   )}
@@ -710,7 +710,7 @@ function ReconnectContent() {
                       <div key={c.id} className="flex items-center gap-3 px-4 py-2.5 bg-white hover:bg-gray-50">
                         {c.photoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-8 h-8 rounded-lg object-cover shrink-0", blurred && "blur")} />
+                          <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-8 h-8 rounded-lg object-cover shrink-0", blurred && "blur")} loading="lazy" decoding="async" />
                         ) : (
                           <div className="w-8 h-8 rounded-lg bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-semibold shrink-0">
                             {inits}

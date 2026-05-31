@@ -1026,7 +1026,7 @@ export default function CompanyDetailPage() {
                   <div className="w-9 h-9 rounded-full overflow-hidden shrink-0">
                     {c.photoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} />
+                      <img src={photoSrc(c.photoUrl)!} alt="" className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">
                         {inits}

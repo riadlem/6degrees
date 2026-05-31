@@ -1,7 +1,13 @@
 import prisma from "@/lib/prisma"
 import { hashPassword } from "@/lib/password"
+import { rateLimit, getClientIp } from "@/lib/rate-limit"
 
 export async function POST(req: Request) {
+  // 10 attempts per IP per hour to prevent token brute-force
+  if (!rateLimit(`reset:${getClientIp(req)}`, 10, 60 * 60_000)) {
+    return Response.json({ error: "Too many requests. Please try again later." }, { status: 429 })
+  }
+
   const body = await req.json().catch(() => null)
   const { token, password } = body ?? {}
 

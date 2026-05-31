@@ -68,5 +68,5 @@ export async function GET(req: Request) {
     })
   }
 
-  return Response.json({ companies })
+  return Response.json({ companies }, { headers: { "Cache-Control": "private, max-age=120, stale-while-revalidate=600" } })
 }

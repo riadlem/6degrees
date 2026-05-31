@@ -16,86 +16,85 @@ export async function GET(req: Request) {
   const q = searchParams.get("q")?.trim() ?? ""
   if (q.length < 2) return Response.json({ senders: [] })
 
-  const ql = q.toLowerCase()
+  // Query 1: one raw SQL query to get matching senders with aggregate counts and latest fromName.
+  // Uses DISTINCT ON to pick the most-recent fromName per fromEmail in the same pass.
+  const rows = await prisma.$queryRaw<
+    { fromEmail: string; fromName: string | null; messageCount: bigint; contactId: string | null }[]
+  >`
+    SELECT
+      sub."fromEmail",
+      sub."fromName",
+      sub."messageCount",
+      sub."contactId"
+    FROM (
+      SELECT
+        "fromEmail",
+        FIRST_VALUE("fromName") OVER (
+          PARTITION BY "fromEmail"
+          ORDER BY "sentAt" DESC
+        ) AS "fromName",
+        COUNT(*) OVER (PARTITION BY "fromEmail") AS "messageCount",
+        "contactId",
+        ROW_NUMBER() OVER (
+          PARTITION BY "fromEmail"
+          ORDER BY "sentAt" DESC
+        ) AS rn
+      FROM "EmailMessage"
+      WHERE
+        "userId" = ${userId}
+        AND "isOutbound" = false
+        AND (
+          "fromEmail" ILIKE ${'%' + q + '%'}
+          OR "fromName" ILIKE ${'%' + q + '%'}
+        )
+    ) sub
+    WHERE sub.rn = 1
+    ORDER BY sub."messageCount" DESC
+    LIMIT 8
+  `
 
-  // Find all unique fromEmails where the email or fromName matches the query
-  // We search ALL messages (contactId can be null or non-null)
-  const byEmail = await prisma.emailMessage.findMany({
-    where: {
-      userId,
-      isOutbound: false,
-      fromEmail: { contains: q, mode: "insensitive" },
-    },
-    select: { fromEmail: true, fromName: true, contactId: true },
-    distinct: ["fromEmail"],
-    take: 20,
-  })
+  if (rows.length === 0) return Response.json({ senders: [] })
 
-  const byName = await prisma.emailMessage.findMany({
-    where: {
-      userId,
-      isOutbound: false,
-      fromName: { contains: q, mode: "insensitive" },
-    },
-    select: { fromEmail: true, fromName: true, contactId: true },
-    distinct: ["fromEmail"],
-    take: 20,
-  })
+  const emails = rows.map((r) => r.fromEmail)
 
-  // Merge and deduplicate
-  const seen = new Map<string, { fromEmail: string; fromName: string | null; contactId: string | null }>()
-  for (const r of [...byEmail, ...byName]) {
-    if (!seen.has(r.fromEmail)) {
-      seen.set(r.fromEmail, r)
-    }
+  // Query 2: one query to find the linked contactId (and name) for all emails at once.
+  // We want the contactId that is NOT null, one per fromEmail.
+  const linkedRows = await prisma.$queryRaw<
+    { fromEmail: string; contactId: string; firstName: string; lastName: string }[]
+  >`
+    SELECT DISTINCT ON (em."fromEmail")
+      em."fromEmail",
+      em."contactId",
+      c."firstName",
+      c."lastName"
+    FROM "EmailMessage" em
+    JOIN "Contact" c ON c.id = em."contactId"
+    WHERE
+      em."userId" = ${userId}
+      AND em."fromEmail" = ANY(${emails})
+      AND em."contactId" IS NOT NULL
+    ORDER BY em."fromEmail", em."sentAt" DESC
+  `
+
+  const linkedMap = new Map<string, { contactId: string; name: string }>()
+  for (const row of linkedRows) {
+    linkedMap.set(row.fromEmail, {
+      contactId: row.contactId,
+      name: `${row.firstName} ${row.lastName}`.trim(),
+    })
   }
 
-  // For each unique sender, get message count and look up linked contact name
-  const results = await Promise.all(
-    Array.from(seen.values())
-      .filter((s) => {
-        // Re-check: fromEmail or fromName contains query (case-insensitive)
-        return s.fromEmail.toLowerCase().includes(ql) ||
-          (s.fromName?.toLowerCase().includes(ql) ?? false)
-      })
-      .slice(0, 8)
-      .map(async (s) => {
-        const count = await prisma.emailMessage.count({
-          where: { userId, fromEmail: s.fromEmail, isOutbound: false },
-        })
-
-        // Get the most recent fromName for this email
-        const latest = await prisma.emailMessage.findFirst({
-          where: { userId, fromEmail: s.fromEmail, isOutbound: false },
-          orderBy: { sentAt: "desc" },
-          select: { fromName: true },
-        })
-
-        // Check if this email is already linked (to any contact)
-        const linked = await prisma.emailMessage.findFirst({
-          where: { userId, fromEmail: s.fromEmail, contactId: { not: null } },
-          select: { contactId: true },
-        })
-
-        let linkedContactName: string | null = null
-        if (linked?.contactId) {
-          const c = await prisma.contact.findFirst({
-            where: { id: linked.contactId },
-            select: { firstName: true, lastName: true },
-          })
-          if (c) linkedContactName = `${c.firstName} ${c.lastName}`.trim()
-        }
-
-        return {
-          fromEmail: s.fromEmail,
-          fromName: latest?.fromName ?? s.fromName ?? null,
-          messageCount: count,
-          alreadyLinked: !!linked?.contactId,
-          linkedContactId: linked?.contactId ?? null,
-          linkedContactName,
-        }
-      })
-  )
+  const results = rows.map((r) => {
+    const linked = linkedMap.get(r.fromEmail)
+    return {
+      fromEmail: r.fromEmail,
+      fromName: r.fromName ?? null,
+      messageCount: Number(r.messageCount),
+      alreadyLinked: !!linked,
+      linkedContactId: linked?.contactId ?? null,
+      linkedContactName: linked?.name ?? null,
+    }
+  })
 
   return Response.json({ senders: results })
 }

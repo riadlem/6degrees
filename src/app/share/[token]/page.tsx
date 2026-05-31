@@ -92,7 +92,7 @@ export default async function SharedListPage({ params }: Props) {
                 <div className="flex items-center gap-2">
                   {list.user.image ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={list.user.image} alt="" className="w-6 h-6 rounded-full" />
+                    <img src={list.user.image} alt="" className="w-6 h-6 rounded-full" loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
                       {(list.user.name ?? "U")[0]}

@@ -2110,7 +2110,7 @@ function SettingsPageInner() {
                     className={`relative rounded-xl overflow-hidden border-2 transition-all text-left ${p.selected ? "border-blue-500" : "border-gray-200 opacity-50"}`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.thumb} alt={p.name} className="w-full aspect-square object-cover" />
+                    <img src={p.thumb} alt={p.name} className="w-full aspect-square object-cover" loading="lazy" decoding="async" />
                     <div className="absolute bottom-0 left-0 right-0 bg-black/60 px-1.5 py-1">
                       <p className="text-white text-[10px] font-medium leading-tight truncate">{p.name}</p>
                     </div>

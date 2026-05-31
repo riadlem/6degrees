@@ -160,7 +160,7 @@ function ContactRow({ contact, selected, onSelect, onClick, onAddToList, isMobil
             {contact.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={photoSrc(contact.photoUrl)!} alt={fullName}
-                className={cn("w-11 h-11 object-cover", blurred && "blur")} />
+                className={cn("w-11 h-11 object-cover", blurred && "blur")} loading="lazy" decoding="async" />
             ) : (
               <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
                 {inits}
@@ -281,7 +281,7 @@ function ContactRow({ contact, selected, onSelect, onClick, onAddToList, isMobil
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={photoSrc(contact.photoUrl)!} alt={fullName}
-            className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} />
+            className={cn("w-9 h-9 rounded-full object-cover", blurred && "blur")} loading="lazy" decoding="async" />
         ) : (
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-semibold">
             {inits}
