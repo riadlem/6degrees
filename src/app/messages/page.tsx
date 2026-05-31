@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { Search, ArrowUp, ArrowDown, Loader2, Settings, ExternalLink } from "lucide-react"
 import { cn, initials, photoSrc } from "@/lib/utils"
 import { usePrivacy } from "@/contexts/PrivacyContext"
@@ -96,59 +97,28 @@ function waDeepLink(chatName: string): string | null {
   return null
 }
 
-const MESSAGES_CACHE_KEY = "6d:messages:v1"
-const TWO_MONTHS_MS = 60 * 24 * 60 * 60 * 1000
-
-function loadCachedMessages(): UnifiedChat[] {
-  try {
-    const raw = localStorage.getItem(MESSAGES_CACHE_KEY)
-    if (!raw) return []
-    const { chats } = JSON.parse(raw)
-    return Array.isArray(chats) ? chats : []
-  } catch { return [] }
-}
-
-function saveCachedMessages(chats: UnifiedChat[]) {
-  try {
-    const cutoff = Date.now() - TWO_MONTHS_MS
-    const toStore = chats
-      .filter((c) => !c.lastAt || new Date(c.lastAt).getTime() > cutoff)
-      .slice(0, 200)
-    localStorage.setItem(MESSAGES_CACHE_KEY, JSON.stringify({ chats: toStore, ts: Date.now() }))
-  } catch {}
-}
 
 export default function MessagesPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const { blurred } = usePrivacy()
+  const userId = session?.user?.id
 
-  const [chats, setChats] = useState<UnifiedChat[]>([])
-  const [loading, setLoading] = useState(true)
   const [q, setQ] = useState("")
   const [activeContactId, setActiveContactId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (status === "unauthenticated") { router.push("/auth/signin"); return }
-    if (status !== "authenticated") return
-
-    // Show cached data instantly while fetching fresh in background
-    const cached = loadCachedMessages()
-    if (cached.length) {
-      setChats(cached)
-      setLoading(false)
-    }
-
-    fetch("/api/messages/unified")
-      .then((r) => r.json())
-      .then((d) => {
-        const fresh: UnifiedChat[] = d.chats ?? []
-        setChats(fresh)
-        saveCachedMessages(fresh)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
+    if (status === "unauthenticated") router.push("/auth/signin")
   }, [status, router])
+
+  const { data: messagesData, isLoading: loading } = useQuery<{ chats: UnifiedChat[] }>({
+    queryKey: ["messages-unified", userId],
+    queryFn: () => fetch("/api/messages/unified").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 60_000,
+  })
+
+  const chats = messagesData?.chats ?? []
 
   const filtered = q
     ? chats.filter((c) => {

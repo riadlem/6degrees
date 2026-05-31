@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Search, ArrowUpDown, ArrowUp, ArrowDown, UserPlus,
   ExternalLink, Loader2, Settings, Users, Pencil, Unlink2
@@ -291,13 +292,12 @@ function GroupChatRow({
 }
 
 export default function WhatsAppPage() {
-  const { status } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { blurred } = usePrivacy()
+  const userId = session?.user?.id
 
-  const [chats, setChats] = useState<WAChat[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>("all")
   const [sort, setSort] = useState<Sort>("lastAt")
   const [order, setOrder] = useState<Order>("desc")
@@ -311,21 +311,22 @@ export default function WhatsAppPage() {
     if (status === "unauthenticated") router.replace("/")
   }, [status, router])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    const params = new URLSearchParams({ filter, sort, order, q })
-    const res = await fetch(`/api/whatsapp/chats?${params}`)
-    if (res.ok) {
-      const data = await res.json()
-      setChats(data.chats)
-      setStats(data.stats)
-    }
-    setLoading(false)
-  }, [filter, sort, order, q])
+  const { data: chatsData, isLoading: loading } = useQuery<{ chats: WAChat[]; stats: Stats }>({
+    queryKey: ["whatsapp-chats", userId, filter, sort, order, q],
+    queryFn: () => {
+      const params = new URLSearchParams({ filter, sort, order, q })
+      return fetch(`/api/whatsapp/chats?${params}`).then((r) => r.json())
+    },
+    enabled: status === "authenticated",
+    staleTime: 30_000,
+  })
 
-  useEffect(() => {
-    if (status === "authenticated") load()
-  }, [status, load])
+  const chats = chatsData?.chats ?? []
+  const stats = chatsData?.stats ?? null
+
+  function invalidateChats() {
+    queryClient.invalidateQueries({ queryKey: ["whatsapp-chats", userId] })
+  }
 
   function toggleSort(s: Sort) {
     if (sort === s) setOrder((o) => (o === "desc" ? "asc" : "desc"))
@@ -333,7 +334,10 @@ export default function WhatsAppPage() {
   }
 
   function handleGroupScoreToggle(chatName: string, include: boolean) {
-    setChats((prev) => prev.map((c) => c.chatName === chatName ? { ...c, inScore: include } : c))
+    queryClient.setQueryData<{ chats: WAChat[]; stats: Stats }>(
+      ["whatsapp-chats", userId, filter, sort, order, q],
+      (prev) => prev ? { ...prev, chats: prev.chats.map((c) => c.chatName === chatName ? { ...c, inScore: include } : c) } : prev
+    )
   }
 
   // Link / re-assign / unlink panel
@@ -376,7 +380,7 @@ export default function WhatsAppPage() {
       })
       if (res.ok) {
         closeLinkModal()
-        await load()
+        invalidateChats()
       } else {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? "Failed to link contact")
@@ -394,7 +398,7 @@ export default function WhatsAppPage() {
       if (res.ok) {
         const data = await res.json()
         setRematchResult({ fixed: data.fixed, checked: data.checked })
-        await load()
+        invalidateChats()
       }
     } finally {
       setRematching(false)
@@ -411,7 +415,7 @@ export default function WhatsAppPage() {
       })
       if (res.ok) {
         closeLinkModal()
-        await load()
+        invalidateChats()
       } else {
         const d = await res.json().catch(() => ({}))
         alert(d.error ?? "Failed to unlink")

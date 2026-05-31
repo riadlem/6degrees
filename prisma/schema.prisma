@@ -187,6 +187,7 @@ model ContactListMember {
   contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([listId, contactId])
+  @@index([contactId])
 }
 
 model Label {
@@ -242,6 +243,7 @@ model ContactLabel {
   label   Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
 
   @@id([contactId, labelId])
+  @@index([labelId])
 }
 
 // ─── User email addresses ─────────────────────────────────────────────────────

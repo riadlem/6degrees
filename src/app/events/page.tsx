@@ -3,6 +3,7 @@
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 import { useEffect, useState, useMemo } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Linkedin,
   Search,
@@ -830,9 +831,9 @@ function ViewToggle({ view, onChange }: { view: ViewMode; onChange: (v: ViewMode
 export default function EventsPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
+  const userId = session?.user?.id
 
-  const [speakers, setSpeakers] = useState<Speaker[]>([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [filterTopic, setFilterTopic] = useState("")
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all")
@@ -855,24 +856,30 @@ export default function EventsPage() {
     if (saved && ["grid", "list", "photos"].includes(saved)) setView(saved)
   }, [])
 
-  useEffect(() => {
-    if (!session) return
-    Promise.all([
-      fetch("/api/events/speakers?eventSlug=money2020-europe-2026").then((r) => r.json()),
-      fetch("/api/events/share?eventSlug=money2020-europe-2026").then((r) => r.ok ? r.json() : null),
-    ])
-      .then(([speakerData, shareData]) => {
-        if (Array.isArray(speakerData)) {
-          setSpeakers([...speakerData].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority)))
-        }
-        if (shareData) {
-          setShareEnabled(shareData.shareEnabled)
-          setShareToken(shareData.shareToken)
-        }
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [session])
+  const { data: speakerData, isLoading: loading } = useQuery<Speaker[]>({
+    queryKey: ["event-speakers", userId, "money2020-europe-2026"],
+    queryFn: async () => {
+      const [speakers, shareData] = await Promise.all([
+        fetch("/api/events/speakers?eventSlug=money2020-europe-2026").then((r) => r.json()),
+        fetch("/api/events/share?eventSlug=money2020-europe-2026").then((r) => r.ok ? r.json() : null),
+      ])
+      if (shareData) {
+        setShareEnabled(shareData.shareEnabled)
+        setShareToken(shareData.shareToken)
+      }
+      return Array.isArray(speakers)
+        ? [...speakers].sort((a, b) => prioOrder(a.priority) - prioOrder(b.priority))
+        : []
+    },
+    enabled: status === "authenticated",
+    staleTime: 60_000,
+  })
+
+  const speakers = speakerData ?? []
+
+  function invalidateSpeakers() {
+    queryClient.invalidateQueries({ queryKey: ["event-speakers", userId] })
+  }
 
   function handleViewChange(v: ViewMode) {
     setView(v)
@@ -920,6 +927,12 @@ export default function EventsPage() {
     setFilterStatus((prev) => (prev === f ? "all" : f))
   }
 
+  function patchSpeaker(id: string, patch: Partial<Speaker>) {
+    queryClient.setQueryData<Speaker[]>(["event-speakers", userId, "money2020-europe-2026"], (prev) =>
+      prev ? prev.map((s) => s.id === id ? { ...s, ...patch } : s) : prev
+    )
+  }
+
   async function handleAddContact(id: string) {
     setAddingIds((prev) => new Set(prev).add(id))
     try {
@@ -929,11 +942,7 @@ export default function EventsPage() {
         body: JSON.stringify({ labels: ["Money20/20", "M2020 Speakers"] }),
       })
       const data = await res.json()
-      if (data.ok) {
-        setSpeakers((prev) =>
-          prev.map((s) => s.id === id ? { ...s, contactId: data.contactId } : s)
-        )
-      }
+      if (data.ok) patchSpeaker(id, { contactId: data.contactId })
     } finally {
       setAddingIds((prev) => { const n = new Set(prev); n.delete(id); return n })
     }
@@ -950,10 +959,7 @@ export default function EventsPage() {
         body: JSON.stringify({ speakerIds: ids, labels: ["Money20/20", "M2020 Speakers"] }),
       })
       const data = await res.json()
-      if (data.ok) {
-        const updated = await fetch("/api/events/speakers?eventSlug=money2020-europe-2026").then((r) => r.json())
-        setSpeakers(Array.isArray(updated) ? updated : speakers)
-      }
+      if (data.ok) invalidateSpeakers()
     } finally {
       setBulkAdding(false)
     }
@@ -961,7 +967,7 @@ export default function EventsPage() {
 
   // ── Priority update ───────────────────────────────────────────────────────
   async function handlePriorityChange(id: string, priority: number | null) {
-    setSpeakers((prev) => prev.map((s) => s.id === id ? { ...s, priority } : s))
+    patchSpeaker(id, { priority })
     await fetch(`/api/events/speakers/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -971,7 +977,7 @@ export default function EventsPage() {
 
   // ── Speaker field edit ────────────────────────────────────────────────────
   async function handleSpeakerEdit(id: string, company: string | null, role: string | null) {
-    setSpeakers((prev) => prev.map((s) => s.id === id ? { ...s, company, role } : s))
+    patchSpeaker(id, { company, role })
     await fetch(`/api/events/speakers/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

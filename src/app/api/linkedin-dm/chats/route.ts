@@ -160,20 +160,26 @@ export async function GET(req: Request) {
     return order === "asc" ? diff : -diff
   })
 
-  // For not_connected / ignored tabs: fetch last 3 messages per conversation to show timeline
+  // For not_connected / ignored tabs: fetch last 3 messages per conversation to show timeline.
+  // Use a single SQL query with LATERAL to fetch exactly 3 rows per conversation efficiently.
   let recentMsgMap = new Map<string, { sentAt: string; isOutbound: boolean }[]>()
   if (filter === "not_connected" || filter === "ignored") {
     const convIds = chats.map((c) => c.conversationId)
     if (convIds.length) {
-      const msgs = await prisma.linkedInDMMessage.findMany({
-        where: { userId, conversationId: { in: convIds } },
-        orderBy: { sentAt: "desc" },
-        select: { conversationId: true, sentAt: true, isOutbound: true },
-      })
+      const msgs = await prisma.$queryRaw<{ conversationId: string; sentAt: Date; isOutbound: boolean }[]>`
+        SELECT m."conversationId", m."sentAt", m."isOutbound"
+        FROM unnest(${convIds}::text[]) AS cid("conversationId")
+        CROSS JOIN LATERAL (
+          SELECT "conversationId", "sentAt", "isOutbound"
+          FROM "LinkedInDMMessage"
+          WHERE "userId" = ${userId} AND "conversationId" = cid."conversationId"
+          ORDER BY "sentAt" DESC
+          LIMIT 3
+        ) m
+      `
       for (const msg of msgs) {
         if (!recentMsgMap.has(msg.conversationId)) recentMsgMap.set(msg.conversationId, [])
-        const arr = recentMsgMap.get(msg.conversationId)!
-        if (arr.length < 3) arr.push({ sentAt: msg.sentAt.toISOString(), isOutbound: msg.isOutbound })
+        recentMsgMap.get(msg.conversationId)!.push({ sentAt: msg.sentAt.toISOString(), isOutbound: msg.isOutbound })
       }
     }
   }

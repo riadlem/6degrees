@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { labelColors } from "@/lib/label-colors"
 import { cn } from "@/lib/utils"
 
@@ -9,7 +10,7 @@ interface Props {
   className?: string
 }
 
-export default function LabelBadge({ label, onRemove, className }: Props) {
+function LabelBadge({ label, onRemove, className }: Props) {
   const c = labelColors(label.color)
   return (
     <span
@@ -31,3 +32,5 @@ export default function LabelBadge({ label, onRemove, className }: Props) {
     </span>
   )
 }
+
+export default memo(LabelBadge)

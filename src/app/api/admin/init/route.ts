@@ -151,6 +151,8 @@ ALTER TABLE "WhatsAppMessage" ADD COLUMN IF NOT EXISTS "isGroup" BOOLEAN DEFAULT
 -- Performance indexes (match prisma/schema.prisma @@index declarations)
 CREATE INDEX IF NOT EXISTS "EmailMessage_userId_fromEmail_idx" ON "EmailMessage"("userId","fromEmail");
 CREATE INDEX IF NOT EXISTS "Contact_userId_driftScore_idx" ON "Contact"("userId","driftScore");
+CREATE INDEX IF NOT EXISTS "ContactLabel_labelId_idx" ON "ContactLabel"("labelId");
+CREATE INDEX IF NOT EXISTS "ContactListMember_contactId_idx" ON "ContactListMember"("contactId");
 
 ALTER TABLE "GmailSync" ADD COLUMN IF NOT EXISTS "gmailEmail" TEXT;
 UPDATE "GmailSync" SET "gmailEmail" = 'unknown@gmail.com' WHERE "gmailEmail" IS NULL;
