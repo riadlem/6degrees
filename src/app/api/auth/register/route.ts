@@ -1,7 +1,13 @@
 import prisma from "@/lib/prisma"
 import { hashPassword } from "@/lib/password"
+import { rateLimit, getClientIp } from "@/lib/rate-limit"
 
 export async function POST(req: Request) {
+  // 5 registrations per IP per hour
+  if (!rateLimit(`register:${getClientIp(req)}`, 5, 60 * 60_000)) {
+    return Response.json({ error: "Too many requests. Please try again later." }, { status: 429 })
+  }
+
   const { name, email, password } = await req.json()
   if (!name?.trim() || !email?.trim() || !password || password.length < 8) {
     return Response.json({ error: "Name, email and password (min 8 chars) are required" }, { status: 400 })

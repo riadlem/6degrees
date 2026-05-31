@@ -1,8 +1,14 @@
 import { randomBytes } from "crypto"
 import prisma from "@/lib/prisma"
 import { sendPasswordResetEmail } from "@/lib/email"
+import { rateLimit, getClientIp } from "@/lib/rate-limit"
 
 export async function POST(req: Request) {
+  // 3 reset requests per IP per hour
+  if (!rateLimit(`forgot:${getClientIp(req)}`, 3, 60 * 60_000)) {
+    return Response.json({ error: "Too many requests. Please try again later." }, { status: 429 })
+  }
+
   const body = await req.json().catch(() => null)
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : ""
   if (!email) return Response.json({ error: "Email is required" }, { status: 400 })

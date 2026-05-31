@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo, Suspense } from "react"
+import { useEffect, useState, useCallback, useMemo, Suspense, useRef } from "react"
+import { useWindowVirtualizer } from "@tanstack/react-virtual"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -836,6 +837,16 @@ function CompaniesContent() {
     (s) => !dismissedTypeSuggestions.has(s.company)
   ).length
 
+  // Window-based virtualizer for the neutral section — only activates when the
+  // neutral section is large enough to benefit (> 80 rows).
+  const neutralListRef = useRef<HTMLDivElement>(null)
+  const neutralVirtualizer = useWindowVirtualizer({
+    count: neutral.length,
+    estimateSize: () => 52,
+    overscan: 8,
+    scrollMargin: neutralListRef.current?.offsetTop ?? 0,
+  })
+
   if (status === "loading" || loading) {
     return <div className="flex items-center justify-center min-h-screen"><div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
   }
@@ -1271,13 +1282,38 @@ function CompaniesContent() {
             </div>
           )}
 
-          {/* Neutral */}
+          {/* Neutral — virtualized when large */}
           {neutral.length > 0 && (
             <div className="space-y-2">
               {(preferred.length > 0 || partners.length > 0) && (
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mt-4">All companies</p>
               )}
-              {neutral.map(renderRow)}
+              {neutral.length <= 80 ? (
+                neutral.map(renderRow)
+              ) : (
+                <div
+                  ref={neutralListRef}
+                  style={{ height: `${neutralVirtualizer.getTotalSize()}px`, position: "relative" }}
+                >
+                  {neutralVirtualizer.getVirtualItems().map((vItem) => (
+                    <div
+                      key={vItem.key}
+                      data-index={vItem.index}
+                      ref={neutralVirtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${vItem.start - neutralVirtualizer.options.scrollMargin}px)`,
+                        paddingBottom: "8px",
+                      }}
+                    >
+                      {renderRow(neutral[vItem.index])}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
