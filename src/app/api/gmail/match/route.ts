@@ -78,17 +78,17 @@ export async function POST(req: Request) {
     })
 
     for (const { fromEmail: otherEmail } of otherEmails) {
-      // Register the new email address on the contact
-      await prisma.contactEmailAddress.upsert({
-        where: { contactId_email: { contactId, email: otherEmail } },
-        update: {},
-        create: { contactId, email: otherEmail, source: "manual", isPrimary: false },
-      })
-      // Link all unmatched messages from that sender
-      await prisma.emailMessage.updateMany({
-        where: { userId, contactId: null, fromEmail: otherEmail },
-        data: { contactId },
-      })
+      await prisma.$transaction([
+        prisma.contactEmailAddress.upsert({
+          where: { contactId_email: { contactId, email: otherEmail } },
+          update: {},
+          create: { contactId, email: otherEmail, source: "manual", isPrimary: false },
+        }),
+        prisma.emailMessage.updateMany({
+          where: { userId, contactId: null, fromEmail: otherEmail },
+          data: { contactId },
+        }),
+      ])
       propagatedEmails.push(otherEmail)
     }
   }

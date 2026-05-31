@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { RefreshCcw, Clock, Sparkles, MoreHorizontal, Ban, ClipboardList, Trash2, Chrome, AlignJustify, LayoutGrid, History, RotateCcw, ChevronDown, ExternalLink } from "lucide-react"
 import { cn, initials, formatDate, photoSrc } from "@/lib/utils"
 import dynamic from "next/dynamic"
@@ -45,25 +46,19 @@ const STATUS_TABS = [
 function ReconnectContent() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { blurred } = usePrivacy()
+  const userId = session?.user?.id
 
   const [activeTab, setActiveTab] = useState<"reconnect" | "review" | "enrich" | "saved">("reconnect")
-  const [contacts, setContacts] = useState<ReconnectContact[]>([])
-  const [total, setTotal] = useState(0)
   const [blockedCount, setBlockedCount] = useState(0)
-  const [loading, setLoading] = useState(true)
   const [activeStatus, setActiveStatus] = useState("")
   const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
   const [draftContact, setDraftContact] = useState<ReconnectContact | null>(null)
   const [moreOpenId, setMoreOpenId] = useState<string | null>(null)
-  const [reviewContacts, setReviewContacts] = useState<ReconnectContact[]>([])
-  const [reviewLoading, setReviewLoading] = useState(false)
   const [reachOutView, setReachOutView] = useState<"list" | "photos">("list")
   const [reviewView, setReviewView] = useState<"list" | "photos">("list")
   const [showIgnored, setShowIgnored] = useState(false)
-  const [ignoredContacts, setIgnoredContacts] = useState<ReconnectContact[]>([])
-  const [ignoredLoading, setIgnoredLoading] = useState(false)
-  const [ignoredLoaded, setIgnoredLoaded] = useState(false)
 
   // Saved (extension history) tab state
   type ExtContact = { id: string; firstName: string; lastName: string; company: string | null; position: string | null; city: string | null; country: string | null; location: string | null; photoUrl: string | null; profileUrl: string | null; extensionSyncedAt: string }
@@ -129,39 +124,78 @@ function ReconnectContent() {
     window.history.replaceState({}, "", url.toString())
   }
 
-  const fetchContacts = useCallback(async () => {
-    setLoading(true)
-    try {
+  type ReconnectData = { contacts: ReconnectContact[]; total: number; blockedCount: number }
+
+  const { data: reconnectData, isLoading: loading } = useQuery<ReconnectData>({
+    queryKey: ["reconnect", userId, activeStatus],
+    queryFn: async () => {
       const params = new URLSearchParams()
       if (activeStatus) params.set("status", activeStatus)
       const res = await fetch(`/api/reconnect?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        setContacts(data.contacts)
-        setTotal(data.total)
-        setBlockedCount(data.blockedCount ?? 0)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [activeStatus])
+      return res.json()
+    },
+    enabled: status === "authenticated",
+    staleTime: 30_000,
+  })
 
-  useEffect(() => { fetchContacts() }, [fetchContacts])
+  const contacts = reconnectData?.contacts ?? []
+  const total = reconnectData?.total ?? 0
 
-  const fetchReviewContacts = useCallback(async () => {
-    setReviewLoading(true)
-    try {
-      const res = await fetch("/api/reconnect?status=pending_review")
-      if (res.ok) {
-        const data = await res.json()
-        setReviewContacts(data.contacts)
-      }
-    } finally {
-      setReviewLoading(false)
-    }
-  }, [])
+  useEffect(() => {
+    if (reconnectData?.blockedCount !== undefined) setBlockedCount(reconnectData.blockedCount)
+  }, [reconnectData?.blockedCount])
 
-  useEffect(() => { fetchReviewContacts() }, [fetchReviewContacts])
+  const { data: reviewData, isLoading: reviewLoading } = useQuery<ReconnectData>({
+    queryKey: ["reconnect", userId, "pending_review"],
+    queryFn: () => fetch("/api/reconnect?status=pending_review").then((r) => r.json()),
+    enabled: status === "authenticated",
+    staleTime: 60_000,
+  })
+
+  const reviewContacts = reviewData?.contacts ?? []
+
+  const { data: ignoredData, isLoading: ignoredLoading } = useQuery<ReconnectData>({
+    queryKey: ["reconnect", userId, "ignored_list"],
+    queryFn: () => fetch("/api/reconnect?status=ignored_list").then((r) => r.json()),
+    enabled: status === "authenticated" && showIgnored,
+    staleTime: 60_000,
+  })
+
+  const ignoredContacts = ignoredData?.contacts ?? []
+
+  function invalidateReconnect() {
+    queryClient.invalidateQueries({ queryKey: ["reconnect", userId] })
+  }
+
+  function patchContacts(updater: (prev: ReconnectContact[]) => ReconnectContact[]) {
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, activeStatus], (prev) =>
+      prev ? { ...prev, contacts: updater(prev.contacts), total: Math.max(0, prev.total - (prev.contacts.length - updater(prev.contacts).length)) } : prev
+    )
+  }
+
+  function removeFromMain(contactId: string) {
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, activeStatus], (prev) =>
+      prev ? { ...prev, contacts: prev.contacts.filter((c) => c.id !== contactId), total: Math.max(0, prev.total - 1) } : prev
+    )
+  }
+
+  function patchInMain(contactId: string, patch: Partial<ReconnectContact>) {
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, activeStatus], (prev) =>
+      prev ? { ...prev, contacts: prev.contacts.map((c) => c.id === contactId ? { ...c, ...patch } : c) } : prev
+    )
+  }
+
+  function removeFromReview(contactId: string) {
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, "pending_review"], (prev) =>
+      prev ? { ...prev, contacts: prev.contacts.filter((c) => c.id !== contactId) } : prev
+    )
+  }
+
+  function removeFromIgnored(contactId: string) {
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, "ignored_list"], (prev) =>
+      prev ? { ...prev, contacts: prev.contacts.filter((c) => c.id !== contactId) } : prev
+    )
+  }
 
   async function updateStatus(contactId: string, newStatus: string) {
     await fetch(`/api/reconnect/${contactId}/status`, {
@@ -169,9 +203,7 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     })
-    setContacts((prev) =>
-      prev.map((c) => c.id === contactId ? { ...c, outreachStatus: newStatus } : c),
-    )
+    patchInMain(contactId, { outreachStatus: newStatus })
   }
 
   async function markInvitationSent(contactId: string) {
@@ -180,8 +212,7 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: null }),
     })
-    setContacts((prev) => prev.filter((c) => c.id !== contactId))
-    setTotal((t) => Math.max(0, t - 1))
+    removeFromMain(contactId)
   }
 
   async function snoozeContact(contactId: string, days: number) {
@@ -190,43 +221,32 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ days }),
     })
-    setContacts((prev) => prev.filter((c) => c.id !== contactId))
-    setTotal((t) => Math.max(0, t - 1))
+    removeFromMain(contactId)
     setMoreOpenId(null)
   }
 
   async function deprioritizeContact(contactId: string) {
     await updateStatus(contactId, "deprioritized")
-    // Move to bottom — refetch so deprioritized sorting is applied
-    fetchContacts()
+    // Refetch so deprioritized sorting is applied server-side
+    invalidateReconnect()
     setMoreOpenId(null)
   }
 
   async function blockContact(contactId: string) {
     await updateStatus(contactId, "ignored")
-    setContacts((prev) => prev.filter((c) => c.id !== contactId))
-    setTotal((t) => Math.max(0, t - 1))
+    removeFromMain(contactId)
     setBlockedCount((n) => n + 1)
     setMoreOpenId(null)
-    // Invalidate the cached ignored list so it reloads next time
-    setIgnoredLoaded(false)
+    // If ignored panel is open, prepend the contact optimistically
     if (showIgnored) {
       const contact = contacts.find(c => c.id === contactId)
-      if (contact) setIgnoredContacts(prev => [{ ...contact, outreachStatus: "ignored" }, ...prev])
-    }
-  }
-
-  async function fetchIgnoredContacts() {
-    setIgnoredLoading(true)
-    try {
-      const res = await fetch("/api/reconnect?status=ignored_list")
-      if (res.ok) {
-        const data = await res.json()
-        setIgnoredContacts(data.contacts)
-        setIgnoredLoaded(true)
+      if (contact) {
+        queryClient.setQueryData<ReconnectData>(["reconnect", userId, "ignored_list"], (prev) =>
+          prev
+            ? { ...prev, contacts: [{ ...contact, outreachStatus: "ignored" }, ...prev.contacts] }
+            : { contacts: [{ ...contact, outreachStatus: "ignored" }], total: 1, blockedCount: 0 }
+        )
       }
-    } finally {
-      setIgnoredLoading(false)
     }
   }
 
@@ -236,12 +256,11 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: null }),
     })
-    setIgnoredContacts((prev) => prev.filter((c) => c.id !== contactId))
+    removeFromIgnored(contactId)
     setBlockedCount((n) => Math.max(0, n - 1))
   }
 
   function toggleIgnored() {
-    if (!showIgnored && !ignoredLoaded) fetchIgnoredContacts()
     setShowIgnored((v) => !v)
   }
 
@@ -252,7 +271,7 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: null }),
     })
-    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+    removeFromReview(contactId)
   }
 
   async function reachOutContact(contactId: string) {
@@ -261,17 +280,19 @@ function ReconnectContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "not_contacted" }),
     })
-    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+    removeFromReview(contactId)
   }
 
   async function discardContact(contactId: string) {
     await fetch(`/api/contacts/${contactId}`, { method: "DELETE" })
-    setReviewContacts((prev) => prev.filter((c) => c.id !== contactId))
+    removeFromReview(contactId)
   }
 
   async function discardAllReview() {
     await Promise.all(reviewContacts.map((c) => fetch(`/api/contacts/${c.id}`, { method: "DELETE" })))
-    setReviewContacts([])
+    queryClient.setQueryData<ReconnectData>(["reconnect", userId, "pending_review"], (prev) =>
+      prev ? { ...prev, contacts: [] } : prev
+    )
   }
 
   if (status === "loading") {
@@ -751,7 +772,7 @@ function ReconnectContent() {
           contact={draftContact}
           onClose={() => setDraftContact(null)}
           onSaved={() => {
-            fetchContacts()
+            invalidateReconnect()
             setDraftContact(null)
           }}
         />
