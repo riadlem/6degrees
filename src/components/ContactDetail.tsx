@@ -1024,7 +1024,20 @@ export default function ContactDetail({ contactId, onClose, onDeleted }: Props) 
                         </div>
                       )}
                       {emailSearchQ.trim() && !emailSearchLoading && emailSearchResults.length === 0 && (
-                        <p className="text-xs text-gray-400">No senders found matching &ldquo;{emailSearchQ}&rdquo;</p>
+                        <div className="space-y-1">
+                          <p className="text-xs text-gray-400">No senders found matching &ldquo;{emailSearchQ}&rdquo;</p>
+                          {/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailSearchQ.trim()) && (
+                            <button
+                              disabled={linkEmailLoading}
+                              onClick={() => linkEmail(emailSearchQ.trim())}
+                              className="w-full text-left flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg hover:bg-blue-50 border border-blue-200 bg-white disabled:opacity-50"
+                            >
+                              {linkEmailLoading ? <Loader2 size={10} className="animate-spin text-blue-500 shrink-0" /> : <Link2 size={10} className="text-blue-500 shrink-0" />}
+                              <span className="font-medium text-blue-700">Add {emailSearchQ.trim()}</span>
+                              <span className="text-gray-400 ml-auto shrink-0 text-[10px]">new address</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : (

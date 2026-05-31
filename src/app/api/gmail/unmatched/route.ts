@@ -10,51 +10,133 @@ const COMMON_DOMAINS = new Set([
   "me.com", "mac.com", "live.com", "msn.com", "aol.com", "protonmail.com",
 ])
 
-async function getRecommendations(userId: string, fromName: string | null, fromEmail: string) {
-  const recs: { contactId: string; name: string; company: string | null; matchReason: string }[] = []
+type SenderGroup = {
+  fromEmail: string
+  fromName: string | null
+  messageCount: number
+  lastSeen: string | null
+}
 
-  if (fromName) {
-    const parts = fromName.trim().split(/\s+/)
-    if (parts.length >= 2) {
-      const first = parts[0]
-      const last = parts[parts.length - 1]
-      const nameMatches = await prisma.contact.findMany({
-        where: {
-          userId,
-          OR: [
-            { firstName: { contains: first, mode: "insensitive" }, lastName: { contains: last, mode: "insensitive" } },
-            { firstName: { contains: last, mode: "insensitive" }, lastName: { contains: first, mode: "insensitive" } },
-          ],
-        },
-        select: { id: true, firstName: true, lastName: true, company: true },
-        take: 3,
-      })
-      for (const c of nameMatches) {
-        recs.push({ contactId: c.id, name: `${c.firstName} ${c.lastName}`, company: c.company ?? null, matchReason: "name" })
+type Recommendation = {
+  contactId: string
+  name: string
+  company: string | null
+  matchReason: string
+}
+
+/**
+ * Fetch recommendations for all senders on the current page in batched queries
+ * instead of issuing separate queries per sender.
+ *
+ * Strategy:
+ *  - One query to find contacts by name for all senders that have a parseable
+ *    first+last name (using OR across all pairs).
+ *  - One query to find contacts by domain for all non-common domains.
+ * Then assign up to 3 recommendations per sender using in-memory matching.
+ */
+async function getBatchedRecommendations(
+  userId: string,
+  senders: SenderGroup[],
+): Promise<Map<string, Recommendation[]>> {
+  const result = new Map<string, Recommendation[]>()
+  for (const s of senders) result.set(s.fromEmail, [])
+
+  // Build name pairs and domain sets for a single batch query each.
+  type NamePair = { fromEmail: string; first: string; last: string }
+  const namePairs: NamePair[] = []
+  const domainSenders: { fromEmail: string; domain: string; baseDomain: string }[] = []
+
+  for (const s of senders) {
+    if (s.fromName) {
+      const parts = s.fromName.trim().split(/\s+/)
+      if (parts.length >= 2) {
+        namePairs.push({ fromEmail: s.fromEmail, first: parts[0], last: parts[parts.length - 1] })
       }
     }
-  }
-
-  if (recs.length < 3) {
-    const domain = fromEmail.split("@")[1]?.toLowerCase()
+    const domain = s.fromEmail.split("@")[1]?.toLowerCase()
     if (domain && !COMMON_DOMAINS.has(domain)) {
-      const baseDomain = domain.split(".")[0]
-      const domainMatches = await prisma.contact.findMany({
-        where: {
-          userId,
-          company: { contains: baseDomain, mode: "insensitive" },
-          id: { notIn: recs.map((r) => r.contactId) },
-        },
-        select: { id: true, firstName: true, lastName: true, company: true },
-        take: 3 - recs.length,
-      })
-      for (const c of domainMatches) {
-        recs.push({ contactId: c.id, name: `${c.firstName} ${c.lastName}`, company: c.company ?? null, matchReason: "domain" })
+      domainSenders.push({ fromEmail: s.fromEmail, domain, baseDomain: domain.split(".")[0] })
+    }
+  }
+
+  // Query A: batch name-match lookup.
+  // Build one OR clause per sender pair; Prisma doesn't support parameterised dynamic OR well
+  // so we use a raw query with LOWER() matching.
+  if (namePairs.length > 0) {
+    const nameContacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: namePairs.flatMap((p) => [
+          {
+            firstName: { contains: p.first, mode: "insensitive" as const },
+            lastName: { contains: p.last, mode: "insensitive" as const },
+          },
+          {
+            firstName: { contains: p.last, mode: "insensitive" as const },
+            lastName: { contains: p.first, mode: "insensitive" as const },
+          },
+        ]),
+      },
+      select: { id: true, firstName: true, lastName: true, company: true },
+    })
+
+    // Assign to senders in memory.
+    for (const pair of namePairs) {
+      const recs = result.get(pair.fromEmail)!
+      for (const c of nameContacts) {
+        if (recs.length >= 3) break
+        const fn = c.firstName.toLowerCase()
+        const ln = c.lastName.toLowerCase()
+        const pf = pair.first.toLowerCase()
+        const pl = pair.last.toLowerCase()
+        const matches =
+          (fn.includes(pf) && ln.includes(pl)) ||
+          (fn.includes(pl) && ln.includes(pf))
+        if (matches) {
+          recs.push({
+            contactId: c.id,
+            name: `${c.firstName} ${c.lastName}`,
+            company: c.company ?? null,
+            matchReason: "name",
+          })
+        }
       }
     }
   }
 
-  return recs.slice(0, 3)
+  // Query B: batch domain-match lookup.
+  if (domainSenders.length > 0) {
+    const baseDomains = [...new Set(domainSenders.map((d) => d.baseDomain))]
+
+    const domainContacts = await prisma.contact.findMany({
+      where: {
+        userId,
+        OR: baseDomains.map((bd) => ({
+          company: { contains: bd, mode: "insensitive" as const },
+        })),
+      },
+      select: { id: true, firstName: true, lastName: true, company: true },
+    })
+
+    for (const ds of domainSenders) {
+      const recs = result.get(ds.fromEmail)!
+      const existingIds = new Set(recs.map((r) => r.contactId))
+      for (const c of domainContacts) {
+        if (recs.length >= 3) break
+        if (existingIds.has(c.id)) continue
+        if (c.company?.toLowerCase().includes(ds.baseDomain)) {
+          recs.push({
+            contactId: c.id,
+            name: `${c.firstName} ${c.lastName}`,
+            company: c.company ?? null,
+            matchReason: "domain",
+          })
+        }
+      }
+    }
+  }
+
+  return result
 }
 
 export async function GET(req: Request) {
@@ -66,14 +148,15 @@ export async function GET(req: Request) {
   const page = Math.max(0, parseInt(searchParams.get("page") ?? "0"))
   const q = searchParams.get("q")?.toLowerCase().trim() ?? ""
 
-  // Load dismissed emails for this user
+  // Query 1: load dismissed emails.
   const dismissed = await prisma.dismissedEmail.findMany({
     where: { userId },
     select: { email: true },
   })
   const dismissedSet = new Set(dismissed.map((d) => d.email))
 
-  // Fetch all unique unmatched inbound senders
+  // Query 2: get all unique unmatched inbound senders with counts, latest sentAt, and latest
+  // fromName — all in one groupBy + a single raw query for the latest fromName per email.
   const allGrouped = await prisma.emailMessage.groupBy({
     by: ["fromEmail"],
     where: { userId, contactId: null, isOutbound: false },
@@ -82,12 +165,12 @@ export async function GET(req: Request) {
     orderBy: [{ _count: { fromEmail: "desc" } }],
   })
 
-  // Partition into auto-detected, dismissed, and actionable
+  // Partition into auto-detected and actionable (skip dismissed).
   const automated: typeof allGrouped = []
   const actionable: typeof allGrouped = []
 
   for (const g of allGrouped) {
-    if (dismissedSet.has(g.fromEmail)) continue // already dismissed, skip entirely
+    if (dismissedSet.has(g.fromEmail)) continue
     if (isAutomatedEmail(g.fromEmail)) {
       automated.push(g)
     } else {
@@ -95,7 +178,7 @@ export async function GET(req: Request) {
     }
   }
 
-  // If searching by name, gather fromEmails where fromName contains q
+  // Optional name-match filter (query 3, only when q is set).
   let nameMatchEmails = new Set<string>()
   if (q) {
     const nameMatches = await prisma.emailMessage.findMany({
@@ -114,25 +197,48 @@ export async function GET(req: Request) {
   const total = filtered.length
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
-  // Fetch fromName + recommendations for this page
-  const senders = await Promise.all(
-    paginated.map(async (g) => {
-      const latest = await prisma.emailMessage.findFirst({
-        where: { userId, fromEmail: g.fromEmail, isOutbound: false },
-        orderBy: { sentAt: "desc" },
-        select: { fromName: true },
-      })
-      const fromName = latest?.fromName ?? null
-      const recommendations = await getRecommendations(userId, fromName, g.fromEmail)
-      return {
-        fromEmail: g.fromEmail,
-        fromName,
-        messageCount: g._count._all,
-        lastSeen: g._max.sentAt?.toISOString() ?? null,
-        recommendations,
-      }
-    }),
-  )
+  if (paginated.length === 0) {
+    return Response.json({
+      senders: [],
+      total,
+      autoFilteredCount: automated.length,
+      page,
+      pageSize: PAGE_SIZE,
+    })
+  }
+
+  // Query 3 (or 4): one raw SQL query to get the latest fromName for each email on this page.
+  const pageEmails = paginated.map((g) => g.fromEmail)
+
+  const nameRows = await prisma.$queryRaw<{ fromEmail: string; fromName: string | null }[]>`
+    SELECT DISTINCT ON ("fromEmail") "fromEmail", "fromName"
+    FROM "EmailMessage"
+    WHERE "userId" = ${userId}
+      AND "fromEmail" = ANY(${pageEmails})
+      AND "isOutbound" = false
+    ORDER BY "fromEmail", "sentAt" DESC
+  `
+
+  const nameMap = new Map<string, string | null>()
+  for (const row of nameRows) {
+    nameMap.set(row.fromEmail, row.fromName ?? null)
+  }
+
+  // Build sender list for this page with fromName resolved.
+  const pageSenders: SenderGroup[] = paginated.map((g) => ({
+    fromEmail: g.fromEmail,
+    fromName: nameMap.get(g.fromEmail) ?? null,
+    messageCount: g._count._all,
+    lastSeen: g._max.sentAt?.toISOString() ?? null,
+  }))
+
+  // Query 4+5: two batched queries (name + domain) to get recommendations for all page senders.
+  const recommendationsMap = await getBatchedRecommendations(userId, pageSenders)
+
+  const senders = pageSenders.map((s) => ({
+    ...s,
+    recommendations: recommendationsMap.get(s.fromEmail) ?? [],
+  }))
 
   return Response.json({
     senders,

@@ -79,7 +79,7 @@ function ReconnectCard({
       <button onClick={onOpen} className="shrink-0">
         {contact.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} />
+          <img src={photoSrc(contact.photoUrl)!} alt="" className={cn("w-10 h-10 rounded-xl object-cover", blurred && "blur")} loading="lazy" decoding="async" />
         ) : (
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-sm font-bold">
             {inits}

@@ -144,7 +144,7 @@ export async function GET() {
     return b.count - a.count
   })
 
-  return Response.json({ companies })
+  return Response.json({ companies }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" } })
 }
 
 // POST body — one of:

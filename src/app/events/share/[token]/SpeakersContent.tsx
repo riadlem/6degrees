@@ -128,7 +128,7 @@ function SpeakerCard({ speaker }: { speaker: PublicSpeaker }) {
         {speaker.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={speaker.photoUrl} alt={`${speaker.firstName} ${speaker.lastName}`}
-            className="w-11 h-11 rounded-full object-cover shrink-0" />
+            className="w-11 h-11 rounded-full object-cover shrink-0" loading="lazy" decoding="async" />
         ) : (
           <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold shrink-0">
             {initials(speaker.firstName, speaker.lastName)}
@@ -198,7 +198,7 @@ function SpeakerRow({ speaker }: { speaker: PublicSpeaker }) {
         {speaker.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={speaker.photoUrl} alt={`${speaker.firstName} ${speaker.lastName}`}
-            className="w-8 h-8 rounded-full object-cover" />
+            className="w-8 h-8 rounded-full object-cover" loading="lazy" decoding="async" />
         ) : (
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
             {initials(speaker.firstName, speaker.lastName)}
@@ -269,7 +269,7 @@ function SpeakerPhoto({ speaker }: { speaker: PublicSpeaker }) {
         {speaker.photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={speaker.photoUrl} alt={`${speaker.firstName} ${speaker.lastName}`}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" decoding="async" />
         ) : (
           <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-2xl">
             {initials(speaker.firstName, speaker.lastName)}

@@ -128,7 +128,7 @@ export default function ShareView({ token, name, ownerName, level, contacts }: P
                 <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
                   {c.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoSrc(c.photoUrl)!} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <img src={photoSrc(c.photoUrl)!} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
                   )}

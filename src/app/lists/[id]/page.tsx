@@ -542,7 +542,7 @@ function ListDetailContent() {
                 <div className="aspect-square w-full relative overflow-hidden bg-gradient-to-br from-gray-100 to-gray-200">
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} />
+                    <img src={photoSrc(contact.photoUrl)!} alt={fullName} className={cn("w-full h-full object-cover group-hover:scale-105 transition-transform duration-300", blurred && "blur")} loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center font-bold text-gray-400 text-xl">{inits}</div>
                   )}
@@ -619,7 +619,7 @@ function ListDetailContent() {
                     {contact.photoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={photoSrc(contact.photoUrl)!} alt={fullName}
-                        className={cn("w-11 h-11 object-cover", blurred && "blur")} />
+                        className={cn("w-11 h-11 object-cover", blurred && "blur")} loading="lazy" decoding="async" />
                     ) : (
                       <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
                         {inits}
@@ -708,7 +708,7 @@ function ListDetailContent() {
                   {contact.photoUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={photoSrc(contact.photoUrl)!} alt={fullName}
-                      className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} />
+                      className={cn("w-9 h-9 rounded-full object-cover border border-gray-100", blurred && "blur")} loading="lazy" decoding="async" />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold select-none">
                       {inits}

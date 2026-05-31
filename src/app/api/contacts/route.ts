@@ -304,7 +304,7 @@ export async function GET(request: Request) {
       labels,
       parentCompanies: parentCompanyNames,
     },
-  })
+  }, { headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=60" } })
 }
 
 // POST: filter contacts to a specific set of IDs (used by segment builder display mode).

@@ -55,7 +55,7 @@ export async function GET() {
     return Response.json({
       stats: { totalContacts, totalCompanies, preferredCount, partnerCount },
       companies: [],
-    })
+    }, { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" } })
   }
 
   const engageNames = engageCompanies.map((c) => c.name)
@@ -147,5 +147,5 @@ export async function GET() {
     stats: { totalContacts, totalCompanies, preferredCount, partnerCount },
     companies: result,
     connectionYears,
-  })
+  }, { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" } })
 }

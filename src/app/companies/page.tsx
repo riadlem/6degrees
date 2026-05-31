@@ -554,22 +554,8 @@ function CompaniesContent() {
     staleTime: STALE.companies,
   })
 
-  // Local state mirrors query data and supports optimistic updates
-  const [companies, setCompanies] = useState<Company[]>([])
-  const [loading, setLoading] = useState(true)
-
-  // Sync local state whenever React Query returns fresh data
-  useEffect(() => {
-    if (companiesData?.companies) {
-      setCompanies(companiesData.companies)
-      setLoading(false)
-    }
-  }, [companiesData])
-
-  // Mirror React Query loading state
-  useEffect(() => {
-    if (companiesLoading) setLoading(true)
-  }, [companiesLoading])
+  const companies = companiesData?.companies ?? []
+  const loading = companiesLoading
 
   const [view, setView] = useState<"list" | "icon" | "treemap">("list")
   const [q, setQ] = useState("")
@@ -609,10 +595,16 @@ function CompaniesContent() {
     queryClient.invalidateQueries({ queryKey: ["companies", userId] })
   }, [queryClient, userId])
 
+  function patchCompanies(updater: (c: Company) => Company, sort = false) {
+    queryClient.setQueryData<{ companies: Company[] }>(["companies", userId], (prev) => {
+      if (!prev) return prev
+      const updated = prev.companies.map(updater)
+      return { companies: sort ? sortCompanies(updated) : updated }
+    })
+  }
+
   async function setStatus(name: string, newStatus: "preferred" | "ignored" | "none") {
-    setCompanies((prev) => sortCompanies(prev.map((c) =>
-      c.name !== name ? c : { ...c, preferred: newStatus === "preferred", ignored: newStatus === "ignored" }
-    )))
+    patchCompanies((c) => c.name !== name ? c : { ...c, preferred: newStatus === "preferred", ignored: newStatus === "ignored" }, true)
     const res = await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -622,7 +614,7 @@ function CompaniesContent() {
   }
 
   async function setSize(name: string, size: CompanySize | null) {
-    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, size }))
+    patchCompanies((c) => c.name !== name ? c : { ...c, size })
     await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -631,7 +623,7 @@ function CompaniesContent() {
   }
 
   async function setPartner(name: string, isPartner: boolean) {
-    setCompanies((prev) => sortCompanies(prev.map((c) => c.name !== name ? c : { ...c, isPartner })))
+    patchCompanies((c) => c.name !== name ? c : { ...c, isPartner }, true)
     const res = await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -641,7 +633,7 @@ function CompaniesContent() {
   }
 
   async function setType(name: string, type: CompanyType | null) {
-    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, type }))
+    patchCompanies((c) => c.name !== name ? c : { ...c, type })
     await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -650,7 +642,7 @@ function CompaniesContent() {
   }
 
   async function setParent(name: string, parentCompany: string | null) {
-    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, parentCompany }))
+    patchCompanies((c) => c.name !== name ? c : { ...c, parentCompany })
     await fetch("/api/companies", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -659,7 +651,7 @@ function CompaniesContent() {
   }
 
   async function setIndustry(name: string, industry: string | null) {
-    setCompanies((prev) => prev.map((c) => c.name !== name ? c : { ...c, industry, industryConfirmed: !!industry }))
+    patchCompanies((c) => c.name !== name ? c : { ...c, industry, industryConfirmed: !!industry })
     setSuggestions((prev) => { const m = new Map(prev); m.delete(name); return m })
     await fetch("/api/companies", {
       method: "POST",
@@ -743,17 +735,18 @@ function CompaniesContent() {
   async function renameCompany(oldName: string, newName: string) {
     const trimmed = newName.trim()
     if (!trimmed || trimmed === oldName) return
-    setCompanies((prev) => {
-      const existing = prev.find((c) => c.name.toLowerCase() === trimmed.toLowerCase() && c.name !== oldName)
-      const old = prev.find((c) => c.name === oldName)
+    queryClient.setQueryData<{ companies: Company[] }>(["companies", userId], (prev) => {
+      if (!prev) return prev
+      const existing = prev.companies.find((c) => c.name.toLowerCase() === trimmed.toLowerCase() && c.name !== oldName)
+      const old = prev.companies.find((c) => c.name === oldName)
       if (!old) return prev
       if (existing) {
-        return sortCompanies(
-          prev.filter((c) => c.name !== oldName)
+        return { companies: sortCompanies(
+          prev.companies.filter((c) => c.name !== oldName)
               .map((c) => c.name === existing.name ? { ...c, count: c.count + old.count } : c)
-        )
+        ) }
       }
-      return sortCompanies(prev.map((c) => c.name === oldName ? { ...c, name: trimmed } : c))
+      return { companies: sortCompanies(prev.companies.map((c) => c.name === oldName ? { ...c, name: trimmed } : c)) }
     })
     const res = await fetch("/api/companies", {
       method: "POST",
